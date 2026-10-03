@@ -18,7 +18,7 @@ pinned dependency; you don't need to install it yourself.
 ## Install
 
 ```sh
-git clone https://github.com/<you>/podman-agent-sandbox
+git clone https://github.com/EddyPronk/podman-agent-sandbox
 cd podman-agent-sandbox
 npm pack
 npm install -g ./podman-agent-sandbox-*.tgz
