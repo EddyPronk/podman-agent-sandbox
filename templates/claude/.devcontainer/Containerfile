@@ -1,0 +1,10 @@
+FROM docker.io/library/debian:trixie-slim
+
+# Basics missing from the slim image; Node.js comes from the node feature.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        less \
+        procps \
+    && rm -rf /var/lib/apt/lists/*

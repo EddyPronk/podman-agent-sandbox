@@ -1,0 +1,24 @@
+{
+  "name": "podman-agent-sandbox",
+  "version": "0.1.0",
+  "description": "A rootless Podman sandbox for running coding agents",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "sandbox": "bin/sandbox.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "templates"
+  ],
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@devcontainers/cli": "0.89.0"
+  }
+}
