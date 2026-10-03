@@ -26,6 +26,18 @@ pinned dependency; you don't need to install it yourself.
 
 ## Install
 
+Once the prerequisites are in place:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/EddyPronk/podman-agent-sandbox/main/install.sh | sh
+```
+
+[`install.sh`](install.sh) checks the prerequisites, points npm at `~/.local` if it can't write to
+npm's global folder (see below), and installs the release tarball from GitHub with
+`npm install -g`. `PAS_VERSION=x.y.z` picks another release, `PAS_REF=<branch or tag>` any other ref.
+
+### Manual install
+
 `npm install -g` writes to the folder that `npm config get prefix` prints. With Debian's npm
 that is `/usr/local`, which needs root. Point npm at your home folder instead (once; it is saved
 in `~/.npmrc`):
