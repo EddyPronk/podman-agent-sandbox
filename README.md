@@ -10,12 +10,31 @@ on a per-sandbox volume.
 ## Prerequisites
 
 - Rootless Podman: `podman info --format '{{.Host.Security.Rootless}}'` prints `true`
-- Node.js 20.12 or later
+- Node.js 20.12 or later, with npm
+
+On Debian 13 (trixie):
+
+```sh
+sudo apt install podman nodejs npm
+```
+
+Debian 12 and Ubuntu 24.04 ship Node.js 18, which is too old; get Node.js from
+[nodejs.org](https://nodejs.org/) there.
 
 The [Dev Containers CLI](https://github.com/devcontainers/cli) comes with `sandbox` as a
 pinned dependency; you don't need to install it yourself.
 
 ## Install
+
+`npm install -g` writes to the folder that `npm config get prefix` prints. With Debian's npm
+that is `/usr/local`, which needs root. Point npm at your home folder instead (once; it is saved
+in `~/.npmrc`):
+
+```sh
+npm config set prefix "$HOME/.local" --location=user
+```
+
+Then:
 
 ```sh
 git clone https://github.com/EddyPronk/podman-agent-sandbox
@@ -23,6 +42,9 @@ cd podman-agent-sandbox
 npm pack
 npm install -g ./podman-agent-sandbox-*.tgz
 ```
+
+This installs the command as `~/.local/bin/sandbox`. If `~/.local/bin` didn't exist before,
+log out and back in: Debian's `~/.profile` only adds it to `PATH` when it exists at login.
 
 `npm install -g .` also works, but links the global command to this folder instead of copying it.
 
@@ -67,8 +89,13 @@ podman ps -a --filter label=devcontainer.local_folder    # containers
 podman rm -f NAME
 podman volume rm NAME-home                               # home directories
 podman images --filter reference='vsc-*'                 # images built by the CLI
+podman rmi IMAGE
+podman image prune                                       # their build layers (all dangling images)
 rm -r ~/sandboxes/NAME                                   # sandbox folders
 ```
+
+The templates' base image (`debian:trixie-slim`) stays too; `podman rmi debian:trixie-slim`
+removes it.
 
 ## Development
 
