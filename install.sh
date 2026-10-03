@@ -5,8 +5,14 @@
 set -eu
 
 VERSION="${PAS_VERSION:-0.1.0}"
-REF="${PAS_REF:-v${VERSION}}"
-URL="https://github.com/EddyPronk/podman-agent-sandbox/archive/${REF}.tar.gz"
+REPO=https://github.com/EddyPronk/podman-agent-sandbox
+if [ -n "${PAS_REF:-}" ]; then
+  WHAT=$PAS_REF
+  URL="$REPO/archive/${PAS_REF}.tar.gz"   # source archive of a branch or tag
+else
+  WHAT=v$VERSION
+  URL="$REPO/releases/download/v${VERSION}/podman-agent-sandbox-${VERSION}.tgz"   # made by npm pack in CI
+fi
 
 die() { echo "install: $*" >&2; exit 1; }
 
@@ -31,7 +37,7 @@ if [ ! -w "$dir" ]; then
   prefix=$HOME/.local
 fi
 
-echo "Installing podman-agent-sandbox ${REF} ..."
+echo "Installing podman-agent-sandbox ${WHAT} ..."
 npm install -g --no-fund --no-audit "$URL"
 
 case ":$PATH:" in
