@@ -108,14 +108,18 @@ function cmdBuild(args) {
 function cmdEnter(args) {
     const name = oneName(args, 'sandbox enter NAME');
     const dir = folderOf(name);
-    if (containerState(name) !== 'running') {
-        console.error(`sandbox: starting ${name} ...`);
+    const state = containerState(name);
+    if (state !== 'running') {
         // up creates the container, or starts it if it exists but is stopped.
-        // Its log is only interesting when it fails.
-        const up = dc('up', ['--workspace-folder', dir],
-            { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+        // Creating it may build the image first, which takes minutes: show that log
+        // (on stderr). Restarting is quick, and its log only matters when it fails.
+        const create = !state;
+        console.error(`sandbox: ${create ? 'creating' : 'starting'} ${name} ...`);
+        const up = dc('up', ['--workspace-folder', dir], create
+            ? { stdio: ['ignore', 2, 2] }
+            : { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
         if (up.status !== 0) {
-            process.stderr.write(up.stdout + up.stderr);
+            if (!create) process.stderr.write(up.stdout + up.stderr);
             throw new SandboxError(`failed to start '${name}'`);
         }
     }
