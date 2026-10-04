@@ -40,7 +40,24 @@ fi
 echo "Installing podman-agent-sandbox ${WHAT} ..."
 npm install -g --no-fund --no-audit "$URL"
 
-case ":$PATH:" in
-  *":$prefix/bin:"*) echo "Done. Run: sandbox templates" ;;
-  *) echo "Done. $prefix/bin is not on your PATH yet: log out and back in (or add it to PATH), then run: sandbox templates" ;;
-esac
+# Compare resolved paths: PATH can reach $prefix/bin through a symlink, e.g. ~/.local/opt/node/bin
+# when npm reports ~/.local/opt/node-v24.15.0.
+realdir() { (CDPATH= cd -P -- "$1" 2>/dev/null && pwd -P); }
+on_path() {
+  target=$(realdir "$1") || return 1
+  old_ifs=$IFS; IFS=:
+  set -f
+  for d in $PATH; do
+    if [ -n "$d" ] && [ "$(realdir "$d")" = "$target" ]; then
+      IFS=$old_ifs; set +f; return 0
+    fi
+  done
+  IFS=$old_ifs; set +f
+  return 1
+}
+
+if on_path "$prefix/bin"; then
+  echo "Done. Run: sandbox templates"
+else
+  echo "Done. $prefix/bin is not on your PATH yet: log out and back in (or add it to PATH), then run: sandbox templates"
+fi
