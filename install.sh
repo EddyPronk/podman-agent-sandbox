@@ -4,7 +4,7 @@
 # PAS_VERSION picks a release (default below); PAS_REF installs a branch or tag instead.
 set -eu
 
-VERSION="${PAS_VERSION:-0.1.0}"
+VERSION="${PAS_VERSION:-0.2.0}"
 REPO=https://github.com/EddyPronk/podman-agent-sandbox
 if [ -n "${PAS_REF:-}" ]; then
   WHAT=$PAS_REF

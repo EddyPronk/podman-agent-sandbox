@@ -2,7 +2,7 @@
 // copy the template folder and replace ${templateOption:KEY} with the chosen values.
 // https://containers.dev/implementors/templates/
 import { cpSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SandboxError } from './devcontainer.js';
 
@@ -56,16 +56,31 @@ export function substitute(text, values) {
         (match, key) => (Object.hasOwn(values, key) ? values[key] : match));
 }
 
-/** Create DEST from template ID. DEST must not exist yet. */
-export function applyTemplate(id, dest, given = {}, root = TEMPLATES_DIR) {
-    const template = listTemplates(root).find((t) => t.id === id);
+/**
+ * SPEC is a bundled template's id, or a path to a template folder (anything with a '/').
+ * Returns the template's metadata and its folder.
+ */
+export function findTemplate(spec, root = TEMPLATES_DIR) {
+    if (spec.includes('/')) {
+        const src = resolve(spec);
+        if (!existsSync(join(src, METADATA))) {
+            throw new SandboxError(`no template at ${src} (it has no ${METADATA})`);
+        }
+        return { template: JSON.parse(readFileSync(join(src, METADATA), 'utf8')), src };
+    }
+    const template = listTemplates(root).find((t) => t.id === spec);
     if (!template) {
         const ids = listTemplates(root).map((t) => t.id).join(', ');
-        throw new SandboxError(`no template '${id}' (available: ${ids})`);
+        throw new SandboxError(`no template '${spec}' (available: ${ids}; or give a path to a template folder)`);
     }
+    return { template, src: join(root, spec) };
+}
+
+/** Create DEST from template SPEC (see findTemplate). DEST must not exist yet. */
+export function applyTemplate(spec, dest, given = {}, root = TEMPLATES_DIR) {
+    const { template, src } = findTemplate(spec, root);
     if (existsSync(dest)) throw new SandboxError(`${dest} already exists`);
     const values = resolveOptions(template, given);
-    const src = join(root, id);
     cpSync(src, dest, { recursive: true, filter: (path) => path !== join(src, METADATA) });
     for (const file of readdirSync(dest, { recursive: true, withFileTypes: true })) {
         if (!file.isFile()) continue;

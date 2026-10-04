@@ -46,11 +46,31 @@ test('applyTemplate uses defaults', () => {
     assert.match(readFileSync(join(dest, '.devcontainer', 'devcontainer.json'), 'utf8'), /"net": "offline"/);
 });
 
-test('applyTemplate refuses an existing folder, unknown ids and path tricks', () => {
+test('applyTemplate refuses an existing folder and unknown ids', () => {
     const root = demoRoot();
     assert.throws(() => applyTemplate('demo', root, {}, root), /already exists/);
     assert.throws(() => applyTemplate('nope', join(root, 'a'), {}, root), /no template 'nope'/);
-    assert.throws(() => applyTemplate('../demo', join(root, 'b'), {}, root), SandboxError);
+});
+
+test('a path applies a template folder outside the bundled ones', () => {
+    const root = demoRoot();
+    const dest = join(root, 'from-path');
+    // Bundled root is somewhere else entirely: the path alone finds the template.
+    applyTemplate(join(root, 'demo'), dest, { network: 'internet' }, mkdtempSync(join(tmpdir(), 'empty-')));
+    assert.match(readFileSync(join(dest, '.devcontainer', 'devcontainer.json'), 'utf8'), /"net": "internet"/);
+    assert.ok(!existsSync(join(dest, 'devcontainer-template.json')));
+});
+
+test('a path without template metadata is refused', () => {
+    const root = demoRoot();
+    assert.throws(() => applyTemplate(join(root, 'demo', '.devcontainer'), join(root, 'x'), {}, root),
+        /no template at .* \(it has no devcontainer-template.json\)/);
+});
+
+test('a bare id never leaves the bundled templates', () => {
+    const root = demoRoot();
+    // 'demo' exists one level up from this root; without a '/' it is looked up as an id only.
+    assert.throws(() => applyTemplate('..', join(root, 'y'), {}, join(root, 'demo')), SandboxError);
 });
 
 test('resolveOptions checks names, enums and booleans', () => {

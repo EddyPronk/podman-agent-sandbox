@@ -8,9 +8,10 @@ import { applyTemplate, listTemplates, parseOptionArgs } from './templates.js';
 const USAGE = `\
 sandbox — lxc-style front end for dev containers on rootless Podman.
 
-  sandbox new NAME --template ID [--option KEY=VALUE ...]
-                       create $SANDBOX_DIR/NAME from a template
-  sandbox templates    list the templates and their options
+  sandbox new NAME --template TEMPLATE [--option KEY=VALUE ...]
+                       create $SANDBOX_DIR/NAME from a template: a bundled
+                       one's ID, or a path to a template folder (has a '/')
+  sandbox templates    list the bundled templates and their options
   sandbox build NAME [--no-cache]
                        build NAME's image, showing the full log
   sandbox enter NAME   start NAME if needed and open a shell as $USER
@@ -74,7 +75,7 @@ function cmdNew(args) {
             option: { type: 'string', short: 'o', multiple: true },
         },
     });
-    const usage = 'sandbox new NAME --template ID [--option KEY=VALUE ...]';
+    const usage = 'sandbox new NAME --template TEMPLATE [--option KEY=VALUE ...]';
     if (positionals.length !== 1 || !values.template) throw new SandboxError(`usage: ${usage}`);
     const name = checkName(positionals[0]);
     const dest = join(sandboxDir(), name);

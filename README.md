@@ -87,6 +87,13 @@ defaults. A template is copied once: later changes to it don't reach existing sa
 |---|---|
 | `claude` | Debian trixie, Node.js and Claude Code (Dev Container Features); unrestricted network |
 
+Your own templates don't need to be bundled: give `--template` a path to a template folder
+(anything with a `/` in it is a path), e.g. one kept in your project:
+
+```sh
+sandbox new work --template ./templates/mine     # templates/mine/devcontainer-template.json
+```
+
 ## Uninstall
 
 ```sh
