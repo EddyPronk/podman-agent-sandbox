@@ -1,8 +1,9 @@
 // sandbox — lxc-style front end for dev containers on rootless Podman.
+import { readFileSync } from 'node:fs';
 import { constants } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { SandboxError, checkName, containerState, dc, folderOf, podman, sandboxDir } from './devcontainer.js';
+import { SandboxError, checkName, cliPath, containerState, dc, folderOf, podman, sandboxDir } from './devcontainer.js';
 import { applyTemplate, listTemplates, parseOptionArgs } from './templates.js';
 
 const USAGE = `\
@@ -18,6 +19,7 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
   sandbox list         list dev containers
   sandbox stop NAME    stop NAME
   sandbox rm NAME      remove NAME (its home volume is kept)
+  sandbox --version    show the version (and the Dev Containers CLI's)
 
 NAME is resolved to a workspace folder via the container's
 devcontainer.local_folder label, or else $SANDBOX_DIR/NAME.
@@ -40,6 +42,10 @@ export function main(argv) {
         process.stdout.write(USAGE);
         return 0;
     }
+    if (cmd === '-V' || cmd === '--version' || cmd === 'version') {
+        console.log(versionLine());
+        return 0;
+    }
     if (!Object.hasOwn(commands, cmd ?? '')) {
         process.stderr.write(USAGE);
         return 2;
@@ -53,6 +59,13 @@ export function main(argv) {
         }
         throw err;
     }
+}
+
+/** "sandbox X.Y.Z (@devcontainers/cli A.B.C)", from the installed package.json files. */
+export function versionLine() {
+    const version = (path) => JSON.parse(readFileSync(path, 'utf8')).version;
+    return `sandbox ${version(new URL('../package.json', import.meta.url))}`
+        + ` (@devcontainers/cli ${version(join(dirname(cliPath()), 'package.json'))})`;
 }
 
 /** Exactly one NAME and nothing else. */

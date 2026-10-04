@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { table } from '../src/cli.js';
 import { checkName, cliPath, folderOf, sandboxDir } from '../src/devcontainer.js';
 
@@ -34,4 +36,15 @@ test('cliPath points at the pinned Dev Containers CLI', () => {
 
 test('table pads all but the last column', () => {
     assert.equal(table([['A', 'BB', 'C'], ['aaa', 'b', 'c']]), 'A    BB  C\naaa  b   c');
+});
+
+test('--version prints the package and Dev Containers CLI versions', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    for (const flag of ['--version', '-V', 'version']) {
+        const result = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/sandbox.js', import.meta.url)), flag],
+            { encoding: 'utf8' });
+        assert.equal(result.status, 0);
+        assert.equal(result.stdout,
+            `sandbox ${pkg.version} (@devcontainers/cli ${pkg.dependencies['@devcontainers/cli']})\n`);
+    }
 });
