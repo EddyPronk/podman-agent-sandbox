@@ -56,7 +56,20 @@ on_path() {
   return 1
 }
 
-if on_path "$prefix/bin"; then
+# Which sandbox will the shell run? One earlier on PATH shadows the one just installed. It isn't
+# ours to remove, so only say which it is.
+shadow=
+first=$(command -v sandbox 2>/dev/null || true)
+if [ -n "$first" ] && [ "$(realdir "$(dirname "$first")")" != "$(realdir "$prefix/bin")" ]; then
+  shadow=$first
+  if [ -L "$first" ]; then shadow="$first -> $(ls -l "$first" | sed 's/.* -> //')"; fi
+fi
+
+if [ -n "$shadow" ]; then
+  echo "Done, but another sandbox comes first on your PATH and runs instead:"
+  echo "  $shadow"
+  echo "Remove it (or put $prefix/bin before it in PATH), then run: sandbox templates"
+elif on_path "$prefix/bin"; then
   echo "Done. Run: sandbox templates"
 else
   echo "Done. $prefix/bin is not on your PATH yet: log out and back in (or add it to PATH), then run: sandbox templates"
