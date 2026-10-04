@@ -1,0 +1,15 @@
+{
+  "id": "mitm-proxy",
+  "version": "0.1.0",
+  "name": "agent-mitm-proxy",
+  "description": "Egress proxy for proxy-client sandboxes: agent-mitm-proxy with TLS interception and an allowlist (allowlist.txt in the sandbox folder). Network alias 'proxy' on agent-proxy-net, out via agent-egress; one per machine",
+  "documentationURL": "https://github.com/EddyPronk/agent-mitm-proxy",
+  "options": {
+    "ref": {
+      "type": "string",
+      "default": "81091ee3ce65d2d146ee8fd52576c365e42c26ce",
+      "description": "agent-mitm-proxy commit (or tag) to build; a full commit hash pins exactly what runs"
+    }
+  },
+  "platforms": ["Any"]
+}

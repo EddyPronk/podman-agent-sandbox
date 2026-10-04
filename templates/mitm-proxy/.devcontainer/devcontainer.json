@@ -1,0 +1,35 @@
+{
+  "name": "${localWorkspaceFolderBasename}",
+  "build": {
+    "dockerfile": "Containerfile"
+  },
+  "initializeCommand": "(podman network exists agent-proxy-net || podman network create --internal agent-proxy-net) && (podman network exists agent-egress || podman network create agent-egress)",
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "remoteUser": "${localEnv:USER}",
+  "updateRemoteUserUID": false,
+  "remoteEnv": {
+    "TERM": "${localEnv:TERM:xterm-256color}"
+  },
+  "containerEnv": {
+    "AGENT_MITM_PROXY_PYTHON": "/opt/agent-mitm-proxy/venv/bin/python",
+    "AGENT_MITM_PROXY_DATA": "/home/${localEnv:USER}/proxy-data",
+    "AGENT_MITM_PROXY_CA_PUBLISH": "/proxy-ca",
+    "AGENT_MITM_PROXY_ALLOWLIST": "/workspace/allowlist.txt"
+  },
+  "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/",
+  "postStartCommand": "/opt/agent-mitm-proxy/scripts/start-proxy.sh",
+  "mounts": [
+    "type=volume,source=${localWorkspaceFolderBasename}-home,target=/home/${localEnv:USER},U=true",
+    "type=volume,source=agent-proxy-ca,target=/proxy-ca,U=true"
+  ],
+  "runArgs": [
+    "--name",
+    "${localWorkspaceFolderBasename}",
+    "--hostname",
+    "${localWorkspaceFolderBasename}",
+    "--userns=keep-id",
+    "--network=agent-proxy-net:alias=proxy",
+    "--network=agent-egress"
+  ]
+}

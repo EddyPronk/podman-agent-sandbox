@@ -1,0 +1,11 @@
+# Hosts the proxy lets through; everything else is refused. Changes apply without a restart.
+#   host:port        exact host and port
+#   host             exact host, any port
+#   *.domain:port    any subdomain (not the bare domain)
+# Even a listed host is refused if it resolves to a private, loopback or link-local address.
+#
+# Claude Code: the API, sign-in and the MCP proxy.
+api.anthropic.com:443
+platform.claude.com:443
+downloads.claude.ai:443
+mcp-proxy.anthropic.com:443

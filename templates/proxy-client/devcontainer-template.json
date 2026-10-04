@@ -1,0 +1,9 @@
+{
+  "id": "proxy-client",
+  "version": "0.1.0",
+  "name": "Claude Code behind the proxy",
+  "description": "Like claude, but with no route out: only agent-proxy-net, all HTTP(S) through the mitm-proxy sandbox (http://proxy:8899), trusting its CA. Create and start a mitm-proxy sandbox first",
+  "documentationURL": "https://github.com/EddyPronk/agent-mitm-proxy",
+  "options": {},
+  "platforms": ["Any"]
+}
