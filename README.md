@@ -87,6 +87,21 @@ defaults. A template is copied once: later changes to it don't reach existing sa
 | Template | What you get |
 |---|---|
 | `claude` | Debian trixie, Node.js and Claude Code (Dev Container Features); unrestricted network |
+| `mitm-proxy` | [agent-mitm-proxy](https://github.com/EddyPronk/agent-mitm-proxy): an egress proxy with TLS interception and an allowlist (`allowlist.txt` in the sandbox folder; changes apply without a restart). Option `ref`: the agent-mitm-proxy commit to build |
+| `proxy-client` | Like `claude`, but with no route out: only the proxy's internal network, all HTTP(S) through `http://proxy:8899`, trusting the proxy's CA |
+
+To run Claude Code behind the proxy, create and start the proxy first; it publishes its CA certificate
+for the client:
+
+```sh
+sandbox new proxy --template mitm-proxy
+sandbox enter proxy                    # starts the proxy; exit again, it keeps running
+sandbox new work --template proxy-client
+sandbox enter work
+```
+
+The proxy's private data (CA keys, the decrypted-traffic log, refusals) stays in its home volume,
+`proxy-home`. Only one proxy can run at a time: it takes the network name `proxy`.
 
 Your own templates don't need to be bundled: give `--template` a path to a template folder
 (anything with a `/` in it is a path), e.g. one kept in your project:

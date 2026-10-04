@@ -1,0 +1,19 @@
+FROM docker.io/library/debian:trixie-slim
+
+# openssl mints the proxy's CA and per-host certificates.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        openssl \
+        python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:0.11.8 /uv /uvx /usr/local/bin/
+
+# agent-mitm-proxy at the commit chosen when the sandbox was created (template option "ref"),
+# with its start scripts, installed into its own venv.
+RUN curl -fsSL https://github.com/EddyPronk/agent-mitm-proxy/archive/${templateOption:ref}.tar.gz \
+        | tar -xz -C /opt \
+    && mv /opt/agent-mitm-proxy-* /opt/agent-mitm-proxy \
+    && uv venv -q --python /usr/bin/python3 /opt/agent-mitm-proxy/venv \
+    && uv pip install -q --no-cache --python /opt/agent-mitm-proxy/venv/bin/python /opt/agent-mitm-proxy

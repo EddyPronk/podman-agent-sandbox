@@ -1,0 +1,51 @@
+{
+  "name": "${localWorkspaceFolderBasename}",
+  "build": {
+    "dockerfile": "Containerfile"
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "nodeGypDependencies": false,
+      "pnpmVersion": "none"
+    },
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+  },
+  "overrideFeatureInstallOrder": [
+    "ghcr.io/devcontainers/features/node",
+    "ghcr.io/anthropics/devcontainer-features/claude-code"
+  ],
+  "initializeCommand": "podman network exists agent-proxy-net || podman network create --internal agent-proxy-net",
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "containerUser": "${localEnv:SANDBOX_UID:1000}:${localEnv:SANDBOX_GID:1000}",
+  "remoteUser": "${localEnv:USER}",
+  "updateRemoteUserUID": false,
+  "remoteEnv": {
+    "TERM": "${localEnv:TERM:xterm-256color}"
+  },
+  "containerEnv": {
+    "HTTP_PROXY": "http://proxy:8899",
+    "HTTPS_PROXY": "http://proxy:8899",
+    "http_proxy": "http://proxy:8899",
+    "https_proxy": "http://proxy:8899",
+    "NO_PROXY": "localhost,127.0.0.1,proxy",
+    "no_proxy": "localhost,127.0.0.1,proxy",
+    "CURL_CA_BUNDLE": "/proxy-ca/ca-cert.pem",
+    "NODE_EXTRA_CA_CERTS": "/proxy-ca/ca-cert.pem",
+    "DISABLE_AUTOUPDATER": "1",
+    "NVM_SYMLINK_CURRENT": "false"
+  },
+  "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/",
+  "mounts": [
+    "type=volume,source=${localWorkspaceFolderBasename}-home,target=/home/${localEnv:USER},U=true",
+    "type=volume,source=agent-proxy-ca,target=/proxy-ca,readonly"
+  ],
+  "runArgs": [
+    "--name",
+    "${localWorkspaceFolderBasename}",
+    "--hostname",
+    "${localWorkspaceFolderBasename}",
+    "--userns=keep-id",
+    "--network=agent-proxy-net"
+  ]
+}
