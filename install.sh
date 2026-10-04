@@ -1,17 +1,22 @@
 #!/bin/sh
 # Install podman-agent-sandbox for the current user:
 #   curl -fsSL https://raw.githubusercontent.com/EddyPronk/podman-agent-sandbox/main/install.sh | sh
-# PAS_VERSION picks a release (default below); PAS_REF installs a branch or tag instead.
+# By default it installs the latest release; PAS_VERSION=x.y.z pins one, and PAS_REF installs a
+# branch or tag from source instead.
 set -eu
 
-VERSION="${PAS_VERSION:-0.2.0}"
 REPO=https://github.com/EddyPronk/podman-agent-sandbox
 if [ -n "${PAS_REF:-}" ]; then
   WHAT=$PAS_REF
   URL="$REPO/archive/${PAS_REF}.tar.gz"   # source archive of a branch or tag
+elif [ -n "${PAS_VERSION:-}" ]; then
+  WHAT=v$PAS_VERSION
+  URL="$REPO/releases/download/v${PAS_VERSION}/podman-agent-sandbox-${PAS_VERSION}.tgz"   # made by npm pack in CI
 else
-  WHAT=v$VERSION
-  URL="$REPO/releases/download/v${VERSION}/podman-agent-sandbox-${VERSION}.tgz"   # made by npm pack in CI
+  # CI also attaches the tarball without a version in its name, so this URL always serves the latest
+  # release: this script never needs changing for a release.
+  WHAT="the latest release"
+  URL="$REPO/releases/latest/download/podman-agent-sandbox.tgz"
 fi
 
 die() { echo "install: $*" >&2; exit 1; }
@@ -56,7 +61,20 @@ on_path() {
   return 1
 }
 
-if on_path "$prefix/bin"; then
+# Which sandbox will the shell run? One earlier on PATH shadows the one just installed. It isn't
+# ours to remove, so only say which it is.
+shadow=
+first=$(command -v sandbox 2>/dev/null || true)
+if [ -n "$first" ] && [ "$(realdir "$(dirname "$first")")" != "$(realdir "$prefix/bin")" ]; then
+  shadow=$first
+  if [ -L "$first" ]; then shadow="$first -> $(ls -l "$first" | sed 's/.* -> //')"; fi
+fi
+
+if [ -n "$shadow" ]; then
+  echo "Done, but another sandbox comes first on your PATH and runs instead:"
+  echo "  $shadow"
+  echo "Remove it (or put $prefix/bin before it in PATH), then run: sandbox templates"
+elif on_path "$prefix/bin"; then
   echo "Done. Run: sandbox templates"
 else
   echo "Done. $prefix/bin is not on your PATH yet: log out and back in (or add it to PATH), then run: sandbox templates"
