@@ -34,7 +34,8 @@ curl -fsSL https://raw.githubusercontent.com/EddyPronk/podman-agent-sandbox/main
 
 [`install.sh`](install.sh) checks the prerequisites, points npm at `~/.local` if it can't write to
 npm's global folder (see below), and installs the release tarball (built by CI with `npm pack`) with
-`npm install -g`. `PAS_VERSION=x.y.z` picks another release, `PAS_REF=<branch or tag>` any other ref.
+`npm install -g`. It installs the latest release; `PAS_VERSION=x.y.z` pins a release, and
+`PAS_REF=<branch or tag>` installs any other ref from source. Run it again to update.
 
 ### Manual install
 

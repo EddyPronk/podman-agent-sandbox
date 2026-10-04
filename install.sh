@@ -1,17 +1,22 @@
 #!/bin/sh
 # Install podman-agent-sandbox for the current user:
 #   curl -fsSL https://raw.githubusercontent.com/EddyPronk/podman-agent-sandbox/main/install.sh | sh
-# PAS_VERSION picks a release (default below); PAS_REF installs a branch or tag instead.
+# By default it installs the latest release; PAS_VERSION=x.y.z pins one, and PAS_REF installs a
+# branch or tag from source instead.
 set -eu
 
-VERSION="${PAS_VERSION:-0.2.0}"
 REPO=https://github.com/EddyPronk/podman-agent-sandbox
 if [ -n "${PAS_REF:-}" ]; then
   WHAT=$PAS_REF
   URL="$REPO/archive/${PAS_REF}.tar.gz"   # source archive of a branch or tag
+elif [ -n "${PAS_VERSION:-}" ]; then
+  WHAT=v$PAS_VERSION
+  URL="$REPO/releases/download/v${PAS_VERSION}/podman-agent-sandbox-${PAS_VERSION}.tgz"   # made by npm pack in CI
 else
-  WHAT=v$VERSION
-  URL="$REPO/releases/download/v${VERSION}/podman-agent-sandbox-${VERSION}.tgz"   # made by npm pack in CI
+  # CI also attaches the tarball without a version in its name, so this URL always serves the latest
+  # release: this script never needs changing for a release.
+  WHAT="the latest release"
+  URL="$REPO/releases/latest/download/podman-agent-sandbox.tgz"
 fi
 
 die() { echo "install: $*" >&2; exit 1; }
