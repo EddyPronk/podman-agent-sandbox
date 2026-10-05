@@ -1,10 +1,14 @@
 // sandbox — lxc-style front end for dev containers on rootless Podman.
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { constants } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
 import { SandboxError, checkName, cliPath, containerState, dc, folderOf, podman, sandboxDir } from './devcontainer.js';
 import { applyTemplate, listTemplates, parseOptionArgs } from './templates.js';
+import {
+    applyWorkspace, defaultName, findGitDirs, readSettings, realConfigDir, resolveWorkspace, uncoveredInSandbox,
+    workspaceMounts, workspacePath,
+} from './workspace.js';
 
 const USAGE = `\
 sandbox — lxc-style front end for dev containers on rootless Podman.
@@ -12,18 +16,29 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
   sandbox new NAME --template TEMPLATE [--option KEY=VALUE ...]
                        create $SANDBOX_DIR/NAME from a template: a bundled
                        one's ID, or a path to a template folder (has a '/')
+  sandbox new [NAME] --template TEMPLATE --workspace PATH
+              [--hide PATH ...] [--readonly PATH ...] [--option KEY=VALUE ...]
+                       a sandbox around an existing folder: PATH is mounted at
+                       its own path and is the working folder; the config stays
+                       in $SANDBOX_DIR/NAME (NAME defaults to PATH's name).
+                       Every git repo in PATH gets .git/hooks and .git/config
+                       read-only. --hide (a file or folder, relative to PATH)
+                       hides it inside: use it for secrets. --readonly makes
+                       it read-only.
   sandbox templates    list the bundled templates and their options
   sandbox build NAME [--no-cache]
                        build NAME's image, showing the full log
-  sandbox enter NAME   start NAME if needed and open a shell as $USER
+  sandbox enter NAME   start NAME if needed and open a shell as $USER; with
+                       --workspace, first check every git repo is protected
   sandbox list         list dev containers
   sandbox stop NAME    stop NAME
-  sandbox rm NAME      remove NAME (its home volume is kept)
+  sandbox rm NAME      remove NAME's container (its home volume, config folder
+                       and any --workspace folder are kept)
   sandbox --version    show the version (and the Dev Containers CLI's)
 
-NAME is resolved to a workspace folder via the container's
-devcontainer.local_folder label, or else $SANDBOX_DIR/NAME.
-SANDBOX_DIR defaults to ~/sandboxes.
+NAME is resolved to its folder (the config, and the workspace unless it was
+made with --workspace) via the container's devcontainer.local_folder label,
+or else $SANDBOX_DIR/NAME. SANDBOX_DIR defaults to ~/sandboxes.
 `;
 
 const commands = {
@@ -86,15 +101,48 @@ function cmdNew(args) {
         options: {
             template: { type: 'string', short: 't' },
             option: { type: 'string', short: 'o', multiple: true },
+            workspace: { type: 'string', short: 'w' },
+            hide: { type: 'string', multiple: true },
+            readonly: { type: 'string', multiple: true },
         },
     });
-    const usage = 'sandbox new NAME --template TEMPLATE [--option KEY=VALUE ...]';
-    if (positionals.length !== 1 || !values.template) throw new SandboxError(`usage: ${usage}`);
-    const name = checkName(positionals[0]);
+    const usage = 'sandbox new NAME --template TEMPLATE [--option KEY=VALUE ...]\n'
+        + '       sandbox new [NAME] --template TEMPLATE --workspace PATH [--hide PATH ...] [--readonly PATH ...]';
+    const workspace = values.workspace === undefined ? null : resolveWorkspace(values.workspace);
+    if ((values.hide || values.readonly) && !workspace) throw new SandboxError('--hide and --readonly need --workspace');
+    if (positionals.length > 1 || !values.template || (positionals.length === 0 && !workspace)) {
+        throw new SandboxError(`usage: ${usage}`);
+    }
+    const name = checkName(positionals[0] ?? defaultName(workspace));
     const dest = join(sandboxDir(), name);
+    // Check everything about the workspace before creating anything.
+    const plan = workspace && planWorkspace(workspace, values, realConfigDir(dest));
     applyTemplate(values.template, dest, parseOptionArgs(values.option ?? []));
-    console.log(`created ${dest} from template '${values.template}'`);
+    if (plan) {
+        try {
+            applyWorkspace(dest, plan);
+        } catch (err) {
+            rmSync(dest, { recursive: true, force: true });
+            throw err;
+        }
+        console.log(`created ${dest} from template '${values.template}', around ${workspace}`);
+        const repos = plan.gitDirs.length;
+        console.log(`read-only inside: ${repos} git repo${repos === 1 ? '' : 's'}' hooks and config`
+            + `${plan.readonly.length ? `, ${plan.readonly.join(', ')}` : ''}; hidden: ${plan.hide.join(', ') || 'nothing'}`);
+    } else {
+        console.log(`created ${dest} from template '${values.template}'`);
+    }
     console.log(`next: sandbox enter ${name}`);
+}
+
+/** Everything --workspace adds, checked: the mounts, and the choices for sandbox.json. */
+function planWorkspace(workspace, values, configDir) {
+    const hidden = (values.hide ?? []).map((p) => workspacePath(workspace, p, 'hide'));
+    const readonly = (values.readonly ?? []).map((p) => workspacePath(workspace, p, 'readonly'));
+    const gitDirs = findGitDirs(workspace, hidden);
+    const mounts = workspaceMounts({ workspace, hide: hidden, readonly, configDir, gitDirs });
+    const rel = (path) => relative(workspace, path);
+    return { workspace, hide: hidden.map(rel), readonly: readonly.map(rel), mounts, gitDirs };
 }
 
 function cmdTemplates(args) {
@@ -123,6 +171,7 @@ function cmdEnter(args) {
     const name = oneName(args, 'sandbox enter NAME');
     const dir = folderOf(name);
     const state = containerState(name);
+    checkWorkspace(name, dir, state);
     if (state !== 'running') {
         // up creates the container, or starts it if it exists but is stopped.
         // Creating it may build the image first, which takes minutes: show that log
@@ -142,6 +191,31 @@ function cmdEnter(args) {
     process.on('SIGINT', () => {});
     // "--" stops the CLI from parsing -l as its own option.
     return exitStatus(dc('exec', ['--workspace-folder', dir, '--', 'bash', '-l']));
+}
+
+/**
+ * For a sandbox made with --workspace: refuse to start if a git repo in the workspace would have
+ * writable hooks or config inside. Repos get added or moved after the sandbox was made. The
+ * container keeps the mounts it was created with, so check those when it exists, else the config.
+ */
+function checkWorkspace(name, dir, state) {
+    const settings = readSettings(dir);
+    if (!settings) return;
+    const missing = uncoveredInSandbox(dir, state ? containerReadonlyMounts(name) : null);
+    if (missing.length === 0) return;
+    const redo = state ? `sandbox rm ${name}; ` : '';
+    throw new SandboxError(`these would be writable inside ${name}, and git on the host runs what they name:\n`
+        + missing.map((path) => `  ${path}\n`).join('')
+        + `Make the sandbox again (the options are in ${join(dir, 'sandbox.json')}):\n`
+        + `  ${redo}rm -r ${dir}; sandbox new ${name} --template ... --workspace ${settings.workspace} ...`);
+}
+
+/** Destinations of container NAME's read-only mounts. */
+function containerReadonlyMounts(name) {
+    const result = podman(['container', 'inspect', '--format',
+        '{{range .Mounts}}{{if not .RW}}{{.Destination}}{{"\\n"}}{{end}}{{end}}', name]);
+    if (result.status !== 0) throw new SandboxError(result.stderr.trim());
+    return result.stdout.split('\n').filter(Boolean);
 }
 
 function cmdList(args) {
@@ -166,6 +240,13 @@ function cmdRm(args) {
     const result = podman(['rm', '-f', name]);
     if (result.status !== 0) throw new SandboxError(result.stderr.trim());
     console.log(`removed ${name}`);
+    let settings = null;
+    try {
+        settings = readSettings(folderOf(name));
+    } catch {
+        // no config folder left: nothing more to say
+    }
+    if (settings) console.log(`${settings.workspace} is untouched: only the container was removed`);
 }
 
 /** Left-aligned columns, two spaces apart. */
