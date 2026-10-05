@@ -137,7 +137,8 @@ sandbox enter myproject
 - **What isn't protected: your secrets.** The agent can read and change everything else in the
   project. `--hide PATH` (relative to the project) hides a file (it reads as empty) or a folder (an
   empty one in its place); `--readonly PATH` makes a path read-only. Neither can be added later:
-  make the sandbox again.
+  make the sandbox again. A hidden file that git tracks shows up as modified inside (it reads as
+  empty there); committing it from inside would record it empty, not reveal it.
 - Templates that refer to `/workspace` themselves (like `mitm-proxy`'s `allowlist.txt`) need it to be
   the workspace; use them without `--workspace`. The template's `devcontainer.json` must be plain
   JSON (no comments), since `sandbox new` rewrites it.

@@ -127,7 +127,7 @@ function cmdNew(args) {
         }
         console.log(`created ${dest} from template '${values.template}', around ${workspace}`);
         const repos = plan.gitDirs.length;
-        console.log(`read-only inside: ${repos} git repo${repos === 1 ? '' : 's'}' hooks and config`
+        console.log(`read-only inside: ${repos} git repo${repos === 1 ? "'s" : "s'"} hooks and config`
             + `${plan.readonly.length ? `, ${plan.readonly.join(', ')}` : ''}; hidden: ${plan.hide.join(', ') || 'nothing'}`);
     } else {
         console.log(`created ${dest} from template '${values.template}'`);
