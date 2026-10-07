@@ -20,7 +20,9 @@
   "remoteUser": "${localEnv:USER}",
   "updateRemoteUserUID": false,
   "remoteEnv": {
-    "TERM": "${localEnv:TERM:xterm-256color}"
+    "TERM": "${localEnv:TERM:xterm-256color}",
+    "USER": "${localEnv:USER}",
+    "LOGNAME": "${localEnv:USER}"
   },
   "containerEnv": {
     "DISABLE_AUTOUPDATER": "1",

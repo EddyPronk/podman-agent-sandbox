@@ -90,3 +90,13 @@ test('parseOptionArgs splits on the first =', () => {
 test('substitute replaces every occurrence', () => {
     assert.equal(substitute('${templateOption:a}-${templateOption:a}', { a: 'x' }), 'x-x');
 });
+
+test('every bundled template sets USER and LOGNAME in sandbox enter shells', () => {
+    // Nothing logs in inside a container, so shells there have no USER/LOGNAME unless the
+    // template passes them in; `sandbox` itself fills USER in when it's missing (childEnv).
+    for (const { id } of listTemplates()) {
+        const config = JSON.parse(readFileSync(new URL(`../templates/${id}/.devcontainer/devcontainer.json`, import.meta.url), 'utf8'));
+        assert.equal(config.remoteEnv?.USER, '${localEnv:USER}', `${id}: remoteEnv.USER`);
+        assert.equal(config.remoteEnv?.LOGNAME, '${localEnv:USER}', `${id}: remoteEnv.LOGNAME`);
+    }
+});
