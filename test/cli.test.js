@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { homedir, tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { table } from '../src/cli.js';
-import { checkName, cliPath, folderOf, sandboxDir } from '../src/devcontainer.js';
+import { checkName, childEnv, cliPath, folderOf, sandboxDir } from '../src/devcontainer.js';
 
 test('sandboxDir defaults to ~/sandboxes', () => {
     assert.equal(sandboxDir({}), join(homedir(), 'sandboxes'));
@@ -47,4 +47,17 @@ test('--version prints the package and Dev Containers CLI versions', () => {
         assert.equal(result.stdout,
             `sandbox ${pkg.version} (@devcontainers/cli ${pkg.dependencies['@devcontainers/cli']})\n`);
     }
+});
+
+test('childEnv sets USER from the user database when it is missing (containers, cron, systemd)', () => {
+    assert.equal(childEnv({}).USER, userInfo().username);
+    assert.equal(childEnv({ USER: '' }).USER, userInfo().username);
+    assert.equal(childEnv({ USER: 'someone' }).USER, 'someone', 'an existing USER is kept');
+});
+
+test('childEnv sets the numeric IDs for containerUser', () => {
+    const env = childEnv({ PATH: '/bin' });
+    assert.equal(env.SANDBOX_UID, String(process.getuid()));
+    assert.equal(env.SANDBOX_GID, String(process.getgid()));
+    assert.equal(env.PATH, '/bin', 'the rest of the environment is passed on');
 });

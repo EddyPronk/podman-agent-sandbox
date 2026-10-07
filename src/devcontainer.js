@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { homedir } from 'node:os';
+import { homedir, userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
 
 /** An error meant for the user: printed as "sandbox: <message>", no stack trace. */
@@ -29,9 +29,23 @@ export function cliPath() {
     return join(dirname(require.resolve('@devcontainers/cli/package.json')), 'devcontainer.js');
 }
 
-// Numeric IDs for containerUser: Podman can't resolve $USER by name before keep-id adds it.
-function childEnv() {
-    return { ...process.env, SANDBOX_UID: String(process.getuid()), SANDBOX_GID: String(process.getgid()) };
+/**
+ * The Dev Containers CLI's environment. Templates read it through ${localEnv:…}:
+ * - USER (home volume path, remoteUser): set from the user database when missing, as it is in a
+ *   container, under cron or systemd; a login sets it, nothing else does.
+ * - SANDBOX_UID/SANDBOX_GID: numeric IDs for containerUser; Podman can't resolve $USER by name
+ *   before keep-id adds it.
+ */
+export function childEnv(env = process.env) {
+    const child = { ...env, SANDBOX_UID: String(process.getuid()), SANDBOX_GID: String(process.getgid()) };
+    if (!child.USER) {
+        try {
+            child.USER = userInfo().username;
+        } catch {
+            // No entry in the user database: leave USER unset, as before.
+        }
+    }
+    return child;
 }
 
 /** Run `devcontainer SUB --docker-path podman ARGS`. The CLI only parses options placed after the subcommand. */
