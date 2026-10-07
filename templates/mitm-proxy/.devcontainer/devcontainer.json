@@ -9,7 +9,9 @@
   "remoteUser": "${localEnv:USER}",
   "updateRemoteUserUID": false,
   "remoteEnv": {
-    "TERM": "${localEnv:TERM:xterm-256color}"
+    "TERM": "${localEnv:TERM:xterm-256color}",
+    "USER": "${localEnv:USER}",
+    "LOGNAME": "${localEnv:USER}"
   },
   "containerEnv": {
     "AGENT_MITM_PROXY_PYTHON": "/opt/agent-mitm-proxy/venv/bin/python",
