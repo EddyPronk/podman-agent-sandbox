@@ -61,3 +61,8 @@ test('childEnv sets the numeric IDs for containerUser', () => {
     assert.equal(env.SANDBOX_GID, String(process.getgid()));
     assert.equal(env.PATH, '/bin', 'the rest of the environment is passed on');
 });
+
+test('childEnv passes this package version on, for the sandbox inside a sandbox', () => {
+    const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    assert.equal(childEnv({}).SANDBOX_VERSION, version);
+});

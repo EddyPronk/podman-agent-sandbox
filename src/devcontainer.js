@@ -1,6 +1,6 @@
 // Helpers around the Dev Containers CLI and Podman.
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir, userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -29,15 +29,24 @@ export function cliPath() {
     return join(dirname(require.resolve('@devcontainers/cli/package.json')), 'devcontainer.js');
 }
 
+const PACKAGE_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+
 /**
  * The Dev Containers CLI's environment. Templates read it through ${localEnv:…}:
  * - USER (home volume path, remoteUser): set from the user database when missing, as it is in a
  *   container, under cron or systemd; a login sets it, nothing else does.
  * - SANDBOX_UID/SANDBOX_GID: numeric IDs for containerUser; Podman can't resolve $USER by name
  *   before keep-id adds it.
+ * - SANDBOX_VERSION: this package's version, so a template that installs sandbox inside the
+ *   sandbox (claude-containers) installs the same one.
  */
 export function childEnv(env = process.env) {
-    const child = { ...env, SANDBOX_UID: String(process.getuid()), SANDBOX_GID: String(process.getgid()) };
+    const child = {
+        ...env,
+        SANDBOX_UID: String(process.getuid()),
+        SANDBOX_GID: String(process.getgid()),
+        SANDBOX_VERSION: PACKAGE_VERSION,
+    };
     if (!child.USER) {
         try {
             child.USER = userInfo().username;

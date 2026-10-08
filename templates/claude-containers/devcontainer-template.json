@@ -1,0 +1,12 @@
+{
+  "id": "claude-containers",
+  "version": "0.1.0",
+  "name": "Claude Code with containers inside",
+  "description": "Like claude, plus rootless podman and the sandbox command inside, so the agent can build images, run containers and make sandboxes of its own. Weakens the sandbox: /dev/net/tun, /proc unmasked and a seccomp profile allowing sethostname/setdomainname (see the README). Use claude unless the agent needs containers",
+  "documentationURL": "https://github.com/EddyPronk/podman-agent-sandbox#containers-inside-a-sandbox",
+  "options": {},
+  "platforms": ["Any"],
+  "x-sandbox": {
+    "seccompAllow": ["sethostname", "setdomainname"]
+  }
+}

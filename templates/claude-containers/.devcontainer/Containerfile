@@ -1,0 +1,41 @@
+FROM docker.io/library/debian:trixie-slim
+
+# Basics missing from the slim image; Node.js comes from the node feature.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        less \
+        procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Containers inside: rootless podman. Debian's podman only recommends uidmap (newuidmap/newgidmap),
+# passt (pasta, the network for rootless containers) and aardvark-dns (names on podman networks,
+# e.g. the mitm-proxy template's alias `proxy`), so they're listed. nftables: netavark's firewall
+# driver, for NAT networks like mitm-proxy's agent-egress. libcap2-bin: setcap, below.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        aardvark-dns \
+        libcap2-bin \
+        nftables \
+        passt \
+        podman \
+        uidmap \
+    && rm -rf /var/lib/apt/lists/*
+
+# Subordinate IDs for the user, so the inner podman can map a range: every ID this sandbox has
+# besides the user's own and 0, in ranges that fit the ID map the sandbox gets at runtime
+# (subid-ranges.sh; that also makes this template work in a sandbox made from it). The user only
+# exists at runtime, so the owner is the UID, which subuid(5) allows; it comes from the host's
+# SANDBOX_UID. The group ranges assume the user's GID equals its UID, as the user's own ranges do.
+ARG SANDBOX_UID=1000
+COPY subid-ranges.sh /usr/local/lib/sandbox/subid-ranges.sh
+RUN sh /usr/local/lib/sandbox/subid-ranges.sh "$SANDBOX_UID" /proc/self/uid_map > /etc/subuid \
+    && sh /usr/local/lib/sandbox/subid-ranges.sh "$SANDBOX_UID" /proc/self/gid_map > /etc/subgid \
+    && cat /etc/subuid /etc/subgid
+
+# newuidmap/newgidmap with file capabilities instead of the setuid bit: with setuid root the kernel
+# refuses the inner podman's map ("write to uid_map failed: Operation not permitted"); with a file
+# capability they keep running as the user, the owner of the new namespace.
+RUN chmod 0755 /usr/bin/newuidmap /usr/bin/newgidmap \
+    && setcap cap_setuid=ep /usr/bin/newuidmap \
+    && setcap cap_setgid=ep /usr/bin/newgidmap

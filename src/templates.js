@@ -1,10 +1,11 @@
 // Dev Container Templates bundled with sandbox, applied the way the spec describes:
 // copy the template folder and replace ${templateOption:KEY} with the chosen values.
 // https://containers.dev/implementors/templates/
-import { cpSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SandboxError } from './devcontainer.js';
+import { writeSeccompProfile } from './seccomp.js';
 
 export const TEMPLATES_DIR = fileURLToPath(new URL('../templates/', import.meta.url));
 const METADATA = 'devcontainer-template.json';
@@ -76,8 +77,12 @@ export function findTemplate(spec, root = TEMPLATES_DIR) {
     return { template, src: join(root, spec) };
 }
 
-/** Create DEST from template SPEC (see findTemplate). DEST must not exist yet. */
-export function applyTemplate(spec, dest, given = {}, root = TEMPLATES_DIR) {
+/**
+ * Create DEST from template SPEC (see findTemplate). DEST must not exist yet. A template whose
+ * metadata has "x-sandbox": { "seccompAllow": [...] } also gets its seccomp profile (seccomp.js);
+ * HOOKS are passed on to it (tests).
+ */
+export function applyTemplate(spec, dest, given = {}, root = TEMPLATES_DIR, hooks = {}) {
     const { template, src } = findTemplate(spec, root);
     if (existsSync(dest)) throw new SandboxError(`${dest} already exists`);
     const values = resolveOptions(template, given);
@@ -88,6 +93,15 @@ export function applyTemplate(spec, dest, given = {}, root = TEMPLATES_DIR) {
         const text = readFileSync(path, 'utf8');
         const replaced = substitute(text, values);
         if (replaced !== text) writeFileSync(path, replaced);
+    }
+    const allow = template['x-sandbox']?.seccompAllow;
+    if (allow?.length) {
+        try {
+            writeSeccompProfile(dest, allow, hooks);
+        } catch (err) {
+            rmSync(dest, { recursive: true, force: true });
+            throw err;
+        }
     }
     return dest;
 }

@@ -1,12 +1,19 @@
 # Sandboxes on a GitHub runner with rootless podman: what the runner offers (diagnose), and a
-# sandbox that runs podman and a nested `claude` sandbox of its own (nested, test/integration/nested.sh).
-# Not a required check. Runs by hand, and on PRs that change this file or the integration test.
+# sandbox from the claude-containers template that runs podman, a nested `claude` sandbox, and a
+# mitm-proxy + proxy-client pair of its own (nested, test/integration/nested.sh).
+# Not a required check. Runs by hand, and on PRs that change this file, the integration tests, the
+# claude-containers template or the code that writes its seccomp profile.
 name: podman
 
 on:
   workflow_dispatch:
   pull_request:
-    paths: ['.github/workflows/podman.yml', 'test/integration/**']
+    paths:
+      - '.github/workflows/podman.yml'
+      - 'test/integration/**'
+      - 'templates/claude-containers/**'
+      - 'src/seccomp.js'
+      - 'src/templates.js'
 
 permissions:
   contents: read
@@ -47,7 +54,7 @@ jobs:
           npm pack
           npm install -g ./podman-agent-sandbox-*.tgz
           sandbox --version
-      - name: nested sandbox, and a claude sandbox inside it
+      - name: claude-containers sandbox, with claude, mitm-proxy and proxy-client sandboxes inside
         run: test/integration/nested.sh podman-agent-sandbox-*.tgz nested-logs
       - uses: actions/upload-artifact@v7
         if: always()
