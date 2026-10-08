@@ -54,7 +54,8 @@ if [[ ! -d $SANDBOX_DIR/$N ]]; then
     mkdir -p "$SANDBOX_DIR"
     sandbox new "$N" --template "$here/nested-podman" >"$LOG/new.log" 2>&1 || die "sandbox new failed" "$LOG/new.log"
 fi
-profile=$(podman info --format '{{.Host.Security.SeccompProfilePath}}')
+profile=$(podman info --format '{{.Host.Security.SECCOMPProfilePath}}' 2>"$LOG/seccomp.log")
+[[ -f $profile ]] || die "no default seccomp profile found ([$profile])" "$LOG/seccomp.log"
 python3 "$here/make-seccomp.py" "$profile" "$SANDBOX_DIR/$N/.devcontainer/seccomp.json" >"$LOG/seccomp.log" 2>&1 \
     || die "no seccomp profile from $profile" "$LOG/seccomp.log"
 # enter with no input: builds and starts the container, the shell exits at once, the container stays.
