@@ -1,12 +1,12 @@
-# What a GitHub runner offers rootless podman: read-only diagnostics, then one container.
-# Not a required check; a first step towards running sandboxes in CI. Runs by hand, and on PRs
-# that change this file.
+# Sandboxes on a GitHub runner with rootless podman: what the runner offers (diagnose), and a
+# sandbox that runs podman and a nested `claude` sandbox of its own (nested, test/integration/nested.sh).
+# Not a required check. Runs by hand, and on PRs that change this file or the integration test.
 name: podman
 
 on:
   workflow_dispatch:
   pull_request:
-    paths: ['.github/workflows/podman.yml']
+    paths: ['.github/workflows/podman.yml', 'test/integration/**']
 
 permissions:
   contents: read
@@ -33,3 +33,25 @@ jobs:
           df -h / /mnt || true
       - name: a rootless container
         run: podman run --rm docker.io/library/debian:trixie-slim cat /etc/os-release
+
+  nested:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Install this build
+        run: |
+          npm pack
+          npm install -g ./podman-agent-sandbox-*.tgz
+          sandbox --version
+      - name: nested sandbox, and a claude sandbox inside it
+        run: test/integration/nested.sh podman-agent-sandbox-*.tgz nested-logs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: nested-logs
+          path: nested-logs
+          if-no-files-found: ignore
