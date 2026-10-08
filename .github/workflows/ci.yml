@@ -40,12 +40,14 @@ jobs:
         run: |
           tar -tzf podman-agent-sandbox-*.tgz | tee files.txt
           grep -qx 'package/templates/claude/.devcontainer/devcontainer.json' files.txt
+          grep -qx 'package/templates/claude-containers/.devcontainer/seccomp.json' files.txt
           ! grep -q '^package/test/' files.txt
       - name: Install the tarball and run sandbox
         run: |
           npm install -g ./podman-agent-sandbox-*.tgz
           sandbox --help
           sandbox templates | grep -q '^claude'
+          sandbox templates | grep -q '^claude-containers'
       - uses: actions/upload-artifact@v7
         with:
           name: tarball

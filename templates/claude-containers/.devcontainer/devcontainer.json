@@ -1,0 +1,48 @@
+{
+  "name": "${localWorkspaceFolderBasename}",
+  "build": {
+    "dockerfile": "Containerfile",
+    "args": {
+      "SANDBOX_UID": "${localEnv:SANDBOX_UID:1000}"
+    }
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "nodeGypDependencies": false,
+      "pnpmVersion": "none"
+    },
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+  },
+  "overrideFeatureInstallOrder": [
+    "ghcr.io/devcontainers/features/node",
+    "ghcr.io/anthropics/devcontainer-features/claude-code"
+  ],
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "containerUser": "${localEnv:SANDBOX_UID:1000}:${localEnv:SANDBOX_GID:1000}",
+  "remoteUser": "${localEnv:USER}",
+  "updateRemoteUserUID": false,
+  "remoteEnv": {
+    "TERM": "${localEnv:TERM:xterm-256color}",
+    "USER": "${localEnv:USER}",
+    "LOGNAME": "${localEnv:USER}"
+  },
+  "containerEnv": {
+    "DISABLE_AUTOUPDATER": "1",
+    "NVM_SYMLINK_CURRENT": "false"
+  },
+  "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/ && { curl -fsSL -o /tmp/install-sandbox.sh https://raw.githubusercontent.com/EddyPronk/podman-agent-sandbox/main/install.sh && PAS_VERSION=${localEnv:SANDBOX_VERSION} sh /tmp/install-sandbox.sh || echo 'sandbox: warning: could not install sandbox ${localEnv:SANDBOX_VERSION} inside (not released?); install it there by hand' >&2; }",
+  "mounts": [
+    "type=volume,source=${localWorkspaceFolderBasename}-home,target=/home/${localEnv:USER},U=true"
+  ],
+  "runArgs": [
+    "--name",
+    "${localWorkspaceFolderBasename}",
+    "--hostname",
+    "${localWorkspaceFolderBasename}",
+    "--userns=keep-id",
+    "--device=/dev/net/tun",
+    "--security-opt=unmask=/proc/*",
+    "--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp.json"
+  ]
+}

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { mkdirSync, mkdtempSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -99,4 +101,52 @@ test('every bundled template sets USER and LOGNAME in sandbox enter shells', () 
         assert.equal(config.remoteEnv?.USER, '${localEnv:USER}', `${id}: remoteEnv.USER`);
         assert.equal(config.remoteEnv?.LOGNAME, '${localEnv:USER}', `${id}: remoteEnv.LOGNAME`);
     }
+});
+
+test('claude-containers: the claude template plus podman, and it says it weakens the sandbox', () => {
+    const meta = listTemplates().find((t) => t.id === 'claude-containers');
+    assert.ok(meta, 'bundled');
+    assert.match(meta.description, /weaken/i);
+    assert.deepEqual(meta['x-sandbox']?.seccompAllow, ['sethostname', 'setdomainname']);
+    const dir = new URL('../templates/claude-containers/.devcontainer/', import.meta.url);
+    const config = JSON.parse(readFileSync(new URL('devcontainer.json', dir), 'utf8'));
+    const claude = JSON.parse(readFileSync(new URL('../templates/claude/.devcontainer/devcontainer.json', import.meta.url), 'utf8'));
+    assert.deepEqual(config.features, claude.features, 'same features as claude');
+    for (const arg of ['--userns=keep-id', '--device=/dev/net/tun', '--security-opt=unmask=/proc/*',
+        '--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp.json']) {
+        assert.ok(config.runArgs.includes(arg), `runArgs has ${arg}`);
+    }
+    assert.equal(config.build.args?.SANDBOX_UID, '${localEnv:SANDBOX_UID:1000}');
+    assert.match(config.postCreateCommand, /PAS_VERSION=\$\{localEnv:SANDBOX_VERSION\}/,
+        'installs the same sandbox version inside as outside');
+    // The shipped fallback profile is podman's default, still without the two calls.
+    const shipped = JSON.parse(readFileSync(new URL('seccomp.json', dir), 'utf8'));
+    assert.ok(shipped.syscalls.length > 10);
+    const containerfile = readFileSync(new URL('Containerfile', dir), 'utf8');
+    for (const pkg of ['podman', 'uidmap', 'passt', 'aardvark-dns', 'nftables', 'libcap2-bin']) {
+        assert.match(containerfile, new RegExp(`^\\s+${pkg} \\\\$`, 'm'), `installs ${pkg}`);
+    }
+    // The subordinate ranges come from the build's ID map (subid-ranges.sh, tested below).
+    assert.match(containerfile, /subid-ranges\.sh "\$SANDBOX_UID" \/proc\/self\/uid_map > \/etc\/subuid/);
+    assert.match(containerfile, /subid-ranges\.sh "\$SANDBOX_UID" \/proc\/self\/gid_map > \/etc\/subgid/);
+});
+
+test('claude-containers: subordinate ID ranges fit the map keep-id will give the sandbox', () => {
+    // subid-ranges.sh UID MAPFILE, run at build time on /proc/self/uid_map (or gid_map). Each range
+    // must lie inside one extent of the running sandbox's map, or the kernel refuses the inner map.
+    const script = fileURLToPath(new URL('../templates/claude-containers/.devcontainer/subid-ranges.sh', import.meta.url));
+    const ranges = (map) => {
+        const dir = mkdtempSync(join(tmpdir(), 'subid-'));
+        writeFileSync(join(dir, 'map'), map);
+        const r = spawnSync('sh', [script, '1000', join(dir, 'map')], { encoding: 'utf8' });
+        assert.equal(r.status, 0, r.stderr);
+        return r.stdout.trim().split('\n');
+    };
+    // A sandbox on a host with one subordinate range: as the lab template had it.
+    assert.deepEqual(ranges('         0       1000          1\n         1     100000      65536\n'),
+        ['1000:1:999', '1000:1001:64536']);
+    // A sandbox in a sandbox: the outer one's own ID (1000) is a hole in its ranges, which splits
+    // the inner map after ID 998 (NESTED: podman inside claude-containers inside claude-containers).
+    assert.deepEqual(ranges('         0       1000          1\n         1          1        999\n      1000       1001      64536\n'),
+        ['1000:1:998', '1000:999:1', '1000:1001:64535']);
 });
