@@ -20,7 +20,11 @@ permissions:
 
 jobs:
   diagnose:
-    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-26.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: podman
         run: |
@@ -42,7 +46,13 @@ jobs:
         run: podman run --rm docker.io/library/debian:trixie-slim cat /etc/os-release
 
   nested:
-    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-26.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    # ubuntu-24.04 (podman 4.9.3) is being tried out: its failures don't fail the run yet.
+    continue-on-error: ${{ matrix.os == 'ubuntu-24.04' }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
@@ -59,6 +69,6 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: nested-logs
+          name: nested-logs-${{ matrix.os }}
           path: nested-logs
           if-no-files-found: ignore
