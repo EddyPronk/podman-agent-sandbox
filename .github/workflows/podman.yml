@@ -1,0 +1,35 @@
+# What a GitHub runner offers rootless podman: read-only diagnostics, then one container.
+# Not a required check; a first step towards running sandboxes in CI. Runs by hand, and on PRs
+# that change this file.
+name: podman
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['.github/workflows/podman.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-26.04
+    steps:
+      - name: podman
+        run: |
+          podman version
+          podman info
+      - name: user namespaces and AppArmor
+        run: |
+          sysctl kernel.apparmor_restrict_unprivileged_userns user.max_user_namespaces || true
+          ls /etc/apparmor.d | grep -E 'podman|crun|runc|buildah|passt|slirp' || true
+          grep "^$(id -un):" /etc/subuid /etc/subgid || true
+      - name: devices, helpers, disk
+        run: |
+          id
+          ls -l /dev/net/tun /dev/fuse || true
+          command -v pasta slirp4netns newuidmap newgidmap aardvark-dns nft || true
+          echo "XDG_RUNTIME_DIR=[${XDG_RUNTIME_DIR:-}]"
+          df -h / /mnt || true
+      - name: a rootless container
+        run: podman run --rm docker.io/library/debian:trixie-slim cat /etc/os-release
