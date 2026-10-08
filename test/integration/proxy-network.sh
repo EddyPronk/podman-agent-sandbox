@@ -67,6 +67,11 @@ run "T15a allowlisted host answered by the upstream" '
 
 run "T15b unlisted host refused at CONNECT with 403" '
     client_up || exit 1
+    # An existing proxy sandbox is reused, allowlist and all: one where example.com was approved
+    # since would let it through.
+    if podman exec $P grep -q "^example\.com" /workspace/allowlist.txt; then
+        echo "example.com is on $P'"'"'s allowlist (approved earlier?): remove it to test refusals"; exit 1
+    fi
     out=$(inw "curl -sv -o /dev/null --max-time 20 https://example.com/ 2>&1"); s=$?
     echo "$out" | tail -n 8; echo "curl exit $s"
     grep -qi "< HTTP/1.[01] 403" <<<"$out"'
