@@ -1,8 +1,0 @@
-{
-  "id": "nested-podman",
-  "version": "0.1.0",
-  "name": "Nested podman (test only)",
-  "description": "Debian trixie with rootless podman and Node.js, for test/integration/nested.sh: a sandbox that runs containers and sandboxes of its own. Not bundled; nested.sh writes its seccomp profile.",
-  "options": {},
-  "platforms": ["Any"]
-}

@@ -5,15 +5,17 @@
 #   test/integration/nested.sh TARBALL [LOG_DIR]
 #
 # TARBALL is an `npm pack` of this repo, installed globally on the host beforehand (sandbox on PATH).
-# Creates the sandbox `nested` (NESTED=NAME for another name) from test/integration/nested-podman in
-# $SANDBOX_DIR (default ~/sandboxes), with a seccomp profile made from the host podman's default,
-# installs TARBALL inside it, then checks, one line per test (PASS or FAIL):
+# Creates the sandbox `nested` (NESTED=NAME for another name) from the bundled template
+# claude-containers in $SANDBOX_DIR (default ~/sandboxes), installs TARBALL inside it over the
+# release the template installs, then checks, one line per test (PASS or FAIL):
 #   T1-T6   podman inside: info, run, network, exec, build
 #   T7-T12  the sandbox command inside: a nested `claude` sandbox made, entered, its home and USER
+#   T13-T16 a mitm-proxy and a proxy-client sandbox inside: the client's only way out is the
+#           proxy (proxy-network.sh, run inside)
 # Each test's full output is in LOG_DIR (default ./nested-logs), and on a failure the end of it is
 # printed, followed by the state of both levels (containers, their logs, disk).
 # Exit status: the number of failed tests; 99 if `nested` couldn't be set up.
-# Needs rootless podman, /dev/net/tun and python3 on the host. Takes a while: it builds two images.
+# Needs rootless podman and /dev/net/tun on the host. Takes a while: it builds four images.
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd -P)
@@ -48,22 +50,23 @@ die() {   # MESSAGE LOGFILE: setting up failed
     exit 99
 }
 
-# Set up: the sandbox, its seccomp profile, and the package inside.
+# Set up: the sandbox (`sandbox new` writes its seccomp profile), and the package inside.
 command -v sandbox >/dev/null || { echo "nested.sh: no sandbox on PATH; npm install -g $TARBALL first"; exit 99; }
 if [[ ! -d $SANDBOX_DIR/$N ]]; then
     mkdir -p "$SANDBOX_DIR"
-    sandbox new "$N" --template "$here/nested-podman" >"$LOG/new.log" 2>&1 || die "sandbox new failed" "$LOG/new.log"
+    sandbox new "$N" --template claude-containers >"$LOG/new.log" 2>&1 || die "sandbox new failed" "$LOG/new.log"
 fi
-profile=$(podman info --format '{{.Host.Security.SECCOMPProfilePath}}' 2>"$LOG/seccomp.log")
-[[ -f $profile ]] || die "no default seccomp profile found ([$profile])" "$LOG/seccomp.log"
-python3 "$here/make-seccomp.py" "$profile" "$SANDBOX_DIR/$N/.devcontainer/seccomp.json" >"$LOG/seccomp.log" 2>&1 \
-    || die "no seccomp profile from $profile" "$LOG/seccomp.log"
 # enter with no input: builds and starts the container, the shell exits at once, the container stays.
+# Its postCreateCommand installs the released sandbox of this version (if there is one).
 sandbox enter "$N" </dev/null >"$LOG/up.log" 2>&1 || die "sandbox enter $N failed" "$LOG/up.log"
+# The build under test, where install.sh puts it (npm's prefix, or ~/.local if that isn't writable),
+# so it replaces the release instead of sitting next to it.
 { podman cp "$TARBALL" "$N:/tmp/podman-agent-sandbox.tgz" \
+    && podman cp "$here/proxy-network.sh" "$N:/tmp/proxy-network.sh" \
     && podman exec -u "$U" "$N" bash -lc \
-        'npm config set prefix ~/.local --location=user && mkdir -p ~/.local/bin \
-         && npm install -g --no-fund --no-audit /tmp/podman-agent-sandbox.tgz'
+        'prefix=$(npm config get prefix); if [ ! -w "$prefix/lib/node_modules" ]; then
+             npm config set prefix ~/.local --location=user; mkdir -p ~/.local/bin; fi
+         npm install -g --no-fund --no-audit /tmp/podman-agent-sandbox.tgz'
 } >"$LOG/install.log" 2>&1 || die "installing $TARBALL inside $N failed" "$LOG/install.log"
 
 failed=0
@@ -85,11 +88,22 @@ run "T4 the inner container has network"    'podman run --rm docker.io/library/a
 run "T5 exec into a running container"      'podman rm -f t5 >/dev/null 2>&1; podman run -d --name t5 docker.io/library/alpine:latest sleep 60 >/dev/null && podman exec t5 echo exec-ok; s=$?; podman rm -f t5 >/dev/null; exit $s'
 run "T6 build an image"                      'd=$(mktemp -d) && printf "FROM docker.io/library/alpine:latest\nRUN echo built > /built\n" > $d/Containerfile && podman build -q -t t6 $d && podman run --rm t6 cat /built; s=$?; rm -r $d; podman rmi -f t6 >/dev/null 2>&1; exit $s'
 run "T7 node and npm are installed"          'node --version && npm --version'
-run "T8 sandbox is this build ($VERSION)"     "sandbox --version; sandbox --version | grep -q '^sandbox $VERSION '"
+run "T8 sandbox is this build ($VERSION)"     "sandbox --version | grep '^sandbox $VERSION ' || exit 1
+    pkg=\$(dirname \$(readlink -f \$(command -v sandbox)))/..; t=\$(mktemp -d); tar -xzf /tmp/podman-agent-sandbox.tgz -C \$t
+    diff -r \$t/package/src \$pkg/src && diff -r \$t/package/templates \$pkg/templates && echo \"same code as the tarball (\$(readlink -f \$pkg))\""
 run "T9 sandbox new + enter a claude"        '[ -d ~/sandboxes/claude ] || sandbox new claude --template claude; sandbox enter claude </dev/null >/tmp/enter.log 2>&1 || { tail -n 40 /tmp/enter.log; exit 1; }; podman ps --format "{{.Names}} {{.State}}" | grep "^claude running"'
 run "T10 claude runs in the nested claude"   'podman exec claude bash -lc "claude --version"'
 run "T11 nested claude's home is its volume" 'u=$(id -un); d=$(podman container inspect claude --format "{{range .Mounts}}{{if eq .Name \"claude-home\"}}{{.Destination}}{{end}}{{end}}"); echo "home volume at [$d], expected /home/$u"; [ "$d" = "/home/$u" ]'
 run "T12 USER, LOGNAME in a sandbox enter shell" 'got=$(echo "echo \"[\$USER][\$LOGNAME]\"" | sandbox enter claude 2>/dev/null | tail -n 1); u=$(id -un); echo "got $got, expected [$u][$u]"; [ "$got" = "[$u][$u]" ]'
+
+# T13-T16 run inside, as one script: their PASS/FAIL lines are printed as they are.
+podman exec -u "$U" "$N" bash -lc 'bash /tmp/proxy-network.sh ~/proxy-network-logs' >"$LOG/proxy-network.log" 2>&1
+pn=$?
+grep -E '^(PASS|FAIL|      \|)' "$LOG/proxy-network.log"
+if ((pn >= 99)) || ! grep -q '^failed: ' "$LOG/proxy-network.log"; then
+    echo "FAIL  T13-T16 did not run (exit $pn)"; tail -n 30 "$LOG/proxy-network.log" | sed 's/^/      | /'; pn=1
+fi
+failed=$((failed + pn))
 
 echo "failed: $failed"
 if ((failed)); then
