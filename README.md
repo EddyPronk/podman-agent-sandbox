@@ -71,6 +71,7 @@ sandbox templates                        # list the templates
 sandbox new work --template claude       # create ~/sandboxes/work
 sandbox new --template claude --workspace ~/src/app   # around an existing folder (below)
 sandbox enter work                       # build and start if needed, open a shell
+sandbox inspect work                     # the podman run command that made it, and what it runs with
 sandbox list
 sandbox stop work
 sandbox rm work                          # removes the container; the home volume is kept
@@ -80,6 +81,14 @@ sandbox build work [--no-cache]          # rebuild the image, showing the full l
 Sandboxes live in `~/sandboxes`; set `SANDBOX_DIR` to use another folder. A sandbox that
 already has a container is found through the container's `devcontainer.local_folder` label,
 wherever its folder is.
+
+`sandbox inspect NAME` shows a sandbox's container in two parts. First the `podman run` command
+that created it, as Podman recorded it, quoted for the shell with one option per line. Then what it
+runs with: user and user namespace, capabilities, new privileges, seccomp, devices, `/proc`,
+network (internal or routed), limits, and every mount (read-only, writable or hidden). While the
+sandbox runs, capabilities, new privileges and seccomp are read inside, from `/proc/1/status`.
+Warnings follow, e.g. for a sandbox made before 0.5.2 that still has capabilities, or a git repo
+in a `--workspace` whose hooks or config would be writable.
 
 ### Templates
 
