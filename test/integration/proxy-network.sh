@@ -5,8 +5,9 @@
 #   test/integration/proxy-network.sh [LOG_DIR]
 #
 # Run INSIDE that sandbox (nested.sh copies it in and runs it there), with `sandbox` on PATH. Makes
-# the sandboxes `proxy` (mitm-proxy) and `work` (proxy-client) unless they exist (PROXY=NAME and
-# CLIENT=NAME for other names), then checks, one line per test (PASS or FAIL):
+# the sandboxes `proxy` (mitm-proxy) and `work` (proxy-client) in $SANDBOX_DIR (default
+# ~/sandboxes) unless they exist (PROXY=NAME and CLIENT=NAME for other names), then checks, one
+# line per test (PASS or FAIL):
 #   T13     the proxy runs and listens on 8899
 #   T14     the client runs, on agent-proxy-net only
 #   T15a/b  an allowlisted host is answered by the upstream; another is refused with 403 at CONNECT
@@ -16,7 +17,7 @@
 # and T15a reaches api.anthropic.com.
 set -uo pipefail
 
-export P=${PROXY:-proxy} W=${CLIENT:-work}
+export P=${PROXY:-proxy} W=${CLIENT:-work} D=${SANDBOX_DIR:-$HOME/sandboxes}
 LOG=${1:-$HOME/proxy-network-logs}
 mkdir -p "$LOG"
 export LOG=$(cd "$LOG" && pwd -P)
@@ -44,7 +45,7 @@ client_up() {
 export -f client_up
 
 run "T13 mitm-proxy sandbox runs, listening on 8899" '
-    [ -d ~/sandboxes/$P ] || sandbox new $P --template mitm-proxy || exit 1
+    [ -d "$D/$P" ] || sandbox new $P --template mitm-proxy || exit 1
     sandbox enter $P </dev/null >$LOG/$P-enter.log 2>&1 || { tail -n 40 $LOG/$P-enter.log; exit 1; }
     podman ps --format "{{.Names}} {{.State}}" | grep -x "$P running" || exit 1
     for i in $(seq 20); do
@@ -54,7 +55,7 @@ run "T13 mitm-proxy sandbox runs, listening on 8899" '
     echo "nothing listening on 8899 in $P after 20 s"; exit 1'
 
 run "T14 proxy-client sandbox runs, on agent-proxy-net only" '
-    [ -d ~/sandboxes/$W ] || sandbox new $W --template proxy-client || exit 1
+    [ -d "$D/$W" ] || sandbox new $W --template proxy-client || exit 1
     sandbox enter $W </dev/null >$LOG/$W-enter.log 2>&1 || { tail -n 40 $LOG/$W-enter.log; exit 1; }
     podman ps --format "{{.Names}} {{.State}}" | grep -x "$W running" || exit 1
     nets=$(podman container inspect $W --format "{{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}} {{end}}")

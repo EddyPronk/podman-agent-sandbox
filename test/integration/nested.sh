@@ -91,7 +91,7 @@ run "T7 node and npm are installed"          'node --version && npm --version'
 run "T8 sandbox is this build ($VERSION)"     "sandbox --version | grep '^sandbox $VERSION ' || exit 1
     pkg=\$(dirname \$(readlink -f \$(command -v sandbox)))/..; t=\$(mktemp -d); tar -xzf /tmp/podman-agent-sandbox.tgz -C \$t
     diff -r \$t/package/src \$pkg/src && diff -r \$t/package/templates \$pkg/templates && echo \"same code as the tarball (\$(readlink -f \$pkg))\""
-run "T9 sandbox new + enter a claude"        '[ -d ~/sandboxes/claude ] || sandbox new claude --template claude; sandbox enter claude </dev/null >/tmp/enter.log 2>&1 || { tail -n 40 /tmp/enter.log; exit 1; }; podman ps --format "{{.Names}} {{.State}}" | grep "^claude running"'
+run "T9 sandbox new + enter a claude"        '[ -d "${SANDBOX_DIR:-$HOME/sandboxes}/claude" ] || sandbox new claude --template claude; sandbox enter claude </dev/null >/tmp/enter.log 2>&1 || { tail -n 40 /tmp/enter.log; exit 1; }; podman ps --format "{{.Names}} {{.State}}" | grep "^claude running"'
 run "T10 claude runs in the nested claude"   'podman exec claude bash -lc "claude --version"'
 run "T11 nested claude's home is its volume" 'u=$(id -un); d=$(podman container inspect claude --format "{{range .Mounts}}{{if eq .Name \"claude-home\"}}{{.Destination}}{{end}}{{end}}"); echo "home volume at [$d], expected /home/$u"; [ "$d" = "/home/$u" ]'
 run "T12 USER, LOGNAME in a sandbox enter shell" 'got=$(echo "echo \"[\$USER][\$LOGNAME]\"" | sandbox enter claude 2>/dev/null | tail -n 1); u=$(id -un); echo "got $got, expected [$u][$u]"; [ "$got" = "[$u][$u]" ]'
