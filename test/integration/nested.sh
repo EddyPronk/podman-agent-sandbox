@@ -13,6 +13,7 @@
 #   T13-T16 a mitm-proxy and a proxy-client sandbox inside: the client's only way out is the
 #           proxy (proxy-network.sh, run inside)
 #   T17-T18 those three are hardened (no capabilities, no new privileges) and still work
+#   T19     sandbox inspect on the nested claude
 # Each test's full output is in LOG_DIR (default ./nested-logs), and on a failure the end of it is
 # printed, followed by the state of both levels (containers, their logs, disk).
 # Exit status: the number of failed tests; 99 if `nested` couldn't be set up.
@@ -109,6 +110,7 @@ failed=$((failed + pn))
 # The hardened templates (claude, mitm-proxy, proxy-client), on the containers made above.
 run "T17 claude, proxy, work: no capabilities, no new privileges" 'f=; for c in claude proxy work; do s=$(podman exec $c grep -E "^(CapBnd|NoNewPrivs):" /proc/self/status | tr -s "\t\n" "  "); echo "$c: [$s]"; [ "$s" = "CapBnd: 0000000000000000 NoNewPrivs: 1 " ] || f=1; done; [ -z "$f" ]'
 run "T18 everyday work in the hardened claude" 'podman exec claude bash -lc "set -e; touch ~/.p /workspace/.p; rm ~/.p /workspace/.p; test -f ~/.bashrc; d=\$(mktemp -d); cd \$d; git init -q; git -c user.name=t -c user.email=t@t commit -q --allow-empty -m x; npm install --silent --no-audit --no-fund is-number >/dev/null; echo everyday-ok"'
+run "T19 sandbox inspect: the podman run command, and no warnings for the claude" 'out=$(sandbox inspect claude) || exit 1; echo "$out"; echo "$out" | grep -q "^podman run" && echo "$out" | grep -q "^capabilities  *none" && ! echo "$out" | grep -q "^warning:"'
 
 echo "failed: $failed"
 if ((failed)); then

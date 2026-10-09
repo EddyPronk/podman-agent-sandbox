@@ -4,6 +4,7 @@ import { constants } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
 import { SandboxError, checkName, cliPath, containerState, dc, folderOf, podman, sandboxDir } from './devcontainer.js';
+import { audit, formatCommand, parseStatus } from './inspect.js';
 import { applyTemplate, listTemplates, parseOptionArgs } from './templates.js';
 import {
     applyWorkspace, defaultName, findGitDirs, readSettings, realConfigDir, resolveWorkspace, uncoveredInSandbox,
@@ -30,6 +31,9 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        build NAME's image, showing the full log
   sandbox enter NAME   start NAME if needed and open a shell as $USER; with
                        --workspace, first check every git repo is protected
+  sandbox inspect NAME the podman command that created NAME's container, as a
+                       command line, and what it runs with: user, capabilities,
+                       new privileges, seccomp, network, mounts; with warnings
   sandbox list         list dev containers
   sandbox stop NAME    stop NAME
   sandbox rm NAME      remove NAME's container (its home volume, config folder
@@ -46,6 +50,7 @@ const commands = {
     templates: cmdTemplates,
     build: cmdBuild,
     enter: cmdEnter,
+    inspect: cmdInspect,
     list: cmdList,
     stop: cmdStop,
     rm: cmdRm,
@@ -216,6 +221,52 @@ function containerReadonlyMounts(name) {
         '{{range .Mounts}}{{if not .RW}}{{.Destination}}{{"\\n"}}{{end}}{{end}}', name]);
     if (result.status !== 0) throw new SandboxError(result.stderr.trim());
     return result.stdout.split('\n').filter(Boolean);
+}
+
+function cmdInspect(args) {
+    const name = oneName(args, 'sandbox inspect NAME');
+    const result = podman(['container', 'inspect', name]);
+    if (result.status !== 0) {
+        throw new SandboxError(`no container '${name}' (sandbox enter ${name} creates it from its config)`);
+    }
+    const [info] = JSON.parse(result.stdout);
+    const command = info.Config?.CreateCommand ?? [];
+    console.log(`# The command that created ${name} (podman recorded it):`);
+    console.log(command.length ? formatCommand(command, info.ImageName ?? '') : '# (none recorded)');
+
+    // Measured inside while it runs: what the processes in it actually have.
+    let status = null;
+    if (info.State?.Status === 'running') {
+        const proc = podman(['exec', name, 'cat', '/proc/1/status']);
+        if (proc.status === 0) status = parseStatus(proc.stdout);
+    }
+    const internal = {};
+    const networks = Object.keys(info.NetworkSettings?.Networks ?? {});
+    if (networks.length) {
+        const nets = podman(['network', 'inspect', '--format', '{{.Name}} {{.Internal}}', ...networks]);
+        for (const line of nets.stdout.split('\n').filter(Boolean)) {
+            const [net, isInternal] = line.split(' ');
+            internal[net] = isInternal === 'true';
+        }
+    }
+    let uncovered = [];
+    const folder = info.Config?.Labels?.['devcontainer.local_folder'];
+    if (folder) {
+        const readonly = (info.Mounts ?? []).filter((m) => !m.RW).map((m) => m.Destination);
+        try {
+            uncovered = uncoveredInSandbox(folder, readonly);
+        } catch {
+            // the config folder is gone: nothing to compare with
+        }
+    }
+    const report = audit(info, { status, internal, uncovered });
+
+    console.log(`\n# What it runs with${status ? ' (capabilities, new privileges, seccomp: measured inside)' : ''}:`);
+    const rows = [...report.rows, ...report.mounts.map((text, i) => [i ? '' : 'mounts', text])];
+    console.log(table(rows));
+    if (report.warnings.length || report.notes.length) console.log('');
+    for (const text of report.warnings) console.log(`warning: ${text}`);
+    for (const text of report.notes) console.log(`note: ${text}`);
 }
 
 function cmdList(args) {
