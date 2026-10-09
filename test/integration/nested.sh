@@ -12,6 +12,7 @@
 #   T7-T12  the sandbox command inside: a nested `claude` sandbox made, entered, its home and USER
 #   T13-T16 a mitm-proxy and a proxy-client sandbox inside: the client's only way out is the
 #           proxy (proxy-network.sh, run inside)
+#   T17-T18 those three are hardened (no capabilities, no new privileges) and still work
 # Each test's full output is in LOG_DIR (default ./nested-logs), and on a failure the end of it is
 # printed, followed by the state of both levels (containers, their logs, disk).
 # Exit status: the number of failed tests; 99 if `nested` couldn't be set up.
@@ -91,7 +92,7 @@ run "T7 node and npm are installed"          'node --version && npm --version'
 run "T8 sandbox is this build ($VERSION)"     "sandbox --version | grep '^sandbox $VERSION ' || exit 1
     pkg=\$(dirname \$(readlink -f \$(command -v sandbox)))/..; t=\$(mktemp -d); tar -xzf /tmp/podman-agent-sandbox.tgz -C \$t
     diff -r \$t/package/src \$pkg/src && diff -r \$t/package/templates \$pkg/templates && echo \"same code as the tarball (\$(readlink -f \$pkg))\""
-run "T9 sandbox new + enter a claude"        '[ -d ~/sandboxes/claude ] || sandbox new claude --template claude; sandbox enter claude </dev/null >/tmp/enter.log 2>&1 || { tail -n 40 /tmp/enter.log; exit 1; }; podman ps --format "{{.Names}} {{.State}}" | grep "^claude running"'
+run "T9 sandbox new + enter a claude"        '[ -d "${SANDBOX_DIR:-$HOME/sandboxes}/claude" ] || sandbox new claude --template claude; sandbox enter claude </dev/null >/tmp/enter.log 2>&1 || { tail -n 40 /tmp/enter.log; exit 1; }; podman ps --format "{{.Names}} {{.State}}" | grep "^claude running"'
 run "T10 claude runs in the nested claude"   'podman exec claude bash -lc "claude --version"'
 run "T11 nested claude's home is its volume" 'u=$(id -un); d=$(podman container inspect claude --format "{{range .Mounts}}{{if eq .Name \"claude-home\"}}{{.Destination}}{{end}}{{end}}"); echo "home volume at [$d], expected /home/$u"; [ "$d" = "/home/$u" ]'
 run "T12 USER, LOGNAME in a sandbox enter shell" 'got=$(echo "echo \"[\$USER][\$LOGNAME]\"" | sandbox enter claude 2>/dev/null | tail -n 1); u=$(id -un); echo "got $got, expected [$u][$u]"; [ "$got" = "[$u][$u]" ]'
@@ -104,6 +105,10 @@ if ((pn >= 99)) || ! grep -q '^failed: ' "$LOG/proxy-network.log"; then
     echo "FAIL  T13-T16 did not run (exit $pn)"; tail -n 30 "$LOG/proxy-network.log" | sed 's/^/      | /'; pn=1
 fi
 failed=$((failed + pn))
+
+# The hardened templates (claude, mitm-proxy, proxy-client), on the containers made above.
+run "T17 claude, proxy, work: no capabilities, no new privileges" 'f=; for c in claude proxy work; do s=$(podman exec $c grep -E "^(CapBnd|NoNewPrivs):" /proc/self/status | tr -s "\t\n" "  "); echo "$c: [$s]"; [ "$s" = "CapBnd: 0000000000000000 NoNewPrivs: 1 " ] || f=1; done; [ -z "$f" ]'
+run "T18 everyday work in the hardened claude" 'podman exec claude bash -lc "set -e; touch ~/.p /workspace/.p; rm ~/.p /workspace/.p; test -f ~/.bashrc; d=\$(mktemp -d); cd \$d; git init -q; git -c user.name=t -c user.email=t@t commit -q --allow-empty -m x; npm install --silent --no-audit --no-fund is-number >/dev/null; echo everyday-ok"'
 
 echo "failed: $failed"
 if ((failed)); then

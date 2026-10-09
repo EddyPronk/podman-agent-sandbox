@@ -31,6 +31,8 @@
     "--hostname",
     "${localWorkspaceFolderBasename}",
     "--userns=keep-id",
+    "--cap-drop=all",
+    "--security-opt=no-new-privileges",
     "--network=agent-proxy-net:alias=proxy",
     "--network=agent-egress"
   ]
