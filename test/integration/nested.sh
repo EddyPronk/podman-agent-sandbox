@@ -12,6 +12,7 @@
 #   T7-T12  the sandbox command inside: a nested `claude` sandbox made, entered, its home and USER
 #   T13-T16 a mitm-proxy and a proxy-client sandbox inside: the client's only way out is the
 #           proxy (proxy-network.sh, run inside)
+#   T17-T18 those three are hardened (no capabilities, no new privileges) and still work
 # Each test's full output is in LOG_DIR (default ./nested-logs), and on a failure the end of it is
 # printed, followed by the state of both levels (containers, their logs, disk).
 # Exit status: the number of failed tests; 99 if `nested` couldn't be set up.
@@ -104,6 +105,10 @@ if ((pn >= 99)) || ! grep -q '^failed: ' "$LOG/proxy-network.log"; then
     echo "FAIL  T13-T16 did not run (exit $pn)"; tail -n 30 "$LOG/proxy-network.log" | sed 's/^/      | /'; pn=1
 fi
 failed=$((failed + pn))
+
+# The hardened templates (claude, mitm-proxy, proxy-client), on the containers made above.
+run "T17 claude, proxy, work: no capabilities, no new privileges" 'f=; for c in claude proxy work; do s=$(podman exec $c grep -E "^(CapBnd|NoNewPrivs):" /proc/self/status | tr -s "\t\n" "  "); echo "$c: [$s]"; [ "$s" = "CapBnd: 0000000000000000 NoNewPrivs: 1 " ] || f=1; done; [ -z "$f" ]'
+run "T18 everyday work in the hardened claude" 'podman exec claude bash -lc "set -e; touch ~/.p /workspace/.p; rm ~/.p /workspace/.p; test -f ~/.bashrc; d=\$(mktemp -d); cd \$d; git init -q; git -c user.name=t -c user.email=t@t commit -q --allow-empty -m x; npm install --silent --no-audit --no-fund is-number >/dev/null; echo everyday-ok"'
 
 echo "failed: $failed"
 if ((failed)); then

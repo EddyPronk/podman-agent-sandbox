@@ -2,7 +2,7 @@
   "id": "claude",
   "version": "0.1.0",
   "name": "Claude Code",
-  "description": "Debian trixie with Node.js and Claude Code; your user via --userns=keep-id, home on a per-sandbox volume, unrestricted network",
+  "description": "Debian trixie with Node.js and Claude Code; your user via --userns=keep-id, no capabilities, no new privileges, home on a per-sandbox volume, unrestricted network",
   "documentationURL": "https://github.com/anthropics/devcontainer-features",
   "options": {},
   "platforms": ["Any"]

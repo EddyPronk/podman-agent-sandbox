@@ -5,7 +5,10 @@ A rootless Podman sandbox for running coding agents.
 `sandbox` is a small, lxc-style front end for [dev containers](https://containers.dev/) on
 rootless Podman. Each sandbox is a folder with a `.devcontainer/` config; the container runs
 with `--userns=keep-id`, so the user inside *is* your host user, and keeps its home directory
-on a per-sandbox volume.
+on a per-sandbox volume. The bundled templates drop all capabilities (`--cap-drop=all`) and set
+`no-new-privileges`, so nothing inside can gain rights through setuid or file capabilities (no
+`sudo`); only `claude-containers` can't, see [Containers inside a
+sandbox](#containers-inside-a-sandbox).
 
 ## Prerequisites
 
@@ -83,7 +86,10 @@ wherever its folder is.
 Templates use the [Dev Container Template](https://containers.dev/implementors/templates/)
 format: a `devcontainer-template.json` plus a `.devcontainer/` folder. `sandbox new` copies the
 template and replaces `${templateOption:KEY}` with the values from `--option KEY=VALUE` or the
-defaults. A template is copied once: later changes to it don't reach existing sandboxes.
+defaults. A template is copied once: later changes to it don't reach existing sandboxes. (For
+example, sandboxes made before 0.5.2 don't have `--cap-drop=all` and
+`--security-opt=no-new-privileges`: add them to `runArgs` in the sandbox's
+`.devcontainer/devcontainer.json`, then `sandbox rm NAME` and `sandbox enter NAME`.)
 
 | Template | What you get |
 |---|---|
@@ -168,7 +174,7 @@ sandbox is made). Containers inside can't get more rights than the sandbox itsel
 A `claude-containers` sandbox can be made inside another one, e.g. to test a project that itself
 makes sandboxes.
 
-**What it costs.** Rootless Podman inside a rootless container needs three rights the `claude`
+**What it costs.** Rootless Podman inside a rootless container needs four rights the `claude`
 template doesn't give:
 
 | Right | Why | What it weakens |
@@ -176,10 +182,9 @@ template doesn't give:
 | `--device=/dev/net/tun` | `pasta`, the network for rootless containers, builds it with a TUN device | network interfaces in the sandbox's own network namespace; on its own this doesn't reach the host's network |
 | `--security-opt=unmask=/proc/*` | a container's new `/proc` can only be mounted where `/proc` isn't partly covered | the sandbox's `/proc` loses Podman's covers; host-wide files (`kcore`, `sysrq-trigger`) still need privileges a rootless container never has, so what opens up is mostly the sandbox's own view |
 | its own seccomp profile | containers inside set their own host name | your Podman's default profile, plus `sethostname` and `setdomainname` without `CAP_SYS_ADMIN`; both change only the caller's own UTS namespace |
+| no `--cap-drop=all`, no `no-new-privileges` | `newuidmap`/`newgidmap` map the user's subordinate IDs with their file capabilities (`cap_setuid`, `cap_setgid`; the image has them instead of setuid); without these rights inner containers fail with `operation not permitted` | a program with file capabilities or setuid can gain rights up to Podman's default set (still no `CAP_SYS_ADMIN`), inside the sandbox's user namespace |
 
-Kept as with `claude`: `--userns=keep-id` (you, not root), the capability set (no
-`CAP_SYS_ADMIN`), the rest of the seccomp profile. The image also has `newuidmap`/`newgidmap` with
-file capabilities (`cap_setuid`, `cap_setgid`) instead of setuid, for the user's subordinate IDs.
+Kept as with `claude`: `--userns=keep-id` (you, not root), the rest of the seccomp profile.
 
 **Use `claude` unless the agent needs containers.** This template is for your own projects and an
 agent you'd let run containers on your machine anyway; not for untrusted code. Its network is as

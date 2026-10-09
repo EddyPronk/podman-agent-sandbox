@@ -103,6 +103,18 @@ test('every bundled template sets USER and LOGNAME in sandbox enter shells', () 
     }
 });
 
+test('every bundled template but claude-containers drops all capabilities and no-new-privileges', () => {
+    // Nothing in them needs either: they run as the user (keep-id), with no setuid or file-capability
+    // programs. claude-containers can't: nested podman needs newuidmap's file capabilities.
+    const hardening = ['--cap-drop=all', '--security-opt=no-new-privileges'];
+    for (const { id } of listTemplates()) {
+        const config = JSON.parse(readFileSync(new URL(`../templates/${id}/.devcontainer/devcontainer.json`, import.meta.url), 'utf8'));
+        for (const arg of hardening) {
+            assert.equal(config.runArgs.includes(arg), id !== 'claude-containers', `${id}: runArgs ${arg}`);
+        }
+    }
+});
+
 test('claude-containers: the claude template plus podman, and it says it weakens the sandbox', () => {
     const meta = listTemplates().find((t) => t.id === 'claude-containers');
     assert.ok(meta, 'bundled');
