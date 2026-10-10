@@ -4,6 +4,18 @@
   "name": "Claude Code behind the proxy",
   "description": "Like claude, but with no route out: only agent-proxy-net, all HTTP(S) through the mitm-proxy sandbox (http://proxy:8899), trusting its CA. Create and start a mitm-proxy sandbox first",
   "documentationURL": "https://github.com/EddyPronk/agent-mitm-proxy",
-  "options": {},
+  "options": {
+    "image": {
+      "type": "string",
+      "description": "Base image: Ubuntu 26.04 is tested; other Debian or Ubuntu based images are experimental",
+      "proposals": [
+        "docker.io/library/debian:trixie-slim",
+        "docker.io/library/ubuntu:26.04",
+        "docker.io/library/ubuntu:24.04",
+        "mcr.microsoft.com/devcontainers/typescript-node:5-24-trixie"
+      ],
+      "default": "docker.io/library/debian:trixie-slim"
+    }
+  },
   "platforms": ["Any"]
 }

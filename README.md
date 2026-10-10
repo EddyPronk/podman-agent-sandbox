@@ -69,6 +69,7 @@ log out and back in: Debian's `~/.profile` only adds it to `PATH` when it exists
 ```sh
 sandbox templates                        # list the templates
 sandbox new work --template claude       # create ~/sandboxes/work
+sandbox new u26 --template claude --image docker.io/library/ubuntu:26.04   # on another base image
 sandbox new --template claude --workspace ~/src/app   # around an existing folder (below)
 sandbox enter work                       # build and start if needed, open a shell
 sandbox inspect work                     # the podman run command that made it, and what it runs with
@@ -110,10 +111,10 @@ example, sandboxes made before 0.5.2 don't have `--cap-drop=all` and
 
 | Template | What you get |
 |---|---|
-| `claude` | Debian trixie, Node.js and Claude Code (Dev Container Features); unrestricted network |
+| `claude` | Debian trixie (or another base image: `--image`, below), Node.js and Claude Code (Dev Container Features); unrestricted network |
 | `claude-containers` | Like `claude`, plus rootless Podman and `sandbox` inside, for an agent that needs containers of its own. Weakens the sandbox: see [Containers inside a sandbox](#containers-inside-a-sandbox) |
 | `mitm-proxy` | [agent-mitm-proxy](https://github.com/EddyPronk/agent-mitm-proxy): an egress proxy with TLS interception and an allowlist (`allowlist.txt` in the sandbox folder; changes apply without a restart). Option `ref`: the agent-mitm-proxy commit to build |
-| `proxy-client` | Like `claude`, but with no route out: only the proxy's internal network, all HTTP(S) through `http://proxy:8899`, trusting the proxy's CA |
+| `proxy-client` | Like `claude` (also `--image`), but with no route out: only the proxy's internal network, all HTTP(S) through `http://proxy:8899`, trusting the proxy's CA |
 
 To run Claude Code behind the proxy, create and start the proxy first; it publishes its CA certificate
 for the client:
@@ -127,6 +128,22 @@ sandbox enter work
 
 The proxy's private data (CA keys, the decrypted-traffic log, refusals) stays in its home volume,
 `proxy-home`. Only one proxy can run at a time: it takes the network name `proxy`.
+
+`claude` and `proxy-client` are built on `debian:trixie-slim` unless you choose another base image with
+`--image` (`sandbox templates` lists some):
+
+```sh
+sandbox new work --template claude --image docker.io/library/ubuntu:26.04
+```
+
+Only Ubuntu 26.04 (and the default) is tested. Any other image is **experimental**: `sandbox new` warns,
+and once it runs, check it with `sandbox inspect NAME`, which may show warnings about weaknesses. The
+image must be Debian or Ubuntu based (the build uses `apt-get`). Node.js and Claude Code are
+installed on top as usual, and the sandbox gets the same hardening. If the image already has a user with
+your UID (Ubuntu's `ubuntu`, `node` or `vscode` in Microsoft's dev container images), the build renames
+it to you, with its home, so that `--userns=keep-id` finds you. It keeps that user's groups: on Ubuntu
+you are also in `adm`, `sudo` and a few others, which give nothing inside a sandbox without capabilities
+and with no new privileges (and Ubuntu's image has no `sudo`).
 
 Your own templates don't need to be bundled: give `--template` a path to a template folder
 (anything with a `/` in it is a path), e.g. one kept in your project:
@@ -237,8 +254,8 @@ podman image prune                                       # their build layers (a
 rm -r ~/sandboxes/NAME                                   # sandbox folders
 ```
 
-The templates' base image (`debian:trixie-slim`) stays too; `podman rmi debian:trixie-slim`
-removes it.
+The templates' base image (`debian:trixie-slim`, or the one given with `--image`) stays too;
+`podman rmi IMAGE` removes it.
 
 ## Development
 

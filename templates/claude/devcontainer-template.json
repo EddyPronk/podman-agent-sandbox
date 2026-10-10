@@ -2,8 +2,20 @@
   "id": "claude",
   "version": "0.1.0",
   "name": "Claude Code",
-  "description": "Debian trixie with Node.js and Claude Code; your user via --userns=keep-id, no capabilities, no new privileges, home on a per-sandbox volume, unrestricted network",
+  "description": "Debian trixie (or another Debian or Ubuntu base image) with Node.js and Claude Code; your user via --userns=keep-id, no capabilities, no new privileges, home on a per-sandbox volume, unrestricted network",
   "documentationURL": "https://github.com/anthropics/devcontainer-features",
-  "options": {},
+  "options": {
+    "image": {
+      "type": "string",
+      "description": "Base image: Ubuntu 26.04 is tested; other Debian or Ubuntu based images are experimental",
+      "proposals": [
+        "docker.io/library/debian:trixie-slim",
+        "docker.io/library/ubuntu:26.04",
+        "docker.io/library/ubuntu:24.04",
+        "mcr.microsoft.com/devcontainers/typescript-node:5-24-trixie"
+      ],
+      "default": "docker.io/library/debian:trixie-slim"
+    }
+  },
   "platforms": ["Any"]
 }

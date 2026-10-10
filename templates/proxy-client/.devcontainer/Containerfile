@@ -1,6 +1,16 @@
-FROM docker.io/library/debian:trixie-slim
+# The base image is `sandbox new --image` (template option image, passed in devcontainer.json
+# build.args): any Debian or Ubuntu based image, Debian trixie-slim by default.
+ARG BASE_IMAGE=docker.io/library/debian:trixie-slim
+FROM ${BASE_IMAGE}
+ARG SANDBOX_UID=1000
+ARG SANDBOX_USER=
 
-# Basics missing from the slim image; Node.js comes from the node feature.
+USER root
+
+RUN command -v apt-get >/dev/null \
+    || { echo "sandbox: the base image must be Debian or Ubuntu based (no apt-get)" >&2; exit 1; }
+
+# Basics missing from slim images; Node.js comes from the node feature.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
@@ -8,3 +18,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         less \
         procps \
     && rm -rf /var/lib/apt/lists/*
+
+# --userns=keep-id adds the host user to /etc/passwd only when no user has its UID yet. Some images
+# already have one (ubuntu in Ubuntu 23.04 and later, node or vscode in Microsoft's dev container
+# images), and then $USER doesn't exist in the container. Rename that user to $USER, home included;
+# its UID, groups and files stay. Its group is renamed too when it has the user's name.
+RUN old=$(getent passwd "$SANDBOX_UID" | cut -d: -f1); \
+    if [ -n "$SANDBOX_USER" ] && [ -n "$old" ] && [ "$old" != "$SANDBOX_USER" ]; then \
+        usermod -l "$SANDBOX_USER" -d "/home/$SANDBOX_USER" -m "$old" \
+        && if getent group "$old" >/dev/null && ! getent group "$SANDBOX_USER" >/dev/null; then \
+               groupmod -n "$SANDBOX_USER" "$old"; \
+           fi; \
+    fi

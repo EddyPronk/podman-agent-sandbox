@@ -2,7 +2,8 @@
 # sandbox from the claude-containers template that runs podman, a nested `claude` sandbox, and a
 # mitm-proxy + proxy-client pair of its own (nested, test/integration/nested.sh).
 # Not a required check. Runs by hand, and on PRs that change this file, the integration tests, the
-# claude-containers template or the code that writes its seccomp profile.
+# claude-containers template or the code that writes its seccomp profile, or the claude and
+# proxy-client templates (their --image base-image logic).
 name: podman
 
 on:
@@ -12,6 +13,8 @@ on:
       - '.github/workflows/podman.yml'
       - 'test/integration/**'
       - 'templates/claude-containers/**'
+      - 'templates/claude/**'
+      - 'templates/proxy-client/**'
       - 'src/seccomp.js'
       - 'src/templates.js'
 
