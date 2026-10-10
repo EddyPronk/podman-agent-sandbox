@@ -83,9 +83,10 @@ const capName = (cap) => cap.replace(/^CAP_/, '').toLowerCase();
  * status: parseStatus() of /proc/1/status inside, when it runs (measured beats configured).
  * internal: network name -> true when internal (no route out).
  * uncovered: git paths a --workspace sandbox should have read-only and doesn't.
+ * sandbox: false for a container `sandbox` didn't make: the advice is podman's, not the templates'.
  * Returns { rows: [[label, text]], mounts: [text], warnings: [text], notes: [text] }.
  */
-export function audit(info, { status = null, internal = {}, uncovered = [] } = {}) {
+export function audit(info, { status = null, internal = {}, uncovered = [], sandbox = true } = {}) {
     const host = info.HostConfig ?? {};
     const split = splitCommand(info.Config?.CreateCommand ?? [], info.ImageName ?? '');
     const options = split?.options ?? [];
@@ -119,9 +120,12 @@ export function audit(info, { status = null, internal = {}, uncovered = [] } = {
     if (!noNewPrivs) unhardened.push('no-new-privileges off');
     if (unhardened.length && nested) {
         notes.push(`${unhardened.join(', ')}: expected for a sandbox that runs podman inside, like claude-containers`);
-    } else if (unhardened.length) {
+    } else if (unhardened.length && sandbox) {
         warnings.push(`${unhardened.join(', ')}: setuid and file-capability programs can gain rights. The templates `
             + 'since 0.5.2 add --cap-drop=all and --security-opt=no-new-privileges to runArgs (then sandbox rm, sandbox enter)');
+    } else if (unhardened.length) {
+        warnings.push(`${unhardened.join(', ')}: setuid and file-capability programs (sudo) can gain rights; `
+            + 'podman run --cap-drop=all --security-opt=no-new-privileges prevents it');
     }
 
     const seccomp = securityOpts.filter((o) => o.startsWith('seccomp=')).map((o) => o.slice(8)).at(-1);

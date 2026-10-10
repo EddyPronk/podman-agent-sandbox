@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir, userInfo } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 /** An error meant for the user: printed as "sandbox: <message>", no stack trace. */
 export class SandboxError extends Error {}
@@ -79,6 +79,31 @@ function inspect(name, format) {
     return out === '<no value>' ? '' : out;
 }
 
+/** The label the bundled templates put on every sandbox's container, with the sandbox version. */
+export const SANDBOX_LABEL = 'podman-agent-sandbox';
+
+/**
+ * Whether a container is a sandbox, from its labels: LABEL is SANDBOX_LABEL's value, FOLDER the
+ * devcontainer.local_folder label. Containers made before the label (0.6.0), or from a template
+ * without it, count when their config folder is in $SANDBOX_DIR or has a sandbox.json (--workspace).
+ * Dev containers VS Code makes have neither. Returns how it was recognised, or '' when it isn't.
+ */
+export function sandboxReason({ label = '', folder = '' }, { env = process.env, exists = existsSync } = {}) {
+    if (label) return `label ${SANDBOX_LABEL}=${label}`;
+    if (!folder || !hasConfig(folder, exists)) return '';
+    if (resolve(dirname(folder)) === resolve(sandboxDir(env))) return `config folder in ${sandboxDir(env)}`;
+    if (exists(join(folder, 'sandbox.json'))) return 'config folder with sandbox.json';
+    return '';
+}
+
+/** sandboxReason() for container NAME; null when there's no such container. */
+export function containerSandbox(name) {
+    const out = inspect(name, `{{index .Config.Labels "${SANDBOX_LABEL}"}}|{{index .Config.Labels "devcontainer.local_folder"}}`);
+    if (!out) return null;
+    const [label, folder] = out.split('|').map((s) => (s === '<no value>' ? '' : s));
+    return sandboxReason({ label, folder });
+}
+
 /** The workspace folder recorded on container NAME, or '' if there is none. */
 export function labelFolder(name) {
     return inspect(name, '{{index .Config.Labels "devcontainer.local_folder"}}');
@@ -89,8 +114,8 @@ export function containerState(name) {
     return inspect(name, '{{.State.Status}}');
 }
 
-export function hasConfig(dir) {
-    return existsSync(join(dir, '.devcontainer', 'devcontainer.json')) || existsSync(join(dir, '.devcontainer.json'));
+export function hasConfig(dir, exists = existsSync) {
+    return exists(join(dir, '.devcontainer', 'devcontainer.json')) || exists(join(dir, '.devcontainer.json'));
 }
 
 /** Resolve NAME to its workspace folder: the container's label, or else $SANDBOX_DIR/NAME. */

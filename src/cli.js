@@ -3,7 +3,10 @@ import { readFileSync, rmSync } from 'node:fs';
 import { constants } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
-import { SandboxError, checkName, cliPath, containerState, dc, folderOf, podman, sandboxDir } from './devcontainer.js';
+import {
+    SANDBOX_LABEL, SandboxError, checkName, cliPath, containerSandbox, containerState, dc, folderOf, podman, sandboxDir,
+    sandboxReason,
+} from './devcontainer.js';
 import { audit, formatCommand, parseStatus } from './inspect.js';
 import { applyTemplate, listTemplates, parseOptionArgs } from './templates.js';
 import {
@@ -35,14 +38,21 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        command line, and what it runs with: user, capabilities,
                        new privileges, seccomp, network, mounts; with warnings
   sandbox list         list dev containers
-  sandbox stop NAME    stop NAME
-  sandbox rm NAME      remove NAME's container (its home volume, config folder
+  sandbox stop [--force] NAME
+                       stop NAME
+  sandbox rm [--force] NAME
+                       remove NAME's container (its home volume, config folder
                        and any --workspace folder are kept)
   sandbox --version    show the version (and the Dev Containers CLI's)
 
 NAME is resolved to its folder (the config, and the workspace unless it was
 made with --workspace) via the container's devcontainer.local_folder label,
 or else $SANDBOX_DIR/NAME. SANDBOX_DIR defaults to ~/sandboxes.
+
+stop and rm only act on sandboxes: containers with the podman-agent-sandbox
+label (0.6.0 on), or whose config folder is in $SANDBOX_DIR or has a
+sandbox.json. --force acts on any container, e.g. one VS Code made. inspect
+works on any container and says whether it is a sandbox.
 `;
 
 const commands = {
@@ -230,9 +240,15 @@ function cmdInspect(args) {
         throw new SandboxError(`no container '${name}' (sandbox enter ${name} creates it from its config)`);
     }
     const [info] = JSON.parse(result.stdout);
+    const labels = info.Config?.Labels ?? {};
+    const reason = sandboxReason({ label: labels[SANDBOX_LABEL], folder: labels['devcontainer.local_folder'] });
+    console.log(reason ? `# ${name} is a sandbox (${reason}).`
+        : `# ${name} is not a sandbox: no ${SANDBOX_LABEL} label or sandbox config folder (VS Code's, or your own?).`);
     const command = info.Config?.CreateCommand ?? [];
-    console.log(`# The command that created ${name} (podman recorded it):`);
-    console.log(command.length ? formatCommand(command, info.ImageName ?? '') : '# (none recorded)');
+    console.log(`\n# The command that created ${name} (podman recorded it):`);
+    console.log(command.length ? formatCommand(command, info.ImageName ?? '')
+        : '# (none: podman records it only for the podman command, not for containers made through its API\n'
+        + '# socket, as VS Code and other Docker clients do)');
 
     // Measured inside while it runs: what the processes in it actually have.
     let status = null;
@@ -259,7 +275,7 @@ function cmdInspect(args) {
             // the config folder is gone: nothing to compare with
         }
     }
-    const report = audit(info, { status, internal, uncovered });
+    const report = audit(info, { status, internal, uncovered, sandbox: Boolean(reason) });
 
     console.log(`\n# What it runs with${status ? ' (capabilities, new privileges, seccomp: measured inside)' : ''}:`);
     const rows = [...report.rows, ...report.mounts.map((text, i) => [i ? '' : 'mounts', text])];
@@ -279,15 +295,28 @@ function cmdList(args) {
     console.log(table(rows));
 }
 
+/** NAME from `[--force] NAME`; refuses a container that isn't a sandbox unless --force. */
+function sandboxName(args, sub) {
+    const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { force: { type: 'boolean' } } });
+    const name = oneName(positionals, `sandbox ${sub} [--force] NAME`);
+    if (!values.force && containerSandbox(name) === '') {
+        throw new SandboxError(`${name} isn't a sandbox: no ${SANDBOX_LABEL} label, and its config folder (if any) `
+            + `is neither in ${sandboxDir()} nor has a sandbox.json. It may be VS Code's or your own.\n`
+            + `To ${sub} it anyway: sandbox ${sub} --force ${name} (or podman ${sub} ${name}). For a sandbox made `
+            + 'with another SANDBOX_DIR, set that SANDBOX_DIR.');
+    }
+    return name;
+}
+
 function cmdStop(args) {
-    const name = oneName(args, 'sandbox stop NAME');
+    const name = sandboxName(args, 'stop');
     const result = podman(['stop', name]);
     if (result.status !== 0) throw new SandboxError(result.stderr.trim());
     console.log(`stopped ${name}`);
 }
 
 function cmdRm(args) {
-    const name = oneName(args, 'sandbox rm NAME');
+    const name = sandboxName(args, 'rm');
     const result = podman(['rm', '-f', name]);
     if (result.status !== 0) throw new SandboxError(result.stderr.trim());
     console.log(`removed ${name}`);
