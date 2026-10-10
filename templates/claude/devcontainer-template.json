@@ -7,7 +7,7 @@
   "options": {
     "image": {
       "type": "string",
-      "description": "Base image: any Debian or Ubuntu based image",
+      "description": "Base image: Ubuntu 26.04 is tested; other Debian or Ubuntu based images are experimental",
       "proposals": [
         "docker.io/library/debian:trixie-slim",
         "docker.io/library/ubuntu:26.04",

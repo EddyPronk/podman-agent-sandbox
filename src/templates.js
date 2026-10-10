@@ -61,6 +61,24 @@ export function withImage(given, image) {
     return { ...given, image };
 }
 
+// Base images tested with --image (besides each template's default). Others may work, but they are
+// experimental: sandbox new warns.
+export const TESTED_IMAGES = ['docker.io/library/ubuntu:26.04'];
+
+/** True for an --image that is neither the template's default nor tested (Docker Hub short names count). */
+export function experimentalImage(image, defaultImage) {
+    return fullImageName(image) !== fullImageName(defaultImage) && !TESTED_IMAGES.includes(fullImageName(image));
+}
+
+/** ubuntu:26.04 and docker.io/ubuntu:26.04 → docker.io/library/ubuntu:26.04; other registries as they are. */
+function fullImageName(ref) {
+    const first = ref.split('/')[0];
+    const registry = ref.includes('/') && (first.includes('.') || first.includes(':') || first === 'localhost');
+    if (registry && first !== 'docker.io') return ref;
+    const path = registry ? ref.slice(first.length + 1) : ref;
+    return `docker.io/${path.includes('/') ? path : `library/${path}`}`;
+}
+
 /** Replace ${templateOption:KEY} in TEXT; unknown keys are left as they are. */
 export function substitute(text, values) {
     return text.replace(/\$\{templateOption:([^}]+)\}/g,

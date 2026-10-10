@@ -136,7 +136,9 @@ The proxy's private data (CA keys, the decrypted-traffic log, refusals) stays in
 sandbox new work --template claude --image docker.io/library/ubuntu:26.04
 ```
 
-The image must be Debian or Ubuntu based (the build uses `apt-get`). Node.js and Claude Code are
+Only Ubuntu 26.04 (and the default) is tested. Any other image is **experimental**: `sandbox new` warns,
+and once it runs, check it with `sandbox inspect NAME`, which may show warnings about weaknesses. The
+image must be Debian or Ubuntu based (the build uses `apt-get`). Node.js and Claude Code are
 installed on top as usual, and the sandbox gets the same hardening. If the image already has a user with
 your UID (Ubuntu's `ubuntu`, `node` or `vscode` in Microsoft's dev container images), the build renames
 it to you, with its home, so that `--userns=keep-id` finds you. It keeps that user's groups: on Ubuntu

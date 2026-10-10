@@ -6,7 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { SandboxError } from '../src/devcontainer.js';
-import { applyTemplate, listTemplates, parseOptionArgs, resolveOptions, substitute, withImage } from '../src/templates.js';
+import {
+    applyTemplate, experimentalImage, listTemplates, parseOptionArgs, resolveOptions, substitute, withImage,
+} from '../src/templates.js';
 
 /** A template root with one template "demo" that has a network option. */
 function demoRoot() {
@@ -161,6 +163,18 @@ test('withImage: --image is the option image; a different --option image= is ref
     assert.throws(() => withImage({ image: 'y:1' }, 'x:1'), /disagree/);
 });
 
+test('experimentalImage: anything but the default and Ubuntu 26.04, whatever the spelling', () => {
+    const debian = 'docker.io/library/debian:trixie-slim';
+    for (const image of ['ubuntu:26.04', 'docker.io/ubuntu:26.04', 'docker.io/library/ubuntu:26.04',
+        'debian:trixie-slim', debian]) {
+        assert.equal(experimentalImage(image, debian), false, image);
+    }
+    for (const image of ['ubuntu:24.04', 'someone/ubuntu:26.04', 'localhost/ubuntu:26.04', 'myreg:5000/ubuntu:26.04',
+        'mcr.microsoft.com/devcontainers/typescript-node:5-24-trixie']) {
+        assert.equal(experimentalImage(image, debian), true, image);
+    }
+});
+
 test('sandbox new --image: the image reaches the build args; templates without the option refuse it', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
     const sandbox = (...args) => spawnSync(process.execPath,
@@ -170,6 +184,11 @@ test('sandbox new --image: the image reaches the build args; templates without t
     assert.equal(made.status, 0, made.stderr);
     const config = JSON.parse(readFileSync(join(dir, 'u26', '.devcontainer', 'devcontainer.json'), 'utf8'));
     assert.equal(config.build.args.BASE_IMAGE, 'docker.io/library/ubuntu:26.04');
+    assert.doesNotMatch(made.stderr, /experimental/, 'Ubuntu 26.04 is tested');
+    const other = sandbox('new', 'ts', '--template', 'proxy-client', '--image', 'mcr.microsoft.com/devcontainers/typescript-node:5-24-trixie');
+    assert.equal(other.status, 0, other.stderr);
+    assert.match(other.stderr, /warning: --image mcr\.microsoft\.com\/devcontainers\/typescript-node:5-24-trixie is experimental/);
+    assert.match(other.stderr, /run 'sandbox inspect ts': it may show warnings about weaknesses/);
     const refused = sandbox('new', 'p', '--template', 'mitm-proxy', '--image', 'docker.io/library/ubuntu:26.04');
     assert.notEqual(refused.status, 0);
     assert.match(refused.stderr, /template 'mitm-proxy' has a fixed image \(no --image\)/);

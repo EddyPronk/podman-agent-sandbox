@@ -8,7 +8,9 @@ import {
     sandboxReason,
 } from './devcontainer.js';
 import { audit, formatCommand, parseStatus } from './inspect.js';
-import { applyTemplate, listTemplates, parseOptionArgs, withImage } from './templates.js';
+import {
+    applyTemplate, experimentalImage, findTemplate, listTemplates, parseOptionArgs, TESTED_IMAGES, withImage,
+} from './templates.js';
 import {
     applyWorkspace, defaultName, findGitDirs, readSettings, realConfigDir, resolveWorkspace, uncoveredInSandbox,
     workspaceMounts, workspacePath,
@@ -135,7 +137,8 @@ function cmdNew(args) {
     const dest = join(sandboxDir(), name);
     // Check everything about the workspace before creating anything.
     const plan = workspace && planWorkspace(workspace, values, realConfigDir(dest));
-    applyTemplate(values.template, dest, withImage(parseOptionArgs(values.option ?? []), values.image));
+    const given = withImage(parseOptionArgs(values.option ?? []), values.image);
+    applyTemplate(values.template, dest, given);
     if (plan) {
         try {
             applyWorkspace(dest, plan);
@@ -151,6 +154,12 @@ function cmdNew(args) {
         console.log(`created ${dest} from template '${values.template}'`);
     }
     console.log(`next: sandbox enter ${name}`);
+    const defaultImage = findTemplate(values.template).template.options?.image?.default;
+    if (given.image !== undefined && experimentalImage(given.image, defaultImage)) {
+        console.error(`sandbox: warning: --image ${given.image} is experimental (tested: ${TESTED_IMAGES.join(', ')}`
+            + ` and the default, ${defaultImage}). After 'sandbox enter ${name}', run 'sandbox inspect ${name}':`
+            + ' it may show warnings about weaknesses.');
+    }
 }
 
 /** Everything --workspace adds, checked: the mounts, and the choices for sandbox.json. */
