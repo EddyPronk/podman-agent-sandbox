@@ -8,7 +8,7 @@ import {
     sandboxReason,
 } from './devcontainer.js';
 import { audit, formatCommand, parseStatus } from './inspect.js';
-import { applyTemplate, listTemplates, parseOptionArgs } from './templates.js';
+import { applyTemplate, listTemplates, parseOptionArgs, withImage } from './templates.js';
 import {
     applyWorkspace, defaultName, findGitDirs, readSettings, realConfigDir, resolveWorkspace, uncoveredInSandbox,
     workspaceMounts, workspacePath,
@@ -17,10 +17,12 @@ import {
 const USAGE = `\
 sandbox — lxc-style front end for dev containers on rootless Podman.
 
-  sandbox new NAME --template TEMPLATE [--option KEY=VALUE ...]
+  sandbox new NAME --template TEMPLATE [--image IMAGE] [--option KEY=VALUE ...]
                        create $SANDBOX_DIR/NAME from a template: a bundled
-                       one's ID, or a path to a template folder (has a '/')
-  sandbox new [NAME] --template TEMPLATE --workspace PATH
+                       one's ID, or a path to a template folder (has a '/').
+                       --image: its base image, any Debian or Ubuntu based
+                       image (claude, proxy-client; default debian:trixie-slim)
+  sandbox new [NAME] --template TEMPLATE --workspace PATH [--image IMAGE]
               [--hide PATH ...] [--readonly PATH ...] [--option KEY=VALUE ...]
                        a sandbox around an existing folder: PATH is mounted at
                        its own path and is the working folder; the config stays
@@ -116,13 +118,14 @@ function cmdNew(args) {
         options: {
             template: { type: 'string', short: 't' },
             option: { type: 'string', short: 'o', multiple: true },
+            image: { type: 'string', short: 'i' },
             workspace: { type: 'string', short: 'w' },
             hide: { type: 'string', multiple: true },
             readonly: { type: 'string', multiple: true },
         },
     });
-    const usage = 'sandbox new NAME --template TEMPLATE [--option KEY=VALUE ...]\n'
-        + '       sandbox new [NAME] --template TEMPLATE --workspace PATH [--hide PATH ...] [--readonly PATH ...]';
+    const usage = 'sandbox new NAME --template TEMPLATE [--image IMAGE] [--option KEY=VALUE ...]\n'
+        + '       sandbox new [NAME] --template TEMPLATE --workspace PATH [--image IMAGE] [--hide PATH ...] [--readonly PATH ...]';
     const workspace = values.workspace === undefined ? null : resolveWorkspace(values.workspace);
     if ((values.hide || values.readonly) && !workspace) throw new SandboxError('--hide and --readonly need --workspace');
     if (positionals.length > 1 || !values.template || (positionals.length === 0 && !workspace)) {
@@ -132,7 +135,7 @@ function cmdNew(args) {
     const dest = join(sandboxDir(), name);
     // Check everything about the workspace before creating anything.
     const plan = workspace && planWorkspace(workspace, values, realConfigDir(dest));
-    applyTemplate(values.template, dest, parseOptionArgs(values.option ?? []));
+    applyTemplate(values.template, dest, withImage(parseOptionArgs(values.option ?? []), values.image));
     if (plan) {
         try {
             applyWorkspace(dest, plan);
@@ -165,8 +168,10 @@ function cmdTemplates(args) {
     for (const t of listTemplates()) {
         console.log(`${t.id}\t${t.description ?? ''}`);
         for (const [key, opt] of Object.entries(t.options ?? {})) {
-            const choices = opt.enum ? ` (${opt.enum.join('|')})` : '';
-            console.log(`    --option ${key}=${opt.default ?? ''}${choices}  ${opt.description ?? ''}`);
+            const flag = key === 'image' ? '--image ' : `--option ${key}=`;
+            const choices = opt.enum ? ` (${opt.enum.join('|')})`
+                : opt.proposals ? ` (e.g. ${opt.proposals.filter((p) => p !== opt.default).join(', ')})` : '';
+            console.log(`    ${flag}${opt.default ?? ''}${choices}  ${opt.description ?? ''}`);
         }
     }
 }

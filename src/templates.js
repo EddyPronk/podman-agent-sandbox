@@ -34,6 +34,7 @@ export function resolveOptions(template, given) {
     const declared = template.options ?? {};
     for (const key of Object.keys(given)) {
         if (!Object.hasOwn(declared, key)) {
+            if (key === 'image') throw new SandboxError(`template '${template.id}' has a fixed image (no --image)`);
             throw new SandboxError(`template '${template.id}' has no option '${key}'`);
         }
     }
@@ -49,6 +50,15 @@ export function resolveOptions(template, given) {
         values[key] = value;
     }
     return values;
+}
+
+/** --image IMAGE is the template option image; GIVEN (from --option) may name it too, but the same. */
+export function withImage(given, image) {
+    if (image === undefined) return given;
+    if (Object.hasOwn(given, 'image') && given.image !== image) {
+        throw new SandboxError(`--image ${image} and --option image=${given.image} disagree`);
+    }
+    return { ...given, image };
 }
 
 /** Replace ${templateOption:KEY} in TEXT; unknown keys are left as they are. */

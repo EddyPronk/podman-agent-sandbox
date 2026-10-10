@@ -12,6 +12,7 @@ on:
       - '.github/workflows/podman.yml'
       - 'test/integration/**'
       - 'templates/claude-containers/**'
+      - 'templates/claude/**'
       - 'src/seccomp.js'
       - 'src/templates.js'
 

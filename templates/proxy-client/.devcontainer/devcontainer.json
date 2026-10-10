@@ -1,7 +1,12 @@
 {
   "name": "${localWorkspaceFolderBasename}",
   "build": {
-    "dockerfile": "Containerfile"
+    "dockerfile": "Containerfile",
+    "args": {
+      "BASE_IMAGE": "${templateOption:image}",
+      "SANDBOX_UID": "${localEnv:SANDBOX_UID:1000}",
+      "SANDBOX_USER": "${localEnv:USER}"
+    }
   },
   "features": {
     "ghcr.io/devcontainers/features/node:1": {

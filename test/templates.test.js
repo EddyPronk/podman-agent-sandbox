@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { SandboxError } from '../src/devcontainer.js';
-import { applyTemplate, listTemplates, parseOptionArgs, resolveOptions, substitute } from '../src/templates.js';
+import { applyTemplate, listTemplates, parseOptionArgs, resolveOptions, substitute, withImage } from '../src/templates.js';
 
 /** A template root with one template "demo" that has a network option. */
 function demoRoot() {
@@ -121,6 +121,59 @@ test('every bundled template labels its container as a sandbox, with the version
         const config = JSON.parse(readFileSync(new URL(`../templates/${id}/.devcontainer/devcontainer.json`, import.meta.url), 'utf8'));
         assert.ok(config.runArgs.includes('--label=podman-agent-sandbox=${localEnv:SANDBOX_VERSION}'), `${id}: runArgs label`);
     }
+});
+
+test('claude and proxy-client: the base image is an option, Debian trixie by default', () => {
+    // The Containerfile's ARG default and the option's default must agree: a build without the
+    // option (sandbox build on an old folder, the CLI by hand) gets the same image.
+    for (const id of ['claude', 'proxy-client']) {
+        const dir = new URL(`../templates/${id}/`, import.meta.url);
+        const containerfile = readFileSync(new URL('.devcontainer/Containerfile', dir), 'utf8');
+        const config = JSON.parse(readFileSync(new URL('.devcontainer/devcontainer.json', dir), 'utf8'));
+        const option = listTemplates().find((t) => t.id === id).options.image;
+        const arg = containerfile.match(/^ARG BASE_IMAGE=(\S+)$/m);
+        assert.ok(arg, `${id}: ARG BASE_IMAGE with a default`);
+        assert.ok(arg.index < containerfile.indexOf('FROM ${BASE_IMAGE}'), `${id}: ARG before FROM \${BASE_IMAGE}`);
+        assert.equal(option.default, 'docker.io/library/debian:trixie-slim', `${id}: option default`);
+        assert.equal(arg[1], option.default, `${id}: ARG default = option default`);
+        assert.ok(option.proposals.includes('docker.io/library/ubuntu:26.04'), `${id}: Ubuntu 26.04 proposed`);
+        assert.deepEqual(config.build.args, {
+            BASE_IMAGE: '${templateOption:image}',
+            SANDBOX_UID: '${localEnv:SANDBOX_UID:1000}',
+            SANDBOX_USER: '${localEnv:USER}',
+        }, `${id}: build.args`);
+        // The image's own user with our UID (ubuntu, node) is renamed, or keep-id leaves $USER out.
+        assert.match(containerfile, /usermod -l "\$SANDBOX_USER"/, `${id}: renames a user with our UID`);
+    }
+});
+
+test('applying claude with image puts that image in the build args', () => {
+    const dest = join(mkdtempSync(join(tmpdir(), 'sandbox-test-')), 'box');
+    applyTemplate('claude', dest, { image: 'docker.io/library/ubuntu:26.04' });
+    const config = JSON.parse(readFileSync(join(dest, '.devcontainer', 'devcontainer.json'), 'utf8'));
+    assert.equal(config.build.args.BASE_IMAGE, 'docker.io/library/ubuntu:26.04');
+});
+
+test('withImage: --image is the option image; a different --option image= is refused', () => {
+    assert.deepEqual(withImage({ a: '1' }, undefined), { a: '1' });
+    assert.deepEqual(withImage({ a: '1' }, 'x:1'), { a: '1', image: 'x:1' });
+    assert.deepEqual(withImage({ image: 'x:1' }, 'x:1'), { image: 'x:1' });
+    assert.throws(() => withImage({ image: 'y:1' }, 'x:1'), /disagree/);
+});
+
+test('sandbox new --image: the image reaches the build args; templates without the option refuse it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
+    const sandbox = (...args) => spawnSync(process.execPath,
+        [fileURLToPath(new URL('../bin/sandbox.js', import.meta.url)), ...args],
+        { encoding: 'utf8', env: { ...process.env, SANDBOX_DIR: dir } });
+    const made = sandbox('new', 'u26', '--template', 'claude', '--image', 'docker.io/library/ubuntu:26.04');
+    assert.equal(made.status, 0, made.stderr);
+    const config = JSON.parse(readFileSync(join(dir, 'u26', '.devcontainer', 'devcontainer.json'), 'utf8'));
+    assert.equal(config.build.args.BASE_IMAGE, 'docker.io/library/ubuntu:26.04');
+    const refused = sandbox('new', 'p', '--template', 'mitm-proxy', '--image', 'docker.io/library/ubuntu:26.04');
+    assert.notEqual(refused.status, 0);
+    assert.match(refused.stderr, /template 'mitm-proxy' has a fixed image \(no --image\)/);
+    assert.ok(!existsSync(join(dir, 'p')), 'nothing is created');
 });
 
 test('claude-containers: the claude template plus podman, and it says it weakens the sandbox', () => {

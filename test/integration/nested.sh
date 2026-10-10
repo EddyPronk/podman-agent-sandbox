@@ -15,10 +15,12 @@
 #   T17-T18 those three are hardened (no capabilities, no new privileges) and still work
 #   T19     sandbox inspect on the nested claude, recognised as a sandbox by its label
 #   T20     sandbox rm refuses a container that isn't a sandbox, unless --force
+#   T21     a claude sandbox on Ubuntu 26.04 (--image): its ubuntu user (UID 1000) renamed
+#           to yours, so keep-id works; removed again afterwards, with unused images, to save disk
 # Each test's full output is in LOG_DIR (default ./nested-logs), and on a failure the end of it is
 # printed, followed by the state of both levels (containers, their logs, disk).
 # Exit status: the number of failed tests; 99 if `nested` couldn't be set up.
-# Needs rootless podman and /dev/net/tun on the host. Takes a while: it builds four images.
+# Needs rootless podman and /dev/net/tun on the host. Takes a while: it builds five images.
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd -P)
@@ -113,6 +115,12 @@ run "T17 claude, proxy, work: no capabilities, no new privileges" 'f=; for c in 
 run "T18 everyday work in the hardened claude" 'podman exec claude bash -lc "set -e; touch ~/.p /workspace/.p; rm ~/.p /workspace/.p; test -f ~/.bashrc; d=\$(mktemp -d); cd \$d; git init -q; git -c user.name=t -c user.email=t@t commit -q --allow-empty -m x; npm install --silent --no-audit --no-fund is-number >/dev/null; echo everyday-ok"'
 run "T19 sandbox inspect: the podman run command, and no warnings for the claude" 'out=$(sandbox inspect claude) || exit 1; echo "$out"; echo "$out" | grep -q "^# claude is a sandbox (label podman-agent-sandbox=" && echo "$out" | grep -q "^podman run" && echo "$out" | grep -q "^capabilities  *none" && ! echo "$out" | grep -q "^warning:"'
 run "T20 sandbox rm refuses a container that isn't a sandbox; --force removes it" 'podman rm -f t20 >/dev/null 2>&1; podman create --name t20 docker.io/library/alpine:latest true >/dev/null || exit 1; sandbox rm t20; s=$?; podman container exists t20 || { echo "t20 was removed without --force"; exit 1; }; [ $s -ne 0 ] && sandbox rm --force t20 && ! podman container exists t20'
+run "T21 claude on Ubuntu 26.04 (--image): your user and home, claude, hardened" 'u=$(id -un); [ -d "${SANDBOX_DIR:-$HOME/sandboxes}/u26" ] || sandbox new u26 --template claude --image docker.io/library/ubuntu:26.04 || exit 1
+    sandbox enter u26 </dev/null >/tmp/enter-u26.log 2>&1 || { tail -n 40 /tmp/enter-u26.log; exit 1; }
+    podman exec -e U="$u" u26 bash -lc "set -e; grep VERSION_ID /etc/os-release | grep -q 26.04; echo \"\$(id -un) \$HOME\"; [ \"\$(id -un)\" = \"\$U\" ]; [ \"\$HOME\" = /home/\$U ]
+        touch ~/.p; rm ~/.p; test -f ~/.bashrc; claude --version
+        grep -E \"^(CapBnd|NoNewPrivs):\" /proc/self/status | tr -s \"\t\n\" \"  \" | grep -qx \"CapBnd: 0000000000000000 NoNewPrivs: 1 \"; echo u26-ok"
+    s=$?; sandbox rm u26 >/dev/null 2>&1; podman volume rm u26-home >/dev/null 2>&1; podman image prune -af >/dev/null 2>&1; exit $s'
 
 echo "failed: $failed"
 if ((failed)); then
