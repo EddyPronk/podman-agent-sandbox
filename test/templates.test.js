@@ -115,6 +115,14 @@ test('every bundled template but claude-containers drops all capabilities and no
     }
 });
 
+test('every bundled template labels its container as a sandbox, with the version', () => {
+    // stop and rm recognise sandboxes by it (sandboxReason), and refuse other containers.
+    for (const { id } of listTemplates()) {
+        const config = JSON.parse(readFileSync(new URL(`../templates/${id}/.devcontainer/devcontainer.json`, import.meta.url), 'utf8'));
+        assert.ok(config.runArgs.includes('--label=podman-agent-sandbox=${localEnv:SANDBOX_VERSION}'), `${id}: runArgs label`);
+    }
+});
+
 test('claude-containers: the claude template plus podman, and it says it weakens the sandbox', () => {
     const meta = listTemplates().find((t) => t.id === 'claude-containers');
     assert.ok(meta, 'bundled');

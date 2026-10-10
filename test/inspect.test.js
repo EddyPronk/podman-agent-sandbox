@@ -111,6 +111,13 @@ test('audit: an unhardened sandbox gets one warning, a nested-podman one a note'
     assert.equal(row(nested, 'devices'), '/dev/net/tun');
 });
 
+test('audit: a container sandbox did not make gets podman advice, not the templates\'', () => {
+    const report = audit(info({ BoundingCaps: ['CAP_SETUID'], HostConfig: { NetworkMode: 'pasta' } }), { sandbox: false });
+    assert.equal(report.warnings.length, 1);
+    assert.match(report.warnings[0], /podman run --cap-drop=all --security-opt=no-new-privileges prevents it$/);
+    assert.doesNotMatch(report.warnings[0], /templates/);
+});
+
 test('audit: measured values from inside beat the configuration', () => {
     const report = audit(info({ BoundingCaps: ['CAP_KILL'] }), { status: { CapBnd: '0000000000000000', NoNewPrivs: '1', Seccomp: '2' } });
     assert.equal(row(report, 'capabilities'), 'none (empty bounding set)');

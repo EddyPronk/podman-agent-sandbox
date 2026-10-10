@@ -82,13 +82,21 @@ Sandboxes live in `~/sandboxes`; set `SANDBOX_DIR` to use another folder. A sand
 already has a container is found through the container's `devcontainer.local_folder` label,
 wherever its folder is.
 
+`stop` and `rm` only act on sandboxes, so they can't remove a container VS Code or you made with
+`podman` by mistake. A sandbox's container has the label `podman-agent-sandbox` (the templates add
+it, since 0.6.0); older ones count when their config folder is in `$SANDBOX_DIR` or has a
+`sandbox.json` (`--workspace`). For anything else, `--force` (`sandbox rm --force NAME`), or use
+`podman` directly.
+
 `sandbox inspect NAME` shows a sandbox's container in two parts. First the `podman run` command
 that created it, as Podman recorded it, quoted for the shell with one option per line. Then what it
 runs with: user and user namespace, capabilities, new privileges, seccomp, devices, `/proc`,
 network (internal or routed), limits, and every mount (read-only, writable or hidden). While the
 sandbox runs, capabilities, new privileges and seccomp are read inside, from `/proc/1/status`.
 Warnings follow, e.g. for a sandbox made before 0.5.2 that still has capabilities, or a git repo
-in a `--workspace` whose hooks or config would be writable.
+in a `--workspace` whose hooks or config would be writable. It works on any container, e.g. one VS
+Code made, and says first whether it is a sandbox. Podman records the command line only for
+containers made with the `podman` command, not through its API socket (as VS Code does).
 
 ### Templates
 

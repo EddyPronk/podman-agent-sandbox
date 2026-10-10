@@ -47,6 +47,7 @@
     "${localWorkspaceFolderBasename}",
     "--hostname",
     "${localWorkspaceFolderBasename}",
+    "--label=podman-agent-sandbox=${localEnv:SANDBOX_VERSION}",
     "--userns=keep-id",
     "--cap-drop=all",
     "--security-opt=no-new-privileges",
