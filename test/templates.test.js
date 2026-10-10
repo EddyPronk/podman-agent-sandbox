@@ -43,10 +43,10 @@ test('applyTemplate copies, substitutes and drops the metadata file', () => {
     assert.ok(!existsSync(join(dest, 'devcontainer-template.json')));
 });
 
-test('applyTemplate uses defaults', () => {
+test('applyTemplate uses defaults and returns the metadata', () => {
     const root = demoRoot();
     const dest = join(root, 'box');
-    applyTemplate('demo', dest, {}, root);
+    assert.equal(applyTemplate('demo', dest, {}, root).id, 'demo');
     assert.match(readFileSync(join(dest, '.devcontainer', 'devcontainer.json'), 'utf8'), /"net": "offline"/);
 });
 
@@ -161,6 +161,8 @@ test('withImage: --image is the option image; a different --option image= is ref
     assert.deepEqual(withImage({ a: '1' }, 'x:1'), { a: '1', image: 'x:1' });
     assert.deepEqual(withImage({ image: 'x:1' }, 'x:1'), { image: 'x:1' });
     assert.throws(() => withImage({ image: 'y:1' }, 'x:1'), /disagree/);
+    assert.deepEqual(withImage({ image: 'docker.io/library/ubuntu:26.04' }, 'ubuntu:26.04'), { image: 'ubuntu:26.04' },
+        'two spellings of the same image agree');
 });
 
 test('experimentalImage: anything but the default and Ubuntu 26.04, whatever the spelling', () => {
@@ -173,6 +175,9 @@ test('experimentalImage: anything but the default and Ubuntu 26.04, whatever the
         'mcr.microsoft.com/devcontainers/typescript-node:5-24-trixie']) {
         assert.equal(experimentalImage(image, debian), true, image);
     }
+    // A template from a path may declare the option without a default.
+    assert.equal(experimentalImage('ubuntu:26.04', undefined), false);
+    assert.equal(experimentalImage('ubuntu:24.04', undefined), true);
 });
 
 test('sandbox new --image: the image reaches the build args; templates without the option refuse it', () => {
@@ -191,8 +196,15 @@ test('sandbox new --image: the image reaches the build args; templates without t
     assert.match(other.stderr, /run 'sandbox inspect ts': it may show warnings about weaknesses/);
     const refused = sandbox('new', 'p', '--template', 'mitm-proxy', '--image', 'docker.io/library/ubuntu:26.04');
     assert.notEqual(refused.status, 0);
-    assert.match(refused.stderr, /template 'mitm-proxy' has a fixed image \(no --image\)/);
+    assert.match(refused.stderr, /template 'mitm-proxy' has no image option; --image works with claude and proxy-client/);
     assert.ok(!existsSync(join(dir, 'p')), 'nothing is created');
+    // A template from a path whose image option has no default: a warning, not a crash.
+    const root = demoRoot();
+    writeFileSync(join(root, 'demo', 'devcontainer-template.json'),
+        JSON.stringify({ id: 'demo', options: { image: { type: 'string' } } }));
+    const custom = sandbox('new', 'c', '--template', join(root, 'demo'), '--image', 'ubuntu:24.04');
+    assert.equal(custom.status, 0, custom.stderr);
+    assert.match(custom.stderr, /--image ubuntu:24\.04 is experimental \(tested: docker\.io\/library\/ubuntu:26\.04\)\./);
 });
 
 test('claude-containers: the claude template plus podman, and it says it weakens the sandbox', () => {

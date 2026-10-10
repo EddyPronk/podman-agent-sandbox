@@ -34,7 +34,10 @@ export function resolveOptions(template, given) {
     const declared = template.options ?? {};
     for (const key of Object.keys(given)) {
         if (!Object.hasOwn(declared, key)) {
-            if (key === 'image') throw new SandboxError(`template '${template.id}' has a fixed image (no --image)`);
+            if (key === 'image') {
+                const able = listTemplates().filter((t) => t.options?.image).map((t) => t.id).join(' and ');
+                throw new SandboxError(`template '${template.id}' has no image option; --image works with ${able}`);
+            }
             throw new SandboxError(`template '${template.id}' has no option '${key}'`);
         }
     }
@@ -55,7 +58,7 @@ export function resolveOptions(template, given) {
 /** --image IMAGE is the template option image; GIVEN (from --option) may name it too, but the same. */
 export function withImage(given, image) {
     if (image === undefined) return given;
-    if (Object.hasOwn(given, 'image') && given.image !== image) {
+    if (Object.hasOwn(given, 'image') && fullImageName(given.image) !== fullImageName(image)) {
         throw new SandboxError(`--image ${image} and --option image=${given.image} disagree`);
     }
     return { ...given, image };
@@ -65,9 +68,13 @@ export function withImage(given, image) {
 // experimental: sandbox new warns.
 export const TESTED_IMAGES = ['docker.io/library/ubuntu:26.04'];
 
-/** True for an --image that is neither the template's default nor tested (Docker Hub short names count). */
+/**
+ * True for an --image that is neither the template's default (if it has one) nor tested; Docker Hub
+ * short names count as the full name.
+ */
 export function experimentalImage(image, defaultImage) {
-    return fullImageName(image) !== fullImageName(defaultImage) && !TESTED_IMAGES.includes(fullImageName(image));
+    if (defaultImage !== undefined && fullImageName(image) === fullImageName(defaultImage)) return false;
+    return !TESTED_IMAGES.includes(fullImageName(image));
 }
 
 /** ubuntu:26.04 and docker.io/ubuntu:26.04 → docker.io/library/ubuntu:26.04; other registries as they are. */
@@ -108,7 +115,7 @@ export function findTemplate(spec, root = TEMPLATES_DIR) {
 /**
  * Create DEST from template SPEC (see findTemplate). DEST must not exist yet. A template whose
  * metadata has "x-sandbox": { "seccompAllow": [...] } also gets its seccomp profile (seccomp.js);
- * HOOKS are passed on to it (tests).
+ * HOOKS are passed on to it (tests). Returns the template's metadata.
  */
 export function applyTemplate(spec, dest, given = {}, root = TEMPLATES_DIR, hooks = {}) {
     const { template, src } = findTemplate(spec, root);
@@ -131,5 +138,5 @@ export function applyTemplate(spec, dest, given = {}, root = TEMPLATES_DIR, hook
             throw err;
         }
     }
-    return dest;
+    return template;
 }

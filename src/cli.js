@@ -9,7 +9,7 @@ import {
 } from './devcontainer.js';
 import { audit, formatCommand, parseStatus } from './inspect.js';
 import {
-    applyTemplate, experimentalImage, findTemplate, listTemplates, parseOptionArgs, TESTED_IMAGES, withImage,
+    applyTemplate, experimentalImage, listTemplates, parseOptionArgs, TESTED_IMAGES, withImage,
 } from './templates.js';
 import {
     applyWorkspace, defaultName, findGitDirs, readSettings, realConfigDir, resolveWorkspace, uncoveredInSandbox,
@@ -138,7 +138,7 @@ function cmdNew(args) {
     // Check everything about the workspace before creating anything.
     const plan = workspace && planWorkspace(workspace, values, realConfigDir(dest));
     const given = withImage(parseOptionArgs(values.option ?? []), values.image);
-    applyTemplate(values.template, dest, given);
+    const template = applyTemplate(values.template, dest, given);
     if (plan) {
         try {
             applyWorkspace(dest, plan);
@@ -154,11 +154,13 @@ function cmdNew(args) {
         console.log(`created ${dest} from template '${values.template}'`);
     }
     console.log(`next: sandbox enter ${name}`);
-    const defaultImage = findTemplate(values.template).template.options?.image?.default;
-    if (given.image !== undefined && experimentalImage(given.image, defaultImage)) {
-        console.error(`sandbox: warning: --image ${given.image} is experimental (tested: ${TESTED_IMAGES.join(', ')}`
-            + ` and the default, ${defaultImage}). After 'sandbox enter ${name}', run 'sandbox inspect ${name}':`
-            + ' it may show warnings about weaknesses.');
+    if (given.image === undefined) return;
+    // A template from a path may declare the option without a default.
+    const defaultImage = template.options?.image?.default;
+    if (experimentalImage(given.image, defaultImage)) {
+        const tested = [...TESTED_IMAGES, ...(defaultImage === undefined ? [] : [`the default, ${defaultImage}`])];
+        console.error(`sandbox: warning: --image ${given.image} is experimental (tested: ${tested.join(' and ')}).`
+            + ` After 'sandbox enter ${name}', run 'sandbox inspect ${name}': it may show warnings about weaknesses.`);
     }
 }
 
