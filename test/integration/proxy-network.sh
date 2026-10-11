@@ -111,14 +111,14 @@ run "T22a approve: lists a refused host; with no terminal it adds nothing" '
 
 run "T22b approve at a terminal: y adds it, and the client gets through" '
     client_up || exit 1
-    # example.org is the most recent refusal (T22a), so it is asked first: y, then q stops.
-    printf "y\nq\n" | script -qec "sandbox exec $P approve" /dev/null | tr -d "\r"
+    # On a copy of the log with only example.org: T15b refused example.com moments earlier, often
+    # in the same second, so in the full log either could be asked first.
+    sandbox exec $P sh -c "grep -F example.org \"\$AGENT_MITM_PROXY_DATA/denied.jsonl\" >/tmp/t22-denied.jsonl" || exit 1
+    printf "y\n" | script -qec "sandbox exec $P approve --denied-log /tmp/t22-denied.jsonl" /dev/null | tr -d "\r"
     grep "^example\.org:443 .*# approved with approve, " "$A"; added=$?
-    # T15b refused example.com seconds earlier; had it been asked first, y went to it instead.
-    grep -q "^example\.com" "$A" && { echo "example.com was added (asked first?)"; added=1; }
     code=$(inw "curl -s -o /dev/null -w %{http_code} --max-time 20 https://example.org/")
     echo "example.org after approval: $code"
-    sed -i "/^example\.org/d; /^example\.com/d" "$A"
+    sed -i "/^example\.org/d" "$A"
     [ $added -eq 0 ] && [[ $code =~ ^[0-9]{3}$ ]] && [ "$code" != 000 ] && [ "$code" != 403 ]'
 
 echo "failed: $failed"
