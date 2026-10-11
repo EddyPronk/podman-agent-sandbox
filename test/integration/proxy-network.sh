@@ -12,9 +12,11 @@
 #   T14     the client runs, on agent-proxy-net only
 #   T15a/b  an allowlisted host is answered by the upstream; another is refused with 403 at CONNECT
 #   T16a-c  the client has no default route, other names don't resolve, no direct connection
+#   T22a/b  the proxy's approve, through sandbox exec: a refused host is listed, nothing is added
+#           without a terminal; at one, y adds it and the client gets through
 # Each test's output is in LOG_DIR (default ~/proxy-network-logs); a failure prints its end.
 # Exit status: the number of failed tests. Needs the network: the proxy image builds from GitHub,
-# and T15a reaches api.anthropic.com.
+# and T15a and T22b reach api.anthropic.com and example.org.
 set -uo pipefail
 
 export P=${PROXY:-proxy} W=${CLIENT:-work} D=${SANDBOX_DIR:-$HOME/sandboxes}
@@ -92,6 +94,32 @@ run "T16c no direct connection without the proxy" '
     client_up || exit 1
     code=$(inw "curl -s -o /dev/null -w %{http_code} --noproxy \"*\" --max-time 10 https://1.1.1.1/"); s=$?
     echo "direct to 1.1.1.1: $code, curl exit $s"; [ "$code" = 000 ]'
+
+# T22: allowing a refused host with the proxy's approve, through sandbox exec. example.org, not
+# example.com: T15b needs that refused, and the proxy sandbox may be reused by a later run, so T22b
+# also takes its line out again.
+export A=$D/$P/allowlist.txt
+sed -i '/^example\.org/d' "$A" 2>/dev/null
+
+run "T22a approve: lists a refused host; with no terminal it adds nothing" '
+    client_up || exit 1
+    inw "curl -s -o /dev/null --max-time 20 https://example.org/" && { echo "example.org got through before approval"; exit 1; }
+    out=$(sandbox exec $P approve --list); echo "$out"
+    grep -q "^  example\.org:443 " <<<"$out" || { echo "example.org:443 not listed"; exit 1; }
+    out=$(echo y | sandbox exec $P approve); echo "$out"
+    grep -q "No terminal: nothing added" <<<"$out" && ! grep -q "^example\.org" "$A"'
+
+run "T22b approve at a terminal: y adds it, and the client gets through" '
+    client_up || exit 1
+    # example.org is the most recent refusal (T22a), so it is asked first: y, then q stops.
+    printf "y\nq\n" | script -qec "sandbox exec $P approve" /dev/null | tr -d "\r"
+    grep "^example\.org:443 .*# approved with approve, " "$A"; added=$?
+    # T15b refused example.com seconds earlier; had it been asked first, y went to it instead.
+    grep -q "^example\.com" "$A" && { echo "example.com was added (asked first?)"; added=1; }
+    code=$(inw "curl -s -o /dev/null -w %{http_code} --max-time 20 https://example.org/")
+    echo "example.org after approval: $code"
+    sed -i "/^example\.org/d; /^example\.com/d" "$A"
+    [ $added -eq 0 ] && [[ $code =~ ^[0-9]{3}$ ]] && [ "$code" != 000 ] && [ "$code" != 403 ]'
 
 echo "failed: $failed"
 exit "$failed"

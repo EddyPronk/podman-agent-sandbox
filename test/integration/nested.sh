@@ -12,6 +12,7 @@
 #   T7-T12  the sandbox command inside: a nested `claude` sandbox made, entered, its home and USER
 #   T13-T16 a mitm-proxy and a proxy-client sandbox inside: the client's only way out is the
 #           proxy (proxy-network.sh, run inside)
+#   T22     also in proxy-network.sh: the proxy's approve through sandbox exec
 #   T17-T18 those three are hardened (no capabilities, no new privileges) and still work
 #   T19     sandbox inspect on the nested claude, recognised as a sandbox by its label
 #   T20     sandbox rm refuses a container that isn't a sandbox, unless --force
@@ -101,12 +102,12 @@ run "T10 claude runs in the nested claude"   'podman exec claude bash -lc "claud
 run "T11 nested claude's home is its volume" 'u=$(id -un); d=$(podman container inspect claude --format "{{range .Mounts}}{{if eq .Name \"claude-home\"}}{{.Destination}}{{end}}{{end}}"); echo "home volume at [$d], expected /home/$u"; [ "$d" = "/home/$u" ]'
 run "T12 USER, LOGNAME in a sandbox enter shell" 'got=$(echo "echo \"[\$USER][\$LOGNAME]\"" | sandbox enter claude 2>/dev/null | tail -n 1); u=$(id -un); echo "got $got, expected [$u][$u]"; [ "$got" = "[$u][$u]" ]'
 
-# T13-T16 run inside, as one script: their PASS/FAIL lines are printed as they are.
+# T13-T16 and T22 run inside, as one script: their PASS/FAIL lines are printed as they are.
 podman exec -u "$U" "$N" bash -lc 'bash /tmp/proxy-network.sh ~/proxy-network-logs' >"$LOG/proxy-network.log" 2>&1
 pn=$?
 grep -E '^(PASS|FAIL|      \|)' "$LOG/proxy-network.log"
 if ((pn >= 99)) || ! grep -q '^failed: ' "$LOG/proxy-network.log"; then
-    echo "FAIL  T13-T16 did not run (exit $pn)"; tail -n 30 "$LOG/proxy-network.log" | sed 's/^/      | /'; pn=1
+    echo "FAIL  T13-T16, T22 did not run (exit $pn)"; tail -n 30 "$LOG/proxy-network.log" | sed 's/^/      | /'; pn=1
 fi
 failed=$((failed + pn))
 
