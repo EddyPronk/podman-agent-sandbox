@@ -7,7 +7,7 @@
   "options": {
     "ref": {
       "type": "string",
-      "default": "208d3f530fbbf6964f1ecc5342f3ad5e24425f20",
+      "default": "ce9440cc0c4797bf970ab2594b3558a2151e35c8",
       "description": "agent-mitm-proxy commit (or tag) to build; a full commit hash pins exactly what runs"
     }
   },
