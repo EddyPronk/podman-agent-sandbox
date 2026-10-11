@@ -5,7 +5,7 @@ import { homedir, tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { table } from '../src/cli.js';
+import { helpText, table } from '../src/cli.js';
 import { checkName, childEnv, cliPath, folderOf, sandboxDir, sandboxReason } from '../src/devcontainer.js';
 
 test('sandboxDir defaults to ~/sandboxes', () => {
@@ -78,4 +78,31 @@ test('childEnv sets the numeric IDs for containerUser', () => {
 test('childEnv passes this package version on, for the sandbox inside a sandbox', () => {
     const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
     assert.equal(childEnv({}).SANDBOX_VERSION, version);
+});
+
+test('helpText: the template HELP with the sandbox name and folder filled in', () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'sandbox-test-')), 'proxy');
+    mkdirSync(join(dir, '.devcontainer'), { recursive: true });
+    writeFileSync(join(dir, '.devcontainer', 'HELP'),
+        'sandbox exec ${localWorkspaceFolderBasename} approve\nedit ${localWorkspaceFolder}/allowlist.txt\n');
+    assert.equal(helpText('proxy', dir), `sandbox exec proxy approve\nedit ${dir}/allowlist.txt\n`);
+});
+
+test('helpText: without a HELP, what every sandbox has', () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'sandbox-test-')), 'work');
+    mkdirSync(join(dir, '.devcontainer'), { recursive: true });
+    const text = helpText('work', dir);
+    assert.match(text, /^work: its template has no help of its own/);
+    assert.match(text, /sandbox exec work COMMAND +run a command there/);
+    assert.match(text, new RegExp(`Its config is in ${join(dir, '.devcontainer')}\\.\\n$`));
+});
+
+test('sandbox exec: usage errors before anything runs', () => {
+    const run = (...args) => spawnSync(process.execPath,
+        [fileURLToPath(new URL('../bin/sandbox.js', import.meta.url)), 'exec', ...args], { encoding: 'utf8' });
+    for (const args of [[], ['box'], ['box', '--'], ['--', 'pwd']]) {
+        const result = run(...args);
+        assert.equal(result.status, 1, `exec ${args.join(' ')}`);
+        assert.match(result.stderr, /usage: sandbox exec NAME \[--\] COMMAND/);
+    }
 });
