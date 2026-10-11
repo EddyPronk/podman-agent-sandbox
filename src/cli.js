@@ -1,7 +1,7 @@
 // sandbox — lxc-style front end for dev containers on rootless Podman.
 import { readFileSync, rmSync } from 'node:fs';
 import { constants } from 'node:os';
-import { dirname, join, relative } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
     SANDBOX_LABEL, SandboxError, checkName, cliPath, containerSandbox, containerState, dc, folderOf, podman, sandboxDir,
@@ -38,6 +38,12 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        build NAME's image, showing the full log
   sandbox enter NAME   start NAME if needed and open a shell as $USER; with
                        --workspace, first check every git repo is protected
+  sandbox exec NAME [--] COMMAND [ARG ...]
+                       start NAME if needed and run COMMAND in it, like
+                       'ssh host COMMAND': as $USER, in the workspace folder,
+                       with a terminal only if you're at one; its exit status
+  sandbox help [NAME]  this text; with NAME, what that sandbox offers (from its
+                       template), e.g. sandbox help mitm-proxy
   sandbox inspect NAME the podman command that created NAME's container, as a
                        command line, and what it runs with: user, capabilities,
                        new privileges, seccomp, network, mounts; with warnings
@@ -64,6 +70,8 @@ const commands = {
     templates: cmdTemplates,
     build: cmdBuild,
     enter: cmdEnter,
+    exec: cmdExec,
+    help: cmdHelp,
     inspect: cmdInspect,
     list: cmdList,
     stop: cmdStop,
@@ -72,7 +80,7 @@ const commands = {
 
 export function main(argv) {
     const [cmd, ...args] = argv;
-    if (cmd === '-h' || cmd === '--help' || cmd === 'help') {
+    if (cmd === '-h' || cmd === '--help' || (cmd === 'help' && args.length === 0)) {
         process.stdout.write(USAGE);
         return 0;
     }
@@ -201,6 +209,61 @@ function cmdBuild(args) {
 function cmdEnter(args) {
     const name = oneName(args, 'sandbox enter NAME');
     const dir = folderOf(name);
+    ensureRunning(name, dir);
+    // Node can't exec() in place: run the shell as a child and pass on its status.
+    // Ignore Ctrl-C here so it only reaches the shell in the container.
+    process.on('SIGINT', () => {});
+    // "--" stops the CLI from parsing -l as its own option.
+    return exitStatus(dc('exec', ['--workspace-folder', dir, '--', 'bash', '-l']));
+}
+
+/**
+ * sandbox exec NAME [--] CMD [ARG...]: like `ssh host CMD`, everything after NAME is the command,
+ * run as the user in the workspace folder with the environment of `enter`.
+ */
+function cmdExec(args) {
+    const [name, ...rest] = args;
+    const cmd = rest[0] === '--' ? rest.slice(1) : rest;
+    if (!name || name.startsWith('-') || cmd.length === 0) {
+        throw new SandboxError('usage: sandbox exec NAME [--] COMMAND [ARG ...]');
+    }
+    const dir = folderOf(checkName(name));
+    ensureRunning(name, dir);
+    process.on('SIGINT', () => {});
+    return exitStatus(dc('exec', ['--workspace-folder', dir, '--', ...cmd]));
+}
+
+/** sandbox help NAME: what helpText says for it. Works while the sandbox is stopped. */
+function cmdHelp(args) {
+    const name = oneName(args, 'sandbox help [NAME]');
+    process.stdout.write(helpText(name, folderOf(name)));
+}
+
+/**
+ * The sandbox's .devcontainer/HELP: plain text from its template, read on the host and never run,
+ * with ${localWorkspaceFolderBasename} and ${localWorkspaceFolder} replaced as in devcontainer.json.
+ * Without one, what every sandbox offers.
+ */
+export function helpText(name, dir) {
+    let text;
+    try {
+        text = readFileSync(join(dir, '.devcontainer', 'HELP'), 'utf8');
+    } catch (err) {
+        if (err.code !== 'ENOENT') throw err;
+        return `${name}: its template has no help of its own. Every sandbox has:\n`
+            + table([
+                [`  sandbox enter ${name}`, 'a shell, as you, in the workspace'],
+                [`  sandbox exec ${name} COMMAND`, 'run a command there'],
+                [`  sandbox inspect ${name}`, 'how it runs: user, capabilities, network, mounts'],
+            ])
+            + `\nIts config is in ${join(dir, '.devcontainer')}.\n`;
+    }
+    return text.replaceAll('${localWorkspaceFolderBasename}', basename(dir))
+        .replaceAll('${localWorkspaceFolder}', dir);
+}
+
+/** Start NAME if it isn't running: create its container (building the image) or restart it. */
+function ensureRunning(name, dir) {
     const state = containerState(name);
     checkWorkspace(name, dir, state);
     if (state !== 'running') {
@@ -217,11 +280,6 @@ function cmdEnter(args) {
             throw new SandboxError(`failed to start '${name}'`);
         }
     }
-    // Node can't exec() in place: run the shell as a child and pass on its status.
-    // Ignore Ctrl-C here so it only reaches the shell in the container.
-    process.on('SIGINT', () => {});
-    // "--" stops the CLI from parsing -l as its own option.
-    return exitStatus(dc('exec', ['--workspace-folder', dir, '--', 'bash', '-l']));
 }
 
 /**

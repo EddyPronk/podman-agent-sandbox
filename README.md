@@ -72,12 +72,20 @@ sandbox new work --template claude       # create ~/sandboxes/work
 sandbox new u26 --template claude --image docker.io/library/ubuntu:26.04   # on another base image
 sandbox new --template claude --workspace ~/src/app   # around an existing folder (below)
 sandbox enter work                       # build and start if needed, open a shell
+sandbox exec work git status             # run one command in it (start it if needed), like ssh
+sandbox help work                        # what this sandbox offers (from its template)
 sandbox inspect work                     # the podman run command that made it, and what it runs with
 sandbox list
 sandbox stop work
 sandbox rm work                          # removes the container; the home volume is kept
 sandbox build work [--no-cache]          # rebuild the image, showing the full log
 ```
+
+`sandbox exec NAME COMMAND [ARG ...]` runs COMMAND as you, in the workspace folder, with the same
+environment as `enter`, and returns its exit status. Everything after NAME is the command, so
+`sandbox exec work ls -la` passes `-la` to `ls`; a `--` after NAME is allowed. Unlike `ssh`, the
+arguments arrive as they are: they aren't joined into one string for a shell to split again. It
+gets a terminal when you run it at one, so interactive tools work, and none in a pipe or a script.
 
 Sandboxes live in `~/sandboxes`; set `SANDBOX_DIR` to use another folder. A sandbox that
 already has a container is found through the container's `devcontainer.local_folder` label,

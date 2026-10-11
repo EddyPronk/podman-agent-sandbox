@@ -1,0 +1,24 @@
+${localWorkspaceFolderBasename}: the egress proxy for proxy-client sandboxes (agent-mitm-proxy).
+It refuses every host that isn't in its allowlist, and logs each refusal.
+
+Allowing a host
+  sandbox exec ${localWorkspaceFolderBasename} approve
+        go through the hosts refused in the last 5 minutes; for each, y adds it,
+        Enter or n skips, q stops. --since 1h looks further back.
+  sandbox exec ${localWorkspaceFolderBasename} approve --list
+        only list them
+  Or edit the allowlist directly, one host:port per line, # for comments:
+        ${localWorkspaceFolder}/allowlist.txt
+  The proxy applies changes without a restart.
+
+  approve never offers IP addresses, or names that resolve to private
+  addresses (such as cloud metadata): the proxy refuses those even when listed.
+  It asks only when you run it at a terminal. Client sandboxes can't run it:
+  they reach the proxy only on port 8899.
+
+Logs, inside (sandbox exec ${localWorkspaceFolderBasename} tail -f ~/proxy-data/...)
+  ~/proxy-data/denied.jsonl            refused connections
+  ~/proxy-data/proxy.log               the proxy's own log, with an access line per request
+  ~/proxy-data/decrypted-traffic.jsonl request and response bodies: sensitive
+
+Every sandbox also has: sandbox enter, sandbox inspect, sandbox exec NAME COMMAND.
