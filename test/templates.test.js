@@ -254,3 +254,12 @@ test('claude-containers: subordinate ID ranges fit the map keep-id will give the
     assert.deepEqual(ranges('         0       1000          1\n         1          1        999\n      1000       1001      64536\n'),
         ['1000:1:998', '1000:999:1', '1000:1001:64535']);
 });
+
+test('mitm-proxy: approve on PATH, and a HELP that names it and the allowlist', () => {
+    const dir = new URL('../templates/mitm-proxy/.devcontainer/', import.meta.url);
+    const containerfile = readFileSync(new URL('Containerfile', dir), 'utf8');
+    assert.match(containerfile, /ln -s \/opt\/agent-mitm-proxy\/venv\/bin\/approve \/usr\/local\/bin\/approve/);
+    const help = readFileSync(new URL('HELP', dir), 'utf8');
+    assert.match(help, /sandbox exec \$\{localWorkspaceFolderBasename\} approve/);
+    assert.match(help, /\$\{localWorkspaceFolder\}\/allowlist\.txt/);
+});
