@@ -32,6 +32,7 @@ one opens a shell in it.
 - [How a sandbox is isolated](docs/security-model.md): what it may and may not do, and what it
   doesn't protect
 - [A sandbox around an existing project](docs/sandbox-around-an-existing-project.md)
+- [Your project behind the egress proxy](docs/behind-the-proxy.md)
 - [VS Code to connect to a sandbox](docs/vscode.md)
 - [Containers inside a sandbox](docs/containers-inside-a-sandbox.md)
 - [Contributing](CONTRIBUTING.md)
@@ -78,7 +79,7 @@ its git hooks and config. Your SSH keys, your other files and the rest of your h
 outside. The sandbox's own config is in `~/sandboxes/your-project`. Leave the shell with `exit`; the
 sandbox keeps running until `sandbox stop your-project`. More in
 [A sandbox around an existing project](docs/sandbox-around-an-existing-project.md), and
-[Templates](#templates) for one behind an egress proxy.
+[Your project behind the egress proxy](docs/behind-the-proxy.md) as the next step.
 
 ## Usage
 
@@ -141,18 +142,8 @@ isolated](docs/security-model.md#no-way-to-gain-rights) says how to add them.
 | `mitm-proxy` | [agent-mitm-proxy](https://github.com/EddyPronk/agent-mitm-proxy): an egress proxy with TLS interception and an allowlist (`allowlist.txt` in the sandbox folder; changes apply without a restart). Option `ref`: the agent-mitm-proxy commit to build |
 | `proxy-client` | Like `claude` (also `--image`), but with no route out: only the proxy's internal network, all HTTP(S) through `http://proxy:8899`, trusting the proxy's CA |
 
-To run Claude Code behind the proxy, create and start the proxy first; it publishes its CA certificate
-for the client:
-
-```sh
-sandbox new proxy --template mitm-proxy
-sandbox enter proxy                    # starts the proxy; exit again, it keeps running
-sandbox new work --template proxy-client
-sandbox enter work
-```
-
-The proxy's private data (CA keys, the decrypted-traffic log, refusals) stays in its home volume,
-`proxy-home`. Only one proxy can run at a time: it takes the network name `proxy`.
+`mitm-proxy` and `proxy-client` work as a pair: [Your project behind the egress
+proxy](docs/behind-the-proxy.md).
 
 `claude` and `proxy-client` are built on `debian:trixie-slim` unless you choose another base image with
 `--image` (`sandbox templates` lists some):

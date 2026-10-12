@@ -49,7 +49,8 @@ them.
 - **`claude`** (and `claude-containers`): an ordinary rootless network (`pasta`). The Internet, your
   LAN and services on your machine are reachable.
 - **`proxy-client`:** only the proxy's internal network, with no route out. All HTTP(S) goes through
-  the `mitm-proxy` sandbox, which allows only the hosts in its allowlist.
+  the `mitm-proxy` sandbox, which allows only the hosts in its allowlist; see [Your project behind
+  the egress proxy](behind-the-proxy.md).
 
 ## What it doesn't protect
 
