@@ -35,3 +35,6 @@ sandbox enter myproject
 `--hide` and `--readonly` can't be changed later, and the list is easy to get wrong by hand: keep it
 in a small script **outside the project** (or read-only inside it), so the agent can't edit its own
 protections for the next time the sandbox is made.
+
+Next: [Your project behind the egress proxy](behind-the-proxy.md), with no route out except
+through a proxy that allows only the hosts you list.
