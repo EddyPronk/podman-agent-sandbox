@@ -278,6 +278,9 @@ npm install
 npm test
 ```
 
+Running a development version next to the installed one, the tests and pull requests:
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 Apache-2.0
