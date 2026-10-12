@@ -59,15 +59,18 @@ vscode          VS Code server running (18 processes); it forwards, while VS Cod
   - starting VS Code without an agent (`SSH_AUTH_SOCK= code`), against the agent socket.
 - **Recreate the sandbox:** `sandbox rm NAME` then `sandbox enter NAME` gives a fresh container.
   The agent sockets and the running VS Code server are gone with the old one.
-  - **One thing stays:** the git credential helper. VS Code writes it into `~/.gitconfig`, and in the
-    bundled templates the home directory is a volume that `sandbox rm` keeps (so your logins and
-    history survive). The new container still has a line like
-    ```
-    helper = "!f() { ~/.vscode-server/bin/…/node /tmp/vscode-remote-containers-….js git-credential-helper $*; }; f"
-    ```
-    The script it names was in the old container's `/tmp`, so it's gone. Whenever git needs a password
-    or token, it runs the line anyway and prints a Node error (`Cannot find module
-    '/tmp/vscode-remote-containers-….js'`). `sandbox inspect` also keeps warning about it.
+  - **What stays is in the home directory,** which in the bundled templates is a volume that
+    `sandbox rm` keeps (so your logins and history survive):
+    - **`~/.gitconfig`,** where VS Code wrote your git name and email, and its credential helper:
+      ```
+      [credential]
+          helper = "!f() { /home/you/.vscode-server/bin/…/node /tmp/vscode-remote-containers-….js git-credential-helper $*; }; f"
+      ```
+    - **`~/.vscode-server`:** VS Code's server files, including the `node` that line names.
+  - **The helper is broken after the recreate.** The script it names was in the old container's `/tmp`,
+    so it's gone. Whenever git needs a password or token (e.g. `git fetch` from a private repository),
+    it runs the line anyway and prints a Node error, `Cannot find module
+    '/tmp/vscode-remote-containers-….js'`. `sandbox inspect` also keeps warning about it.
   - **To remove it,** inside the sandbox:
     ```sh
     git config --global --get-all credential.helper      # see what's set
