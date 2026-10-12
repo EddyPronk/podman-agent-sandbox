@@ -23,7 +23,8 @@
   "postStartCommand": "/opt/agent-mitm-proxy/scripts/start-proxy.sh",
   "mounts": [
     "type=volume,source=${localWorkspaceFolderBasename}-home,target=/home/${localEnv:USER},U=true",
-    "type=volume,source=agent-proxy-ca,target=/proxy-ca,U=true"
+    "type=volume,source=agent-proxy-ca,target=/proxy-ca,U=true",
+    "type=bind,source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,readonly"
   ],
   "runArgs": [
     "--name",

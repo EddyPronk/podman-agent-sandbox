@@ -1,5 +1,5 @@
 // sandbox — lxc-style front end for dev containers on rootless Podman.
-import { readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { constants } from 'node:os';
 import { basename, dirname, join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -12,8 +12,8 @@ import {
     applyTemplate, experimentalImage, listTemplates, parseOptionArgs, TESTED_IMAGES, withImage,
 } from './templates.js';
 import {
-    applyWorkspace, defaultName, findGitDirs, readSettings, realConfigDir, resolveWorkspace, uncoveredInSandbox,
-    workspaceMounts, workspacePath,
+    SETTINGS, applyWorkspace, defaultName, findGitDirs, readSettings, realConfigDir, resolveWorkspace,
+    uncoveredInSandbox, workspaceMounts, workspacePath,
 } from './workspace.js';
 
 const USAGE = `\
@@ -341,6 +341,7 @@ function cmdInspect(args) {
     }
     let uncovered = [];
     const folder = info.Config?.Labels?.['devcontainer.local_folder'];
+    const configWritable = reason ? writableConfig(info, folder) : null;
     if (folder) {
         const readonly = (info.Mounts ?? []).filter((m) => !m.RW).map((m) => m.Destination);
         try {
@@ -349,7 +350,7 @@ function cmdInspect(args) {
             // the config folder is gone: nothing to compare with
         }
     }
-    const report = audit(info, { status, internal, uncovered, sandbox: Boolean(reason), vscode });
+    const report = audit(info, { status, internal, uncovered, sandbox: Boolean(reason), vscode, configWritable });
 
     console.log(`\n# What it runs with${status ? ' (capabilities, new privileges, seccomp: measured inside)' : ''}:`);
     const rows = [...report.rows, ...report.mounts.map((text, i) => [i ? '' : 'mounts', text])];
@@ -357,6 +358,20 @@ function cmdInspect(args) {
     if (report.warnings.length || report.notes.length) console.log('');
     for (const text of report.warnings) console.log(`warning: ${text}`);
     for (const text of report.notes) console.log(`note: ${text}`);
+}
+
+/**
+ * Where a sandbox made without --workspace has its own .devcontainer writable inside: its folder is
+ * bind-mounted read-write (the workspace) and nothing read-only covers FOLDER/.devcontainer. Null when
+ * protected, for --workspace sandboxes (their config stays outside), or when there's no such config.
+ */
+export function writableConfig(info, folder, exists = existsSync) {
+    if (!folder || exists(join(folder, SETTINGS)) || !exists(join(folder, '.devcontainer'))) return null;
+    const mounts = (info.Mounts ?? []).filter((m) => m.Type === 'bind');
+    const workspace = mounts.find((m) => m.Source === folder && m.RW);
+    if (!workspace) return null;
+    const config = join(folder, '.devcontainer');
+    return mounts.some((m) => m.Source === config && !m.RW) ? null : join(workspace.Destination, '.devcontainer');
 }
 
 function cmdList(args) {

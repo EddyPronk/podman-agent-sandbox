@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
-    applyWorkspace, findGitDirs, readonlyTargets, readSettings, realConfigDir, resolveWorkspace,
+    CONFIG_MOUNT, applyWorkspace, findGitDirs, readonlyTargets, readSettings, realConfigDir, resolveWorkspace,
     uncoveredGitPaths, uncoveredInSandbox, workspaceMounts, workspacePath,
 } from '../src/workspace.js';
 
@@ -145,6 +145,16 @@ test('applyWorkspace rewrites the config and records the choices', () => {
     assert.equal(config.workspaceFolder, '/p');
     assert.deepEqual(config.mounts, ['type=volume,source=x-home,target=/home/u,U=true', 'm1']);
     assert.deepEqual(readSettings(configDir), { workspace: '/p', hide: ['.env'], readonly: [] });
+});
+
+test('applyWorkspace drops the read-only /workspace/.devcontainer mount of the template', () => {
+    // With --workspace the config stays outside the project (or is mounted read-only where it is).
+    const configDir = tempDir();
+    mkdirSync(join(configDir, '.devcontainer'));
+    const file = join(configDir, '.devcontainer', 'devcontainer.json');
+    writeFileSync(file, JSON.stringify({ mounts: ['type=volume,source=x-home,target=/home/u', CONFIG_MOUNT] }));
+    applyWorkspace(configDir, { workspace: '/p', hide: [], readonly: [], mounts: ['m1'] });
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).mounts, ['type=volume,source=x-home,target=/home/u', 'm1']);
 });
 
 test('applyWorkspace refuses a config with comments rather than lose them', () => {

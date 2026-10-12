@@ -5,7 +5,7 @@ import { homedir, tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { helpText, table } from '../src/cli.js';
+import { helpText, table, writableConfig } from '../src/cli.js';
 import { checkName, childEnv, cliPath, folderOf, sandboxDir, sandboxReason } from '../src/devcontainer.js';
 
 test('sandboxDir defaults to ~/sandboxes', () => {
@@ -105,4 +105,19 @@ test('sandbox exec: usage errors before anything runs', () => {
         assert.equal(result.status, 1, `exec ${args.join(' ')}`);
         assert.match(result.stderr, /usage: sandbox exec NAME \[--\] COMMAND/);
     }
+});
+
+test('writableConfig: the sandbox .devcontainer is writable unless a read-only mount covers it', () => {
+    const folder = '/home/u/sandboxes/box';
+    const exists = (path) => path === `${folder}/.devcontainer`;            // no sandbox.json: not --workspace
+    const bind = (Source, Destination, RW) => ({ Type: 'bind', Source, Destination, RW });
+    const old = { Mounts: [bind(folder, '/workspace', true)] };
+    assert.equal(writableConfig(old, folder, exists), '/workspace/.devcontainer');
+    const fixed = { Mounts: [bind(folder, '/workspace', true), bind(`${folder}/.devcontainer`, '/workspace/.devcontainer', false)] };
+    assert.equal(writableConfig(fixed, folder, exists), null);
+    const workspace = (path) => path === `${folder}/.devcontainer` || path === `${folder}/sandbox.json`;
+    assert.equal(writableConfig(old, folder, workspace), null, '--workspace: the config is outside the project');
+    assert.equal(writableConfig(old, folder, () => false), null, 'no .devcontainer in the folder');
+    assert.equal(writableConfig({ Mounts: [bind(folder, '/workspace', false)] }, folder, exists), null, 'workspace read-only');
+    assert.equal(writableConfig(old, undefined, exists), null, 'no folder label');
 });

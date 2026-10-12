@@ -37,6 +37,13 @@ them.
   `~/sandboxes/NAME`, mounted at `/workspace`.
 - **The home directory** inside is a volume of the sandbox's own (`NAME-home`), so logins and history
   survive `sandbox rm`. It isn't your home directory.
+- **The sandbox's own config** (`.devcontainer/`) is read-only inside: the next container creation
+  uses it, and its `initializeCommand` runs on your machine. Without `--workspace` it's mounted
+  read-only over `/workspace/.devcontainer`; with `--workspace` it stays outside the project.
+  **Sandboxes made before 0.6.0** don't have that mount, and `sandbox inspect` warns about them. Add
+  `"type=bind,source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,readonly"`
+  to `mounts` in the sandbox's `.devcontainer/devcontainer.json` (on the host), then `sandbox rm NAME`
+  and `sandbox enter NAME`. Look at the config before you do: the agent could have changed it.
 - **Git hooks and config** of every repository in a `--workspace` project are read-only: git on your
   machine runs what they name.
 - **`--hide`** keeps a file or folder of the project out of sight, and **`--readonly`** makes one
@@ -53,12 +60,6 @@ them.
 
 ## What it doesn't protect
 
-- **A sandbox's own config, without `--workspace`.** There, the sandbox folder is the workspace, so the
-  agent can edit `/workspace/.devcontainer/`. The next time the container is created (`sandbox rm`
-  then `sandbox enter`, or `sandbox build`), that config is used as it is then. That includes an
-  `initializeCommand`, which runs on your machine, extra mounts, and the `runArgs` above. Until this is
-  fixed: use `--workspace`, where the config stays outside the project and is read-only, or look at
-  `.devcontainer/` (e.g. `git diff`, if it's in git) before you recreate the sandbox.
 - **Secrets in the project:** the agent can read everything in it that isn't hidden with `--hide`.
 - **What VS Code brings in:** attaching VS Code forwards your SSH agent and git credentials into the
   sandbox; see [VS Code and sandboxes](vscode.md).

@@ -161,9 +161,13 @@ const capName = (cap) => cap.replace(/^CAP_/, '').toLowerCase();
  * uncovered: git paths a --workspace sandbox should have read-only and doesn't.
  * sandbox: false for a container `sandbox` didn't make: the advice is podman's, not the templates'.
  * vscode: parseVscodeProbe() of VSCODE_PROBE run inside, when it runs.
+ * configWritable: where the sandbox's own .devcontainer is writable inside (a sandbox made before the
+ * templates mounted it read-only), or null.
  * Returns { rows: [[label, text]], mounts: [text], warnings: [text], notes: [text] }.
  */
-export function audit(info, { status = null, internal = {}, uncovered = [], sandbox = true, vscode = null } = {}) {
+export function audit(info, {
+    status = null, internal = {}, uncovered = [], sandbox = true, vscode = null, configWritable = null,
+} = {}) {
     const host = info.HostConfig ?? {};
     const split = splitCommand(info.Config?.CreateCommand ?? [], info.ImageName ?? '');
     const options = split?.options ?? [];
@@ -281,5 +285,10 @@ export function audit(info, { status = null, internal = {}, uncovered = [], sand
     }
 
     for (const path of uncovered) warnings.push(`writable inside, and git on the host runs what it names: ${path}`);
+    if (configWritable) {
+        warnings.push(`the sandbox's own config is writable inside (${configWritable}): the next container creation `
+            + '(sandbox rm and enter, or build) uses what is there then, and an initializeCommand runs on your machine. '
+            + 'Add the read-only mount the templates have since 0.6.0 (see docs/security-model.md)');
+    }
     return { rows, mounts: mounts.map(([, text]) => text), warnings, notes };
 }

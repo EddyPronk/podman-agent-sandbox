@@ -119,6 +119,14 @@ export function workspaceMounts({ workspace, hide = [], readonly = [], configDir
         .map((m) => m.spec);
 }
 
+/**
+ * The bundled templates mount the sandbox's own config read-only over the workspace: without it, the
+ * agent could edit .devcontainer/ in /workspace, and the next container creation would use it (an
+ * initializeCommand even runs on the host). --workspace drops it: there the config is outside the
+ * project, or mounted read-only where it is (workspaceMounts).
+ */
+export const CONFIG_MOUNT = 'type=bind,source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,readonly';
+
 /** The sandbox's devcontainer.json, which --workspace edits. */
 export function configFile(configDir) {
     return join(configDir, '.devcontainer', 'devcontainer.json');
@@ -145,7 +153,7 @@ export function applyWorkspace(configDir, { workspace, hide, readonly, mounts })
     const config = readConfig(file);
     config.workspaceMount = `source=${workspace},target=${workspace},type=bind`;
     config.workspaceFolder = workspace;
-    config.mounts = [...(config.mounts ?? []), ...mounts];
+    config.mounts = [...(config.mounts ?? []).filter((m) => m !== CONFIG_MOUNT), ...mounts];
     writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
     writeFileSync(join(configDir, SETTINGS), `${JSON.stringify({ workspace, hide, readonly }, null, 2)}\n`);
 }

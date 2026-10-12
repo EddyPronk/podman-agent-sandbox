@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { SandboxError } from '../src/devcontainer.js';
+import { CONFIG_MOUNT } from '../src/workspace.js';
 import {
     applyTemplate, experimentalImage, listTemplates, parseOptionArgs, resolveOptions, substitute, withImage,
 } from '../src/templates.js';
@@ -114,6 +115,16 @@ test('every bundled template but claude-containers drops all capabilities and no
         for (const arg of hardening) {
             assert.equal(config.runArgs.includes(arg), id !== 'claude-containers', `${id}: runArgs ${arg}`);
         }
+    }
+});
+
+test('every bundled template mounts its own .devcontainer read-only over the workspace', () => {
+    // Else the agent could edit the config the next container creation uses (initializeCommand runs
+    // on the host). The same string as CONFIG_MOUNT, which --workspace removes again.
+    for (const { id } of listTemplates()) {
+        const config = JSON.parse(readFileSync(new URL(`../templates/${id}/.devcontainer/devcontainer.json`, import.meta.url), 'utf8'));
+        assert.ok(config.mounts.includes(CONFIG_MOUNT), `${id}: mounts has CONFIG_MOUNT`);
+        assert.equal(config.workspaceMount, 'source=${localWorkspaceFolder},target=/workspace,type=bind', `${id}: workspace at /workspace`);
     }
 });
 
