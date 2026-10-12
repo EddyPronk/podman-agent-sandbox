@@ -62,6 +62,25 @@ vscode          VS Code server running (18 processes); it forwards, while VS Cod
   `~/.gitconfig` stays, because the home directory is a volume that outlives the container; see
   below.
 
+## Projects with their own `.devcontainer`
+
+Many projects come with a dev container config of their own (`.devcontainer/devcontainer.json`).
+
+- **`sandbox` ignores it.** The container is built from the sandbox's template, copied to
+  `~/sandboxes/NAME`, not from the project's config. None of the project's image, Features,
+  `postCreateCommand` or port settings are used: run what its `postCreateCommand` would have run
+  yourself, inside the sandbox.
+- **It isn't hidden.** Inside, the agent sees `.devcontainer/` like any other file in the project, and
+  can change it. Make it read-only or hide it when you make the sandbox:
+  ```sh
+  sandbox new --template claude --workspace ~/development/your-project --readonly .devcontainer
+  ```
+  (`--hide .devcontainer` leaves an empty folder inside instead.)
+- **In VS Code, attach to the sandbox** ("Attach to Running Container", see above). "Reopen in
+  Container" uses the project's own config: VS Code builds a container of its own from it, outside
+  the sandbox, and runs its `initializeCommand` on your machine. If the agent could change that file,
+  it could choose what runs there.
+
 ## Troubleshooting
 
 **`Cannot find module '/tmp/vscode-remote-containers-….js'` when git needs a password or token**
