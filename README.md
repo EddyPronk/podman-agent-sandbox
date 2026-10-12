@@ -2,13 +2,39 @@
 
 A rootless Podman sandbox for running coding agents.
 
-`sandbox` is a small, lxc-style front end for [dev containers](https://containers.dev/) on
-rootless Podman. Each sandbox is a folder with a `.devcontainer/` config; the container runs
-with `--userns=keep-id`, so the user inside *is* your host user, and keeps its home directory
-on a per-sandbox volume. The bundled templates drop all capabilities (`--cap-drop=all`) and set
-`no-new-privileges`, so nothing inside can gain rights through setuid or file capabilities (no
-`sudo`); only `claude-containers` can't, see [Containers inside a
-sandbox](#containers-inside-a-sandbox).
+Let a coding agent such as Claude Code work on your project, without giving it the rest of your
+machine. `sandbox` creates a container that can reach the project, but not other parts of your home
+directory, your SSH keys or other credentials (unless you choose to). One command creates a sandbox,
+one opens a shell in it.
+
+**Features**
+
+- **Rootless, and you inside:** rootless Podman, no daemon, no root. Inside, you are your own user,
+  so files in the project keep your ownership.
+- **Hardened by default:** no capabilities and no new privileges, so nothing inside can gain rights,
+  not even with `sudo` (except the `claude-containers` template, which needs them). See [How a
+  sandbox is isolated](docs/security-model.md).
+- **Your project, not your home:** the project folder is all a sandbox gets from your machine; its
+  home directory is a volume of its own. The project's git hooks and config are read-only, so the
+  agent can't run code on your machine through git, and `--hide` keeps secrets out of sight.
+- **Optional egress proxy:** a sandbox with no route out except through a proxy that allows only the
+  hosts you list; refused hosts can be approved from a terminal.
+- **Ready-made templates:** Claude Code on Debian or Ubuntu, a proxy and its client, and one that can
+  run containers of its own.
+- **Standard dev containers:** each sandbox is a folder with a `devcontainer.json`, so VS Code can
+  connect to it.
+- **`sandbox inspect`:** how a sandbox runs, as a `podman run` command line and a summary of its
+  rights, with warnings about anything that weakens it.
+
+**Quick links**
+
+- [Install](INSTALL.md)
+- [How a sandbox is isolated](docs/security-model.md): what it may and may not do, and what it
+  doesn't protect
+- [A sandbox around an existing project](docs/sandbox-around-an-existing-project.md)
+- [VS Code to connect to a sandbox](docs/vscode.md)
+- [Containers inside a sandbox](docs/containers-inside-a-sandbox.md)
+- [Contributing](CONTRIBUTING.md)
 
 ## Prerequisites
 
@@ -24,9 +50,6 @@ sudo apt install podman nodejs npm
 Debian 12 and Ubuntu 24.04 ship Node.js 18, which is too old; get Node.js from
 [nodejs.org](https://nodejs.org/) there.
 
-The [Dev Containers CLI](https://github.com/devcontainers/cli) comes with `sandbox` as a
-pinned dependency; you don't need to install it yourself.
-
 ## Install
 
 Once the prerequisites are in place:
@@ -35,64 +58,58 @@ Once the prerequisites are in place:
 curl -fsSL https://raw.githubusercontent.com/EddyPronk/podman-agent-sandbox/main/install.sh | sh
 ```
 
-[`install.sh`](install.sh) checks the prerequisites, points npm at `~/.local` if it can't write to
-npm's global folder (see below), and installs the release tarball (built by CI with `npm pack`) with
-`npm install -g`. It installs the latest release; `PAS_VERSION=x.y.z` pins a release, and
-`PAS_REF=<branch or tag>` installs any other ref from source. Run it again to update.
+Run it again to update. The [install script](INSTALL.md#install-script) section says what it does
+and how to pin a release. Alternatively you can do a [manual installation](INSTALL.md#manual-install).
 
-### Manual install
+## Getting started
 
-`npm install -g` writes to the folder that `npm config get prefix` prints. With Debian's npm
-that is `/usr/local`, which needs root. Point npm at your home folder instead (once; it is saved
-in `~/.npmrc`):
+Put Claude Code to work on one of your projects, inside a sandbox:
 
 ```sh
-npm config set prefix "$HOME/.local" --location=user
+cd ~/development
+git clone <your-project-url> your-project
+sandbox new --template claude --workspace ~/development/your-project
+sandbox enter your-project      # the first time builds the image: a few minutes
+claude                          # inside the sandbox: sign in once, then work on the project
 ```
 
-Then:
-
-```sh
-git clone https://github.com/EddyPronk/podman-agent-sandbox
-cd podman-agent-sandbox
-npm pack
-npm install -g ./podman-agent-sandbox-*.tgz
-```
-
-This installs the command as `~/.local/bin/sandbox`. If `~/.local/bin` didn't exist before,
-log out and back in: Debian's `~/.profile` only adds it to `PATH` when it exists at login.
-
-`npm install -g .` also works, but links the global command to this folder instead of copying it.
+The project is the working folder inside, at the same path. The agent can change its files, but not
+its git hooks and config. Your SSH keys, your other files and the rest of your home directory stay
+outside. The sandbox's own config is in `~/sandboxes/your-project`. Leave the shell with `exit`; the
+sandbox keeps running until `sandbox stop your-project`. More in
+[A sandbox around an existing project](docs/sandbox-around-an-existing-project.md), and
+[Templates](#templates) for one behind an egress proxy.
 
 ## Usage
 
 ```sh
-sandbox templates                        # list the templates
-sandbox new work --template claude       # create ~/sandboxes/work
-sandbox new u26 --template claude --image docker.io/library/ubuntu:26.04   # on another base image
-sandbox new --template claude --workspace ~/src/app   # around an existing folder (below)
-sandbox enter work                       # build and start if needed, open a shell
-sandbox exec work git status             # run one command in it (start it if needed), like ssh
-sandbox help work                        # what this sandbox offers (from its template)
-sandbox inspect work                     # the podman run command that made it, and what it runs with
+sandbox templates                                   # list the templates
+sandbox new sandbox_with_claude --template claude   # create ~/sandboxes/sandbox_with_claude
+sandbox new sandbox_with_ubuntu --template claude --image docker.io/library/ubuntu:26.04   # on another base image
+sandbox new --template claude --workspace ~/src/app # around an existing folder
+sandbox enter sandbox_with_claude                   # build and start if needed, open a shell
+sandbox exec sandbox_with_claude git status         # run one command in it (start it if needed), like ssh
+sandbox help sandbox_with_claude                    # what this sandbox offers (from its template)
+sandbox inspect sandbox_with_claude                 # the podman run command that made it, and what it runs with
 sandbox list
-sandbox stop work
-sandbox rm work                          # removes the container; the home volume is kept
-sandbox build work [--no-cache]          # rebuild the image, showing the full log
+sandbox stop sandbox_with_claude
+sandbox rm sandbox_with_claude                      # removes the container; the home volume is kept
+sandbox build sandbox_with_claude [--no-cache]      # rebuild the image, showing the full log
 ```
 
 `sandbox exec NAME COMMAND [ARG ...]` runs COMMAND as you, in the workspace folder, with the same
 environment as `enter`, and returns its exit status. Everything after NAME is the command, so
-`sandbox exec work ls -la` passes `-la` to `ls`; a `--` after NAME is allowed. Unlike `ssh`, the
-arguments arrive as they are: they aren't joined into one string for a shell to split again. It
-gets a terminal when you run it at one, so interactive tools work, and none in a pipe or a script.
+`sandbox exec sandbox_with_claude ls -la` passes `-la` to `ls`; a `--` after NAME is allowed. Unlike
+`ssh`, the arguments arrive as they are: they aren't joined into one string for a shell to split
+again. It gets a terminal when you run it at one, so interactive tools work, and none in a pipe or a
+script.
 
 Sandboxes live in `~/sandboxes`; set `SANDBOX_DIR` to use another folder. A sandbox that
 already has a container is found through the container's `devcontainer.local_folder` label,
 wherever its folder is.
 
-`stop` and `rm` only act on sandboxes, so they can't remove a container VS Code or you made with
-`podman` by mistake. A sandbox's container has the label `podman-agent-sandbox` (the templates add
+`stop` and `rm` only act on sandboxes, so they can't remove a container made with `podman` or other
+tools by mistake. A sandbox's container has the label `podman-agent-sandbox` (the templates add
 it, since 0.6.0); older ones count when their config folder is in `$SANDBOX_DIR` or has a
 `sandbox.json` (`--workspace`). For anything else, `--force` (`sandbox rm --force NAME`), or use
 `podman` directly.
@@ -113,15 +130,14 @@ made with the `podman` command, not through its API socket (as VS Code does).
 Templates use the [Dev Container Template](https://containers.dev/implementors/templates/)
 format: a `devcontainer-template.json` plus a `.devcontainer/` folder. `sandbox new` copies the
 template and replaces `${templateOption:KEY}` with the values from `--option KEY=VALUE` or the
-defaults. A template is copied once: later changes to it don't reach existing sandboxes. (For
-example, sandboxes made before 0.5.2 don't have `--cap-drop=all` and
-`--security-opt=no-new-privileges`: add them to `runArgs` in the sandbox's
-`.devcontainer/devcontainer.json`, then `sandbox rm NAME` and `sandbox enter NAME`.)
+defaults. A template is copied once: later changes to it don't reach existing sandboxes. For
+example, sandboxes made before 0.5.2 lack the hardening flags; [How a sandbox is
+isolated](docs/security-model.md#no-way-to-gain-rights) says how to add them.
 
 | Template | What you get |
 |---|---|
 | `claude` | Debian trixie (or another base image: `--image`, below), Node.js and Claude Code (Dev Container Features); unrestricted network |
-| `claude-containers` | Like `claude`, plus rootless Podman and `sandbox` inside, for an agent that needs containers of its own. Weakens the sandbox: see [Containers inside a sandbox](#containers-inside-a-sandbox) |
+| `claude-containers` | Like `claude`, plus rootless Podman and `sandbox` inside, for an agent that needs containers of its own. Weakens the sandbox: see [Containers inside a sandbox](docs/containers-inside-a-sandbox.md) |
 | `mitm-proxy` | [agent-mitm-proxy](https://github.com/EddyPronk/agent-mitm-proxy): an egress proxy with TLS interception and an allowlist (`allowlist.txt` in the sandbox folder; changes apply without a restart). Option `ref`: the agent-mitm-proxy commit to build |
 | `proxy-client` | Like `claude` (also `--image`), but with no route out: only the proxy's internal network, all HTTP(S) through `http://proxy:8899`, trusting the proxy's CA |
 
@@ -142,7 +158,7 @@ The proxy's private data (CA keys, the decrypted-traffic log, refusals) stays in
 `--image` (`sandbox templates` lists some):
 
 ```sh
-sandbox new work --template claude --image docker.io/library/ubuntu:26.04
+sandbox new sandbox_with_ubuntu --template claude --image docker.io/library/ubuntu:26.04
 ```
 
 Only Ubuntu 26.04 (and the default) is tested. Any other image is **experimental**: `sandbox new` warns,
@@ -160,94 +176,6 @@ Your own templates don't need to be bundled: give `--template` a path to a templ
 ```sh
 sandbox new work --template ./templates/mine     # templates/mine/devcontainer-template.json
 ```
-
-### A sandbox around an existing project
-
-`sandbox new` normally makes a new folder that is the workspace. To work on a project you already
-have, give `--workspace`:
-
-```sh
-sandbox new myproject --template claude --workspace ~/workspace/myproject \
-    --hide .env --hide secrets --readonly ci
-sandbox enter myproject
-```
-
-- The project is mounted at **its own path**, which is the working folder inside: git output,
-  error messages and caches mean the same inside and out. NAME defaults to the folder's name.
-- **Nothing is written into the project.** The sandbox's config stays in `~/sandboxes/myproject`,
-  outside the project, so the agent can't change how its own container is made. If the config
-  folder is inside the project anyway (a `SANDBOX_DIR` in it), it is mounted read-only.
-- **Every git repo in the project** (any `.git` folder, also nested ones; not in `node_modules` or
-  `.venv`) gets `.git/hooks` and `.git/config` read-only: git on the host runs what they name
-  (hooks, `core.hooksPath`, `core.fsmonitor`, aliases), so a writable one would let the agent run
-  code outside the sandbox. A `.git` *file* (a worktree or submodule, whose git folder is elsewhere)
-  is refused for now.
-- **`sandbox enter` checks this again** before it starts: a repo added since `sandbox new` is
-  reported, and the sandbox has to be made again (`sandbox rm`, remove its folder, `sandbox new`).
-- **What isn't protected: your secrets.** The agent can read and change everything else in the
-  project. `--hide PATH` (relative to the project) hides a file (it reads as empty) or a folder (an
-  empty one in its place); `--readonly PATH` makes a path read-only. Neither can be added later:
-  make the sandbox again. A hidden file that git tracks shows up as modified inside (it reads as
-  empty there); committing it from inside would record it empty, not reveal it.
-- Templates that refer to `/workspace` themselves (like `mitm-proxy`'s `allowlist.txt`) need it to be
-  the workspace; use them without `--workspace`. The template's `devcontainer.json` must be plain
-  JSON (no comments), since `sandbox new` rewrites it.
-
-`sandbox rm` removes only the container: the project is untouched.
-
-`--hide` and `--readonly` can't be changed later, and the list is easy to get wrong by hand: keep it
-in a small script **outside the project** (or read-only inside it), so the agent can't edit its own
-protections for the next time the sandbox is made.
-
-### Containers inside a sandbox
-
-Some work needs containers: building images, running a project's integration tests, or trying out
-sandboxes themselves. The `claude-containers` template is `claude` plus rootless Podman and the
-`sandbox` command inside, so the agent can do that itself:
-
-```sh
-sandbox new myproject --template claude-containers --workspace ~/workspace/myproject --hide .env
-sandbox enter myproject
-# inside: podman build/run, and sandbox new/enter for sandboxes of its own
-```
-
-Inside gets the same `sandbox` version as outside (the release of that version, installed when the
-sandbox is made). Containers inside can't get more rights than the sandbox itself has, and the
-`mitm-proxy` and `proxy-client` templates work inside as they do outside, on networks of their own.
-A `claude-containers` sandbox can be made inside another one, e.g. to test a project that itself
-makes sandboxes.
-
-**What it costs.** Rootless Podman inside a rootless container needs four rights the `claude`
-template doesn't give:
-
-| Right | Why | What it weakens |
-|---|---|---|
-| `--device=/dev/net/tun` | `pasta`, the network for rootless containers, builds it with a TUN device | network interfaces in the sandbox's own network namespace; on its own this doesn't reach the host's network |
-| `--security-opt=unmask=/proc/*` | a container's new `/proc` can only be mounted where `/proc` isn't partly covered | the sandbox's `/proc` loses Podman's covers; host-wide files (`kcore`, `sysrq-trigger`) still need privileges a rootless container never has, so what opens up is mostly the sandbox's own view |
-| its own seccomp profile | containers inside set their own host name | your Podman's default profile, plus `sethostname` and `setdomainname` without `CAP_SYS_ADMIN`; both change only the caller's own UTS namespace |
-| no `--cap-drop=all`, no `no-new-privileges` | `newuidmap`/`newgidmap` map the user's subordinate IDs with their file capabilities (`cap_setuid`, `cap_setgid`; the image has them instead of setuid); without these rights inner containers fail with `operation not permitted` | a program with file capabilities or setuid can gain rights up to Podman's default set (still no `CAP_SYS_ADMIN`), inside the sandbox's user namespace |
-
-Kept as with `claude`: `--userns=keep-id` (you, not root), the rest of the seccomp profile.
-
-**Use `claude` unless the agent needs containers.** This template is for your own projects and an
-agent you'd let run containers on your machine anyway; not for untrusted code. Its network is as
-open as `claude`'s: only *inner* `proxy-client` sandboxes are behind a proxy.
-
-- **The seccomp profile** is written at `sandbox new` into the sandbox's
-  `.devcontainer/seccomp.json`, from your Podman's default (`podman info` →
-  `SECCOMPProfilePath`). If your Podman has no profile file, a copy of Podman 5.4's default that
-  comes with the template is used, with a warning.
-- **Host:** `/dev/net/tun` must exist (`ls -l /dev/net/tun`). If you log out and the sandbox stops,
-  so does everything inside it: turn on lingering (`loginctl enable-linger`) on machines you use
-  over SSH.
-- **Disk:** each level keeps its own images and volumes, inside the sandbox's home volume: a
-  `claude` sandbox inside is about 1.3 GB more. Clean up inside with `podman image prune` and
-  `sandbox rm`.
-
-## Example usage
-
-To edit and work in a sandbox with VS Code, and what that means for your SSH keys and git
-credentials, see [docs/VSCODE.md](docs/VSCODE.md).
 
 ## Uninstall
 
@@ -277,6 +205,9 @@ The templates' base image (`debian:trixie-slim`, or the one given with `--image`
 npm install
 npm test
 ```
+
+Running a development version next to the installed one, the tests and pull requests:
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

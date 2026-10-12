@@ -268,7 +268,7 @@ export function audit(info, { status = null, internal = {}, uncovered = [], sand
         for (const socket of vscode.sockets) rows.push(['', `SSH agent  ${socket.path} (${agentState(socket.agent, attached)})`]);
         for (const helper of vscode.helpers) rows.push(['', `git        credential.helper in ${helper.file}: VS Code's`]);
         const live = vscode.sockets.filter((s) => /^keys [1-9]/.test(s.agent));
-        const docs = 'https://github.com/EddyPronk/podman-agent-sandbox/blob/main/docs/VSCODE.md';
+        const docs = 'https://github.com/EddyPronk/podman-agent-sandbox/blob/main/docs/vscode.md';
         if (vscode.sockets.length) {
             warnings.push(`VS Code forwards your SSH agent into this container while attached${live.length
                 ? ' (it answers now)' : ' (not answering now; it does again on the next attach)'}: any process inside `

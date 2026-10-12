@@ -57,6 +57,20 @@ vscode          VS Code server running (18 processes); it forwards, while VS Cod
   - the Dev Containers setting `"dev.containers.gitCredentialHelperConfigLocation": "none"`, against the
     git helper;
   - starting VS Code without an agent (`SSH_AUTH_SOCK= code`), against the agent socket.
-- **Leftovers:** `sandbox rm NAME` then `sandbox enter NAME` gives a fresh container, so the sockets and
-  the VS Code server go. But `~/.gitconfig` lives in the home volume: remove VS Code's helper with
-  `git config --global --unset-all credential.helper` inside.
+- **Recreate the sandbox:** `sandbox rm NAME` then `sandbox enter NAME` gives a fresh container,
+  without the agent sockets and the running VS Code server. The credential helper line in
+  `~/.gitconfig` stays, because the home directory is a volume that outlives the container; see
+  below.
+
+## Troubleshooting
+
+**`Cannot find module '/tmp/vscode-remote-containers-….js'` when git needs a password or token**
+(e.g. `git fetch` from a private repository).
+`~/.gitconfig` still names VS Code's credential helper from an earlier container: the home directory
+outlives it, the helper's script in `/tmp` didn't. Nothing leaks, but git can't use it.
+Attach VS Code again (it rewrites the line), or remove it inside the sandbox:
+
+```sh
+git config --global --get-all credential.helper      # look
+git config --global --unset-all credential.helper    # remove (also a helper you set yourself)
+```
