@@ -61,6 +61,25 @@ log out and back in: Debian's `~/.profile` only adds it to `PATH` when it exists
 
 `npm install -g .` also works, but links the global command to this folder instead of copying it.
 
+## Getting started
+
+Put Claude Code to work on one of your projects, inside a sandbox:
+
+```sh
+cd ~/development
+git clone <your-project-url> your-project
+sandbox new --template claude --workspace ~/development/your-project
+sandbox enter your-project      # the first time builds the image: a few minutes
+claude                          # inside the sandbox: sign in once, then work on the project
+```
+
+The project is the working folder inside, at the same path. The agent can change its files, but not
+its git hooks and config. Your SSH keys, your other files and the rest of your home directory stay
+outside. The sandbox's own config is in `~/sandboxes/your-project`. Leave the shell with `exit`; the
+sandbox keeps running until `sandbox stop your-project`. More in
+[A sandbox around an existing project](#a-sandbox-around-an-existing-project), and
+[Templates](#templates) for one behind an egress proxy.
+
 ## Usage
 
 ```sh
