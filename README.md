@@ -24,9 +24,6 @@ sudo apt install podman nodejs npm
 Debian 12 and Ubuntu 24.04 ship Node.js 18, which is too old; get Node.js from
 [nodejs.org](https://nodejs.org/) there.
 
-The [Dev Containers CLI](https://github.com/devcontainers/cli) comes with `sandbox` as a
-pinned dependency; you don't need to install it yourself.
-
 ## Install
 
 Once the prerequisites are in place:
@@ -67,32 +64,33 @@ log out and back in: Debian's `~/.profile` only adds it to `PATH` when it exists
 ## Usage
 
 ```sh
-sandbox templates                        # list the templates
-sandbox new work --template claude       # create ~/sandboxes/work
-sandbox new u26 --template claude --image docker.io/library/ubuntu:26.04   # on another base image
-sandbox new --template claude --workspace ~/src/app   # around an existing folder (below)
-sandbox enter work                       # build and start if needed, open a shell
-sandbox exec work git status             # run one command in it (start it if needed), like ssh
-sandbox help work                        # what this sandbox offers (from its template)
-sandbox inspect work                     # the podman run command that made it, and what it runs with
+sandbox templates                                   # list the templates
+sandbox new sandbox_with_claude --template claude   # create ~/sandboxes/sandbox_with_claude
+sandbox new sandbox_with_ubuntu --template claude --image docker.io/library/ubuntu:26.04   # on another base image
+sandbox new --template claude --workspace ~/src/app # around an existing folder (below)
+sandbox enter sandbox_with_claude                   # build and start if needed, open a shell
+sandbox exec sandbox_with_claude git status         # run one command in it (start it if needed), like ssh
+sandbox help sandbox_with_claude                    # what this sandbox offers (from its template)
+sandbox inspect sandbox_with_claude                 # the podman run command that made it, and what it runs with
 sandbox list
-sandbox stop work
-sandbox rm work                          # removes the container; the home volume is kept
-sandbox build work [--no-cache]          # rebuild the image, showing the full log
+sandbox stop sandbox_with_claude
+sandbox rm sandbox_with_claude                      # removes the container; the home volume is kept
+sandbox build sandbox_with_claude [--no-cache]      # rebuild the image, showing the full log
 ```
 
 `sandbox exec NAME COMMAND [ARG ...]` runs COMMAND as you, in the workspace folder, with the same
 environment as `enter`, and returns its exit status. Everything after NAME is the command, so
-`sandbox exec work ls -la` passes `-la` to `ls`; a `--` after NAME is allowed. Unlike `ssh`, the
-arguments arrive as they are: they aren't joined into one string for a shell to split again. It
-gets a terminal when you run it at one, so interactive tools work, and none in a pipe or a script.
+`sandbox exec sandbox_with_claude ls -la` passes `-la` to `ls`; a `--` after NAME is allowed. Unlike
+`ssh`, the arguments arrive as they are: they aren't joined into one string for a shell to split
+again. It gets a terminal when you run it at one, so interactive tools work, and none in a pipe or a
+script.
 
 Sandboxes live in `~/sandboxes`; set `SANDBOX_DIR` to use another folder. A sandbox that
 already has a container is found through the container's `devcontainer.local_folder` label,
 wherever its folder is.
 
-`stop` and `rm` only act on sandboxes, so they can't remove a container VS Code or you made with
-`podman` by mistake. A sandbox's container has the label `podman-agent-sandbox` (the templates add
+`stop` and `rm` only act on sandboxes, so they can't remove a container made with `podman` or other
+tools by mistake. A sandbox's container has the label `podman-agent-sandbox` (the templates add
 it, since 0.6.0); older ones count when their config folder is in `$SANDBOX_DIR` or has a
 `sandbox.json` (`--workspace`). For anything else, `--force` (`sandbox rm --force NAME`), or use
 `podman` directly.
@@ -142,7 +140,7 @@ The proxy's private data (CA keys, the decrypted-traffic log, refusals) stays in
 `--image` (`sandbox templates` lists some):
 
 ```sh
-sandbox new work --template claude --image docker.io/library/ubuntu:26.04
+sandbox new sandbox_with_ubuntu --template claude --image docker.io/library/ubuntu:26.04
 ```
 
 Only Ubuntu 26.04 (and the default) is tested. Any other image is **experimental**: `sandbox new` warns,
@@ -246,8 +244,8 @@ open as `claude`'s: only *inner* `proxy-client` sandboxes are behind a proxy.
 
 ## Example usage
 
-To edit and work in a sandbox with VS Code, and what that means for your SSH keys and git
-credentials, see [docs/VSCODE.md](docs/VSCODE.md).
+You can use [VS Code to connect to a sandbox](docs/VSCODE.md); the page also explains what that
+means for your SSH keys and git credentials.
 
 ## Uninstall
 
