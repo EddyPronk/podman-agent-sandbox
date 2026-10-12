@@ -7,7 +7,7 @@ import {
     SANDBOX_LABEL, SandboxError, checkName, cliPath, containerSandbox, containerState, dc, folderOf, podman, sandboxDir,
     sandboxReason,
 } from './devcontainer.js';
-import { audit, formatCommand, parseStatus } from './inspect.js';
+import { VSCODE_PROBE, audit, formatCommand, parseStatus, parseVscodeProbe } from './inspect.js';
 import {
     applyTemplate, experimentalImage, listTemplates, parseOptionArgs, TESTED_IMAGES, withImage,
 } from './templates.js';
@@ -49,20 +49,16 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        new privileges, seccomp, network, mounts; with warnings
   sandbox list         list dev containers
   sandbox stop [--force] NAME
-                       stop NAME
+                       stop NAME; --force also stops a container sandbox
+                       didn't make
   sandbox rm [--force] NAME
                        remove NAME's container (its home volume, config folder
-                       and any --workspace folder are kept)
+                       and any --workspace folder are kept); --force as for stop
   sandbox --version    show the version (and the Dev Containers CLI's)
 
-NAME is resolved to its folder (the config, and the workspace unless it was
-made with --workspace) via the container's devcontainer.local_folder label,
-or else $SANDBOX_DIR/NAME. SANDBOX_DIR defaults to ~/sandboxes.
-
-stop and rm only act on sandboxes: containers with the podman-agent-sandbox
-label (0.6.0 on), or whose config folder is in $SANDBOX_DIR or has a
-sandbox.json. --force acts on any container, e.g. one VS Code made. inspect
-works on any container and says whether it is a sandbox.
+Start with:  sandbox new work --template claude && sandbox enter work
+Sandboxes live in $SANDBOX_DIR (default ~/sandboxes).
+More: https://github.com/EddyPronk/podman-agent-sandbox#usage
 `;
 
 const commands = {
@@ -326,9 +322,13 @@ function cmdInspect(args) {
 
     // Measured inside while it runs: what the processes in it actually have.
     let status = null;
+    let vscode = null;
     if (info.State?.Status === 'running') {
         const proc = podman(['exec', name, 'cat', '/proc/1/status']);
         if (proc.status === 0) status = parseStatus(proc.stdout);
+        // What VS Code forwards when attached: not mounts, so only visible inside (inspect.js).
+        const probe = podman(['exec', name, 'sh', '-c', VSCODE_PROBE]);
+        if (probe.status === 0) vscode = parseVscodeProbe(probe.stdout);
     }
     const internal = {};
     const networks = Object.keys(info.NetworkSettings?.Networks ?? {});
@@ -349,7 +349,7 @@ function cmdInspect(args) {
             // the config folder is gone: nothing to compare with
         }
     }
-    const report = audit(info, { status, internal, uncovered, sandbox: Boolean(reason) });
+    const report = audit(info, { status, internal, uncovered, sandbox: Boolean(reason), vscode });
 
     console.log(`\n# What it runs with${status ? ' (capabilities, new privileges, seccomp: measured inside)' : ''}:`);
     const rows = [...report.rows, ...report.mounts.map((text, i) => [i ? '' : 'mounts', text])];

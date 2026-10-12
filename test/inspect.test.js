@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { test } from 'node:test';
-import { audit, formatCommand, optionValues, parseStatus, shellQuote, splitCommand } from '../src/inspect.js';
+import { createServer } from 'node:net';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+    VSCODE_PROBE, audit, formatCommand, optionValues, parseStatus, parseVscodeProbe, shellQuote, splitCommand,
+} from '../src/inspect.js';
 
 // As the Dev Containers CLI makes a sandbox: the image without localhost/ and :latest, a boolean
 // flag (--init) right before it, and a multi-line script after it.
@@ -140,4 +146,121 @@ test('audit: networks, privileged, host network, unmask and uncovered git paths'
 
     const root = audit(info({ Config: { CreateCommand: [] } }));
     assert.equal(row(root, 'user'), "root (the image's default)");
+});
+
+test('parseVscodeProbe: server count, sockets with what their agent answered, helpers', () => {
+    const probe = parseVscodeProbe([
+        'server 18',
+        'agent /tmp/early.sock keys 1',             // before its sock line: ignored
+        'sock /tmp/vscode-ssh-auth-a.sock',
+        'agent /tmp/vscode-ssh-auth-a.sock keys 1',
+        'sock /tmp/vscode-ssh-auth-b.sock',
+        'agent /tmp/vscode-ssh-auth-b.sock dead',
+        'sock /tmp/vscode-ssh-auth-c.sock',
+        'helper /home/node/.gitconfig !f() { /home/node/.vscode-server/bin/x/node /tmp/h.js git-credential-helper $*; }; f',
+        'garbage', '',
+    ].join('\n'));
+    assert.equal(probe.server, 18);
+    assert.deepEqual(probe.sockets, [
+        { path: '/tmp/vscode-ssh-auth-a.sock', agent: 'keys 1' },
+        { path: '/tmp/vscode-ssh-auth-b.sock', agent: 'dead' },
+        { path: '/tmp/vscode-ssh-auth-c.sock', agent: 'unknown' },
+    ]);
+    assert.equal(probe.helpers.length, 1);
+    assert.equal(probe.helpers[0].file, '/home/node/.gitconfig');
+    assert.match(probe.helpers[0].value, /git-credential-helper/);
+});
+
+const vscodeRows = (report) => {
+    const i = report.rows.findIndex(([l]) => l === 'vscode');
+    if (i < 0) return [];
+    const rows = [report.rows[i][1]];
+    for (let j = i + 1; j < report.rows.length && report.rows[j][0] === ''; j++) rows.push(report.rows[j][1]);
+    return rows;
+};
+
+test('audit: VS Code attached now: the answering socket, earlier ones, the helper, two warnings', () => {
+    const report = audit(info({ State: { Status: 'running' } }), { vscode: {
+        server: 18,
+        sockets: [{ path: '/tmp/vscode-ssh-auth-new.sock', agent: 'keys 1' },
+            { path: '/tmp/vscode-ssh-auth-old.sock', agent: 'dead' }],
+        helpers: [{ file: '/home/node/.gitconfig', value: '!f() { … }; f' }],
+    } });
+    assert.deepEqual(vscodeRows(report), [
+        'VS Code server running (18 processes); it forwards, while VS Code is attached:',
+        'SSH agent  /tmp/vscode-ssh-auth-new.sock (answers now: 1 key)',
+        'SSH agent  /tmp/vscode-ssh-auth-old.sock (not answering: from an earlier attach)',
+        'git        credential.helper in /home/node/.gitconfig: VS Code\'s',
+    ]);
+    assert.equal(report.warnings.length, 2);
+    assert.match(report.warnings[0], /forwards your SSH agent .* \(it answers now\)/);
+    assert.match(report.warnings[1], /git credential helper is set/);
+});
+
+test('audit: VS Code not attached: still warned, the sockets come back with the next attach', () => {
+    const report = audit(info({ State: { Status: 'running' } }), { vscode: {
+        server: 8, sockets: [{ path: '/tmp/vscode-ssh-auth-old.sock', agent: 'dead' }], helpers: [] } });
+    assert.match(vscodeRows(report)[1], /not answering: VS Code not attached/);
+    assert.equal(report.warnings.length, 1);
+    assert.match(report.warnings[0], /not answering now; it does again on the next attach/);
+});
+
+test('audit: no VS Code, or a server that forwards nothing: no warnings', () => {
+    assert.deepEqual(vscodeRows(audit(info(), { vscode: { server: 0, sockets: [], helpers: [] } })), []);
+    assert.deepEqual(vscodeRows(audit(info(), { vscode: null })), []);
+    const report = audit(info(), { vscode: { server: 3, sockets: [], helpers: [] } });
+    assert.deepEqual(vscodeRows(report), ['VS Code server running (3 processes); nothing forwarded found']);
+    assert.deepEqual(report.warnings, []);
+});
+
+test('audit: host sockets among the mounts: agents, API sockets, X11, D-Bus warned; Wayland a note', () => {
+    const mount = (Source, Destination) => ({ Type: 'bind', Source, Destination, RW: true });
+    const report = audit(info({ Mounts: [
+        mount('/run/user/1000/keyring/ssh', '/ssh-agent'),
+        mount('/run/user/1000/podman/podman.sock', '/var/run/docker.sock'),
+        mount('/tmp/.X11-unix', '/tmp/.X11-unix'),
+        mount('/run/user/1000/bus', '/run/user/1000/bus'),
+        mount('/run/user/1000/wayland-0', '/tmp/wayland-0'),
+        mount('/home/u/box', '/workspace'),
+    ] }));
+    assert.equal(report.warnings.length, 4);
+    assert.match(report.warnings[0], /keyring\/ssh is mounted at \/ssh-agent: the host's SSH or GPG agent/);
+    assert.match(report.warnings[1], /podman\.sock .*API socket/);
+    assert.match(report.warnings[2], /X11 display/);
+    assert.match(report.warnings[3], /D-Bus/);
+    assert.equal(report.notes.length, 1);
+    assert.match(report.notes[0], /wayland-0 .*Wayland display/);
+});
+
+test('VSCODE_PROBE is valid sh', () => {
+    const result = spawnSync('sh', ['-n', '-c', VSCODE_PROBE], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+});
+
+const AGENT_QUERY = /-e '([^']+)'/.exec(VSCODE_PROBE)[1];
+
+/** The probe's agent query (node -e) on PATH; async, so a fake agent in this process can answer. */
+const runQuery = (path) => new Promise((resolve) => {
+    execFile(process.execPath, ['-e', AGENT_QUERY, path], { timeout: 10000 }, (err, stdout) => resolve(stdout.trim()));
+});
+
+/** Run the agent query against a fake agent on a Unix socket answering ANSWER (null: hang up). */
+async function queryFakeAgent(answer) {
+    const path = join(mkdtempSync(join(tmpdir(), 'sandbox-agent-')), 'agent.sock');
+    const server = createServer((conn) => conn.once('data', () => (answer ? conn.end(answer) : conn.destroy())));
+    await new Promise((resolve) => server.listen(path, resolve));
+    try {
+        return await runQuery(path);
+    } finally {
+        server.close();
+    }
+}
+
+test('the agent query reads the key count, and calls a closed or refusing agent what it is', async () => {
+    // SSH2_AGENT_IDENTITIES_ANSWER (12) with 2 keys: length 5, type 12, count 2 (key blobs left out).
+    assert.equal(await queryFakeAgent(Buffer.from([0, 0, 0, 5, 12, 0, 0, 0, 2])), 'keys 2');
+    assert.equal(await queryFakeAgent(Buffer.from([0, 0, 0, 1, 5])), 'refused');   // SSH_AGENT_FAILURE
+    assert.equal(await queryFakeAgent(null), 'dead');                               // closes without a word
+    const missing = join(mkdtempSync(join(tmpdir(), 'sandbox-agent-')), 'none.sock');
+    assert.equal(await runQuery(missing), 'dead');                                  // no agent there
 });

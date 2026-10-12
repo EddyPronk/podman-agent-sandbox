@@ -102,10 +102,11 @@ that created it, as Podman recorded it, quoted for the shell with one option per
 runs with: user and user namespace, capabilities, new privileges, seccomp, devices, `/proc`,
 network (internal or routed), limits, and every mount (read-only, writable or hidden). While the
 sandbox runs, capabilities, new privileges and seccomp are read inside, from `/proc/1/status`.
-Warnings follow, e.g. for a sandbox made before 0.5.2 that still has capabilities, or a git repo
-in a `--workspace` whose hooks or config would be writable. It works on any container, e.g. one VS
-Code made, and says first whether it is a sandbox. Podman records the command line only for
-containers made with the `podman` command, not through its API socket (as VS Code does).
+It also lists host sockets mounted into it (an SSH agent, Podman's or Docker's API, X11, D-Bus).
+Warnings follow, e.g. for a sandbox made before 0.5.2 that still has capabilities, or a git repo in a
+`--workspace` whose hooks or config would be writable. It works on any container, e.g. one VS Code
+made, and says first whether it is a sandbox. Podman records the command line only for containers
+made with the `podman` command, not through its API socket (as VS Code does).
 
 ### Templates
 
@@ -242,6 +243,11 @@ open as `claude`'s: only *inner* `proxy-client` sandboxes are behind a proxy.
 - **Disk:** each level keeps its own images and volumes, inside the sandbox's home volume: a
   `claude` sandbox inside is about 1.3 GB more. Clean up inside with `podman image prune` and
   `sandbox rm`.
+
+## Example usage
+
+To edit and work in a sandbox with VS Code, and what that means for your SSH keys and git
+credentials, see [docs/VSCODE.md](docs/VSCODE.md).
 
 ## Uninstall
 
