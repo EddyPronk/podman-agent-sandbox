@@ -18,7 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/EddyPronk/podman-agent-sandbox/main
 - **Update:** run it again; it installs the latest release.
 - **A specific release:** set `PAS_VERSION`:
   ```sh
-  curl -fsSL https://raw.githubusercontent.com/EddyPronk/podman-agent-sandbox/main/install.sh | PAS_VERSION=0.5.2 sh
+  curl -fsSL https://raw.githubusercontent.com/EddyPronk/podman-agent-sandbox/main/install.sh | PAS_VERSION=0.6.0 sh
   ```
 - **A branch or tag, from source:** `PAS_REF=<branch or tag>` instead.
 
