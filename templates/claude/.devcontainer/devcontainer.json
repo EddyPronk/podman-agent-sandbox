@@ -35,7 +35,8 @@
   },
   "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/",
   "mounts": [
-    "type=volume,source=${localWorkspaceFolderBasename}-home,target=/home/${localEnv:USER},U=true"
+    "type=volume,source=${localWorkspaceFolderBasename}-home,target=/home/${localEnv:USER},U=true",
+    "type=bind,source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,readonly"
   ],
   "runArgs": [
     "--name",

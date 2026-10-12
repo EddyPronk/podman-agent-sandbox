@@ -33,7 +33,8 @@
   },
   "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/ && { curl -fsSL -o /tmp/install-sandbox.sh https://raw.githubusercontent.com/EddyPronk/podman-agent-sandbox/main/install.sh && PAS_VERSION=${localEnv:SANDBOX_VERSION} sh /tmp/install-sandbox.sh || echo 'sandbox: warning: could not install sandbox ${localEnv:SANDBOX_VERSION} inside (not released?); install it there by hand' >&2; }",
   "mounts": [
-    "type=volume,source=${localWorkspaceFolderBasename}-home,target=/home/${localEnv:USER},U=true"
+    "type=volume,source=${localWorkspaceFolderBasename}-home,target=/home/${localEnv:USER},U=true",
+    "type=bind,source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,readonly"
   ],
   "runArgs": [
     "--name",

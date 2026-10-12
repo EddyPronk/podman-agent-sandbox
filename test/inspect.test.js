@@ -232,6 +232,13 @@ test('audit: host sockets among the mounts: agents, API sockets, X11, D-Bus warn
     assert.match(report.notes[0], /wayland-0 .*Wayland display/);
 });
 
+test('audit: a writable sandbox config gets a warning', () => {
+    const report = audit(info(), { configWritable: '/workspace/.devcontainer' });
+    assert.equal(report.warnings.length, 1);
+    assert.match(report.warnings[0], /own config is writable inside \(\/workspace\/\.devcontainer\).*initializeCommand runs on your machine/);
+    assert.deepEqual(audit(info()).warnings, []);
+});
+
 test('VSCODE_PROBE is valid sh', () => {
     const result = spawnSync('sh', ['-n', '-c', VSCODE_PROBE], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
