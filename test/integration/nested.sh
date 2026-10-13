@@ -17,12 +17,15 @@
 #   T19     sandbox inspect on the nested claude, recognised as a sandbox by its label
 #   T20     sandbox rm refuses a container that isn't a sandbox, unless --force
 #   T23     the nested claude's own config (/workspace/.devcontainer) is read-only inside
+#   T24-T27 sandboxes from their project's own config (inplace.sh, run inside): --inplace, an
+#           agent's git commit of the config refused until trust, trust, export
 #   T21     a claude sandbox on Ubuntu 26.04 (--image): its ubuntu user (UID 1000) renamed
 #           to yours, so keep-id works; removed again afterwards, with unused images, to save disk
 # Each test's full output is in LOG_DIR (default ./nested-logs), and on a failure the end of it is
 # printed, followed by the state of both levels (containers, their logs, disk).
 # Exit status: the number of failed tests; 99 if `nested` couldn't be set up.
-# Needs rootless podman and /dev/net/tun on the host. Takes a while: it builds five images.
+# Needs rootless podman and /dev/net/tun on the host. Takes a while: it builds seven images (the
+# two for T24-T27 mostly from the claude image's cached layers).
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd -P)
@@ -70,6 +73,7 @@ sandbox enter "$N" </dev/null >"$LOG/up.log" 2>&1 || die "sandbox enter $N faile
 # so it replaces the release instead of sitting next to it.
 { podman cp "$TARBALL" "$N:/tmp/podman-agent-sandbox.tgz" \
     && podman cp "$here/proxy-network.sh" "$N:/tmp/proxy-network.sh" \
+    && podman cp "$here/inplace.sh" "$N:/tmp/inplace.sh" \
     && podman exec -u "$U" "$N" bash -lc \
         'prefix=$(npm config get prefix); if [ ! -w "$prefix/lib/node_modules" ]; then
              npm config set prefix ~/.local --location=user; mkdir -p ~/.local/bin; fi
@@ -118,6 +122,15 @@ run "T18 everyday work in the hardened claude" 'podman exec claude bash -lc "set
 run "T19 sandbox inspect: the podman run command, and no warnings for the claude" 'out=$(sandbox inspect claude) || exit 1; echo "$out"; echo "$out" | grep -q "^# claude is a sandbox (label podman-agent-sandbox=" && echo "$out" | grep -q "^podman run" && echo "$out" | grep -q "^capabilities  *none" && ! echo "$out" | grep -q "^warning:"'
 run "T20 sandbox rm refuses a container that isn't a sandbox; --force removes it" 'podman rm -f t20 >/dev/null 2>&1; podman create --name t20 docker.io/library/alpine:latest true >/dev/null || exit 1; sandbox rm t20; s=$?; podman container exists t20 || { echo "t20 was removed without --force"; exit 1; }; [ $s -ne 0 ] && sandbox rm --force t20 && ! podman container exists t20'
 run "T23 the nested claude's own config is read-only inside, its workspace writable" 'podman exec claude sh -c "touch /workspace/.devcontainer/t23" 2>&1 && { echo "/workspace/.devcontainer is writable"; exit 1; }; podman exec claude sh -c "touch /workspace/t23 && rm /workspace/t23"'
+# T24-T27 run inside, as one script, like T13-T16.
+podman exec -u "$U" "$N" bash -lc 'bash /tmp/inplace.sh ~/inplace-logs' >"$LOG/inplace.log" 2>&1
+ip=$?
+grep -E '^(PASS|FAIL|      \|)' "$LOG/inplace.log"
+if ((ip >= 99)) || ! grep -q '^failed: ' "$LOG/inplace.log"; then
+    echo "FAIL  T24-T27 did not run (exit $ip)"; tail -n 30 "$LOG/inplace.log" | sed 's/^/      | /'; ip=1
+fi
+failed=$((failed + ip))
+
 run "T21 claude on Ubuntu 26.04 (--image): your user and home, claude, hardened" 'u=$(id -un); [ -d "${SANDBOX_DIR:-$HOME/sandboxes}/u26" ] || sandbox new u26 --template claude --image docker.io/library/ubuntu:26.04 || exit 1
     sandbox enter u26 </dev/null >/tmp/enter-u26.log 2>&1 || { tail -n 40 /tmp/enter-u26.log; exit 1; }
     podman exec -e U="$u" u26 bash -lc "set -e; grep VERSION_ID /etc/os-release | grep -q 26.04; echo \"\$(id -un) \$HOME\"; [ \"\$(id -un)\" = \"\$U\" ]; [ \"\$HOME\" = /home/\$U ]
