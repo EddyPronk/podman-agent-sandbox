@@ -59,10 +59,23 @@ export function workspacePath(workspace, path, flag) {
  * into node_modules, .venv or the HIDDEN paths (hidden ones aren't visible inside). A `.git` *file*
  * (a worktree or submodule) points at a git directory elsewhere, which this can't protect: refused.
  */
+/**
+ * DIR's entries, or none when it can't be read. The sandbox runs as the user, so what they can't
+ * read, the agent can't read either (e.g. a database's data folder owned by another user).
+ */
+function entries(dir) {
+    try {
+        return readdirSync(dir, { withFileTypes: true });
+    } catch (err) {
+        if (err.code === 'EACCES' || err.code === 'EPERM') return [];
+        throw err;
+    }
+}
+
 export function findGitDirs(root, hidden = []) {
     const found = [];
     const walk = (dir) => {
-        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        for (const entry of entries(dir)) {
             const path = join(dir, entry.name);
             if (hidden.includes(path)) continue;
             if (entry.name === '.git') {
@@ -74,6 +87,33 @@ export function findGitDirs(root, hidden = []) {
                 }
             } else if (entry.isDirectory() && !SKIP.has(entry.name)) {
                 walk(path);   // symlinks aren't followed: isDirectory() is false for them
+            }
+        }
+    };
+    walk(root);
+    return found.sort();
+}
+
+// Names of files that often hold secrets: .env files, private keys and key stores, SSH keys,
+// .netrc, (.)credentials.json (Claude Code's sign-in, Google's OAuth clients). Examples of .env
+// files don't. Only a hint for a warning: anything can hold a secret.
+const SECRET_NAME = /^(\.env(\..+)?|.+\.(pem|key|p12|pfx)|id_(rsa|dsa|ecdsa|ed25519)|\.netrc|\.?credentials\.json)$/;
+const NOT_SECRET = /^\.env\.(example|sample|template|dist)$/;
+
+/**
+ * Files in ROOT whose names suggest secrets, relative to ROOT and sorted: not in HIDDEN (absolute
+ * paths; a folder covers what's in it), .git, node_modules or .venv.
+ */
+export function findSecretFiles(root, hidden = []) {
+    const found = [];
+    const walk = (dir) => {
+        for (const entry of entries(dir)) {
+            const path = join(dir, entry.name);
+            if (hidden.includes(path)) continue;
+            if (entry.isDirectory()) {
+                if (entry.name !== '.git' && !SKIP.has(entry.name)) walk(path);
+            } else if (entry.isFile() && SECRET_NAME.test(entry.name) && !NOT_SECRET.test(entry.name)) {
+                found.push(relative(root, path));
             }
         }
     };
