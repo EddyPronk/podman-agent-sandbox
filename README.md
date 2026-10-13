@@ -41,11 +41,12 @@ one opens a shell in it.
 
 - Rootless Podman: `podman info --format '{{.Host.Security.Rootless}}'` prints `true`
 - Node.js 20.12 or later, with npm
+- git: `sandbox` uses it to check a project's own sandbox config (`--inplace`)
 
 On Debian 13 (trixie):
 
 ```sh
-sudo apt install podman nodejs npm
+sudo apt install podman nodejs npm git
 ```
 
 Debian 12 and Ubuntu 24.04 ship Node.js 18, which is too old; get Node.js from

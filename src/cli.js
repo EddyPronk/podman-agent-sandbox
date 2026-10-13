@@ -1,19 +1,24 @@
 // sandbox — lxc-style front end for dev containers on rootless Podman.
-import { existsSync, readFileSync, rmSync } from 'node:fs';
-import { constants } from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { constants, tmpdir } from 'node:os';
 import { basename, dirname, join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
-    SANDBOX_LABEL, SandboxError, checkName, cliPath, containerSandbox, containerState, dc, folderOf, podman, sandboxDir,
-    sandboxReason,
+    SANDBOX_LABEL, SandboxError, checkName, cliPath, containerSandbox, containerState, dc, folderOf, hasConfig, podman,
+    sandboxDir, sandboxReason,
 } from './devcontainer.js';
+import {
+    TRUSTED, ask, checkNotHidden, configChange, hasMarker, keepTrusted, riskSummary, short, stageConfig,
+    writeEffective, yes,
+} from './inplace.js';
 import { VSCODE_PROBE, audit, formatCommand, parseStatus, parseVscodeProbe } from './inspect.js';
 import {
-    applyTemplate, experimentalImage, listTemplates, parseOptionArgs, TESTED_IMAGES, withImage,
+    applyTemplate, experimentalImage, listTemplates, parseOptionArgs, seccompAllow, TESTED_IMAGES, withImage,
 } from './templates.js';
 import {
     SETTINGS, applyWorkspace, defaultName, findGitDirs, readSettings, realConfigDir, resolveWorkspace,
-    uncoveredInSandbox, workspaceMounts, workspacePath,
+    uncoveredInSandbox, workspaceMounts, workspacePath, writeSettings,
 } from './workspace.js';
 
 const USAGE = `\
@@ -33,6 +38,17 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        read-only. --hide (a file or folder, relative to PATH)
                        hides it inside: use it for secrets. --readonly makes
                        it read-only.
+  sandbox new [NAME] --workspace PATH --inplace [--template TEMPLATE] [--yes]
+              [--hide PATH ...] [--readonly PATH ...]
+                       the config is PATH/.devcontainer (yours to commit), not
+                       a copy of a template; with --template, that template is
+                       written there first. It must be a sandbox config, and
+                       you confirm it (--yes: without asking). sandbox keeps
+                       the copy you trusted in $SANDBOX_DIR/NAME and runs only
+                       that; PATH/.devcontainer is read-only inside
+  sandbox trust NAME [--yes]
+                       show how an --inplace sandbox's project config changed,
+                       and use it; until then, enter, exec and build refuse
   sandbox templates    list the bundled templates and their options
   sandbox build NAME [--no-cache]
                        build NAME's image, showing the full log
@@ -63,6 +79,7 @@ More: https://github.com/EddyPronk/podman-agent-sandbox#usage
 
 const commands = {
     new: cmdNew,
+    trust: cmdTrust,
     templates: cmdTemplates,
     build: cmdBuild,
     enter: cmdEnter,
@@ -128,17 +145,27 @@ function cmdNew(args) {
             workspace: { type: 'string', short: 'w' },
             hide: { type: 'string', multiple: true },
             readonly: { type: 'string', multiple: true },
+            inplace: { type: 'boolean' },
+            yes: { type: 'boolean', short: 'y' },
         },
     });
     const usage = 'sandbox new NAME --template TEMPLATE [--image IMAGE] [--option KEY=VALUE ...]\n'
-        + '       sandbox new [NAME] --template TEMPLATE --workspace PATH [--image IMAGE] [--hide PATH ...] [--readonly PATH ...]';
+        + '       sandbox new [NAME] --template TEMPLATE --workspace PATH [--image IMAGE] [--hide PATH ...] [--readonly PATH ...]\n'
+        + '       sandbox new [NAME] --workspace PATH --inplace [--template TEMPLATE] [--yes] [--hide PATH ...] [--readonly PATH ...]';
     const workspace = values.workspace === undefined ? null : resolveWorkspace(values.workspace);
     if ((values.hide || values.readonly) && !workspace) throw new SandboxError('--hide and --readonly need --workspace');
-    if (positionals.length > 1 || !values.template || (positionals.length === 0 && !workspace)) {
-        throw new SandboxError(`usage: ${usage}`);
+    if (values.inplace && !workspace) throw new SandboxError('--inplace needs --workspace: the project whose .devcontainer to use');
+    if (values.yes && !values.inplace) throw new SandboxError('--yes goes with --inplace');
+    if (positionals.length > 1 || (positionals.length === 0 && !workspace)) throw new SandboxError(`usage: ${usage}`);
+    if (!values.template && !values.inplace) {
+        const hint = workspace && hasMarker(workspace)
+            ? `\nThis project has its own sandbox config: sandbox new --workspace ${values.workspace} --inplace` : '';
+        throw new SandboxError(`usage: ${usage}${hint}`);
     }
     const name = checkName(positionals[0] ?? defaultName(workspace));
     const dest = join(sandboxDir(), name);
+    if (existsSync(dest)) throw alreadyExists(dest, name);
+    if (values.inplace) return newInplace(name, dest, workspace, values);
     // Check everything about the workspace before creating anything.
     const plan = workspace && planWorkspace(workspace, values, realConfigDir(dest));
     const given = withImage(parseOptionArgs(values.option ?? []), values.image);
@@ -158,6 +185,11 @@ function cmdNew(args) {
         console.log(`created ${dest} from template '${values.template}'`);
     }
     console.log(`next: sandbox enter ${name}`);
+    warnImage(name, template, given);
+}
+
+/** Warn about an experimental --image (GIVEN.image) for TEMPLATE. */
+function warnImage(name, template, given) {
     if (given.image === undefined) return;
     // A template from a path may declare the option without a default.
     const defaultImage = template.options?.image?.default;
@@ -166,6 +198,124 @@ function cmdNew(args) {
         console.error(`sandbox: warning: --image ${given.image} is experimental (tested: ${tested.join(' and ')}).`
             + ` After 'sandbox enter ${name}', run 'sandbox inspect ${name}': it may show warnings about weaknesses.`);
     }
+}
+
+/** The error for `sandbox new` when $SANDBOX_DIR/NAME exists: what it is, and the ways out. */
+function alreadyExists(dest, name) {
+    let settings = null;
+    try {
+        settings = readSettings(dest);
+    } catch {
+        // unreadable sandbox.json: describe it as a folder
+    }
+    const sandbox = Boolean(settings) || hasConfig(dest);
+    const what = settings ? `a sandbox around ${settings.workspace}, ${settings.inplace ? 'made with --inplace' : 'made from a template'}`
+        : sandbox ? 'a sandbox made from a template' : 'a folder, not a sandbox';
+    return new SandboxError([
+        `${dest} already exists (${what}).`,
+        ...(sandbox ? [`  To use it:            sandbox enter ${name}`] : []),
+        `  To make it again:     ${sandbox ? `sandbox rm ${name} (if it has a container), then ` : ''}rm -r ${dest}, then this command`,
+        '  To make another one:  give it another NAME: sandbox new OTHER-NAME ...',
+    ].join('\n'));
+}
+
+/**
+ * sandbox new --inplace: the project's own .devcontainer is the config. With --template, write that
+ * template there first. Check it (a sandbox config, self-contained), have the user trust it (unless
+ * just written from a template, or --yes), keep that copy in DEST/trusted, and make the config that
+ * runs from it.
+ */
+function newInplace(name, dest, workspace, values) {
+    const plan = planWorkspace(workspace, values, realConfigDir(dest));
+    checkNotHidden(workspace, plan.hide.map((path) => join(workspace, path)));
+    const config = join(workspace, '.devcontainer');
+    let template = null;
+    const given = withImage(parseOptionArgs(values.option ?? []), values.image);
+    if (values.template) {
+        if (existsSync(config)) {
+            throw new SandboxError(`${config} already exists, and --template would write over it; to use it as it is, leave out --template`);
+        }
+        template = writeTemplateInto(values.template, workspace, given);
+    } else if (values.option || values.image) {
+        throw new SandboxError('--option and --image fill in a template: with --inplace, they need --template');
+    }
+    let staged;
+    try {
+        staged = stageConfig(workspace);
+    } catch (err) {
+        if (template) rmSync(config, { recursive: true, force: true });
+        throw err;
+    }
+    try {
+        if (!template && !firstTrust(name, config, staged, values.yes)) {
+            throw new SandboxError(`not trusted: ${dest} wasn't made`);
+        }
+        mkdirSync(dest, { recursive: true });
+        try {
+            keepTrusted(dest, staged.root);
+            const settings = { workspace, hide: plan.hide, readonly: plan.readonly, inplace: true, configTree: staged.id };
+            writeSettings(dest, settings);
+            writeEffective(dest, settings);
+        } catch (err) {
+            rmSync(dest, { recursive: true, force: true });
+            throw err;
+        }
+    } finally {
+        rmSync(staged.root, { recursive: true, force: true });
+    }
+    if (template) {
+        console.log(`wrote ${config} from template '${values.template}': review it, and commit it with the project`);
+    }
+    console.log(`created ${dest} with the project's own config ${short(staged.id)}, around ${workspace}`);
+    const repos = plan.gitDirs.length;
+    console.log(`read-only inside: .devcontainer, ${repos} git repo${repos === 1 ? "'s" : "s'"} hooks and config`
+        + `${plan.readonly.length ? `, ${plan.readonly.join(', ')}` : ''}; hidden: ${plan.hide.join(', ') || 'nothing'}`);
+    console.log(`next: sandbox enter ${name}`);
+    if (template) warnImage(name, template, given);
+}
+
+/**
+ * Write template SPEC (with GIVEN options) into WORKSPACE/.devcontainer, as `sandbox new` would copy
+ * it, but only its .devcontainer, and without a seccomp.json that sandbox generates from seccompAllow.
+ * Returns the template's metadata.
+ */
+function writeTemplateInto(spec, workspace, given) {
+    const tmp = mkdtempSync(join(tmpdir(), 'sandbox-template-'));
+    try {
+        const copy = join(tmp, 'template');
+        const template = applyTemplate(spec, copy, given, undefined, { seccomp: false });
+        const generated = seccompAllow(copy, template)?.length ? join(copy, '.devcontainer', 'seccomp.json') : null;
+        cpSync(join(copy, '.devcontainer'), join(workspace, '.devcontainer'),
+            { recursive: true, filter: (path) => path !== generated });
+        const left = readdirSync(copy).filter((entry) => entry !== '.devcontainer');
+        if (left.length) console.log(`not written into the project (the template has them outside .devcontainer): ${left.join(', ')}`);
+        return template;
+    } finally {
+        rmSync(tmp, { recursive: true, force: true });
+    }
+}
+
+/**
+ * The first trust of a project's config: what it asks for, its files on request, and a yes. YES
+ * (--yes) skips the questions; not at a terminal without it, refuse.
+ */
+function firstTrust(name, config, staged, yesFlag) {
+    const risks = riskSummary(staged.config);
+    console.error(`sandbox: ${config} (${short(staged.id)}) asks for:`);
+    console.error(risks.length ? table(risks.map(([what, value]) => [`  ${what}`, value])) : '  nothing beyond a plain container');
+    if (yesFlag) return true;
+    const empty = mkdtempSync(join(tmpdir(), 'sandbox-empty-'));
+    try {
+        const command = ['diff', '-ruN', empty, config];
+        const show = ask(`Show its files (${command.join(' ')})? [Y/n] `);
+        if (show === null) {
+            throw new SandboxError(`not at a terminal, so not asking: review ${config}, then run this again with --yes`);
+        }
+        if (!['n', 'no'].includes(show)) spawnSync(command[0], command.slice(1), { stdio: 'inherit' });
+    } finally {
+        rmSync(empty, { recursive: true, force: true });
+    }
+    return yes(ask(`Use this config for ${name}? [y/N] `));
 }
 
 /** Everything --workspace adds, checked: the mounts, and the choices for sandbox.json. */
@@ -195,6 +345,8 @@ function cmdBuild(args) {
     const [name, ...rest] = args;
     if (!name) throw new SandboxError('usage: sandbox build NAME [--no-cache]');
     const dir = folderOf(name);
+    const inplace = checkTrusted(name, dir);
+    if (inplace) writeEffective(dir, inplace);
     const result = dc('build', ['--workspace-folder', dir, ...rest]);
     if (result.status !== 0) return exitStatus(result);
     if (containerState(name)) {
@@ -261,6 +413,10 @@ export function helpText(name, dir) {
 /** Start NAME if it isn't running: create its container (building the image) or restart it. */
 function ensureRunning(name, dir) {
     const state = containerState(name);
+    // An --inplace sandbox: refuse an untrusted project config, and make the config that runs again
+    // before creating the container (a newer sandbox's settings apply without a new trust).
+    const inplace = checkTrusted(name, dir);
+    if (inplace && !state) writeEffective(dir, inplace);
     checkWorkspace(name, dir, state);
     if (state !== 'running') {
         // up creates the container, or starts it if it exists but is stopped.
@@ -293,6 +449,81 @@ function checkWorkspace(name, dir, state) {
         + missing.map((path) => `  ${path}\n`).join('')
         + `Make the sandbox again (the options are in ${join(dir, 'sandbox.json')}):\n`
         + `  ${redo}rm -r ${dir}; sandbox new ${name} --template ... --workspace ${settings.workspace} ...`);
+}
+
+/**
+ * For an --inplace sandbox (in DIR): refuse when the project's config isn't the one the user trusted,
+ * offering the diff. Returns its settings, or null for other sandboxes.
+ */
+function checkTrusted(name, dir) {
+    const settings = readSettings(dir);
+    if (!settings?.inplace) return null;
+    const change = configChange(dir, settings);
+    if (!change) return settings;
+    const config = join(settings.workspace, '.devcontainer');
+    if (!change.now) {
+        throw new SandboxError(`${name}: ${config} is gone (trusted: ${short(change.trusted)}); restore it, `
+            + `or remove the sandbox (sandbox rm ${name}, then rm -r ${dir})`);
+    }
+    console.error(`sandbox: ${name}: the project's config changed since you trusted it (${short(change.trusted)} -> ${short(change.now)}).`);
+    const command = change.diff.join(' ');
+    const show = ask(`Show what changed (${command})? [Y/n] `);
+    if (show === null) {
+        console.error(`See what changed:  ${command}`);
+    } else if (!['n', 'no'].includes(show)) {
+        spawnSync(change.diff[0], change.diff.slice(1), { stdio: 'inherit' });
+    }
+    throw new SandboxError(`not using ${name} until you decide: 'sandbox trust ${name}' to review and use the new `
+        + `config, or restore ${config}`);
+}
+
+/**
+ * sandbox trust NAME [--yes]: for an --inplace sandbox, show how the project's config changed since
+ * it was trusted, and on yes, make that the trusted copy and the config that runs.
+ */
+function cmdTrust(args) {
+    const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { yes: { type: 'boolean', short: 'y' } } });
+    const name = oneName(positionals, 'sandbox trust NAME [--yes]');
+    const dir = folderOf(name);
+    const settings = readSettings(dir);
+    if (!settings?.inplace) {
+        throw new SandboxError(`${name} wasn't made with --inplace: its config is ${join(dir, '.devcontainer')}, `
+            + 'not a project\'s, and there is nothing to trust');
+    }
+    const config = join(settings.workspace, '.devcontainer');
+    const staged = stageConfig(settings.workspace);
+    try {
+        if (staged.id === settings.configTree) {
+            console.log(`${name}: the project's config is unchanged (${short(staged.id)}); nothing to trust`);
+            return 0;
+        }
+        console.error(`sandbox: ${name}: the project's config changed since you trusted it `
+            + `(${short(settings.configTree)} -> ${short(staged.id)}):`);
+        spawnSync('diff', ['-ru', join(dir, TRUSTED), config], { stdio: ['ignore', 2, 2] });
+        const host = riskSummary(staged.config).filter(([what]) => what === 'runs on your machine');
+        if (host.length) console.error(`\nNote: ${host[0][0]}: ${host[0][1]}`);
+        if (!values.yes) {
+            const answer = ask(`Use the new config for ${name}? [y/N] `);
+            if (answer === null) {
+                throw new SandboxError('not at a terminal, so not asking: review the diff above, then run this again with --yes');
+            }
+            if (!yes(answer)) {
+                console.error(`sandbox: not trusted; ${name} keeps refusing until you trust it or restore ${config}`);
+                return 1;
+            }
+        }
+        keepTrusted(dir, staged.root);
+        const updated = { ...settings, configTree: staged.id };
+        writeSettings(dir, updated);
+        writeEffective(dir, updated);
+    } finally {
+        rmSync(staged.root, { recursive: true, force: true });
+    }
+    console.log(`${name}: now uses the project's config ${short(staged.id)}`);
+    if (containerState(name)) {
+        console.error(`sandbox: ${name}'s container still runs with the old config; use 'sandbox rm ${name}' then 'sandbox enter ${name}'`);
+    }
+    return 0;
 }
 
 /** Destinations of container NAME's read-only mounts. */
@@ -351,6 +582,8 @@ function cmdInspect(args) {
         }
     }
     const report = audit(info, { status, internal, uncovered, sandbox: Boolean(reason), vscode, configWritable });
+    const untrusted = folder ? untrustedChange(folder) : null;
+    if (untrusted) report.warnings.unshift(`${untrusted}: enter, exec and build refuse until 'sandbox trust ${name}'`);
 
     console.log(`\n# What it runs with${status ? ' (capabilities, new privileges, seccomp: measured inside)' : ''}:`);
     const rows = [...report.rows, ...report.mounts.map((text, i) => [i ? '' : 'mounts', text])];
@@ -358,6 +591,23 @@ function cmdInspect(args) {
     if (report.warnings.length || report.notes.length) console.log('');
     for (const text of report.warnings) console.log(`warning: ${text}`);
     for (const text of report.notes) console.log(`note: ${text}`);
+}
+
+/** For an --inplace sandbox in FOLDER: how its project's config differs from the trusted one, or null. */
+function untrustedChange(folder) {
+    let settings;
+    try {
+        settings = readSettings(folder);
+    } catch {
+        return null;
+    }
+    if (!settings?.inplace) return null;
+    const change = configChange(folder, settings);
+    if (!change) return null;
+    const config = join(settings.workspace, '.devcontainer');
+    return change.now
+        ? `the project's config changed since it was trusted (${short(change.trusted)} -> ${short(change.now)}; ${change.diff.join(' ')})`
+        : `the project's config ${config} is gone`;
 }
 
 /**

@@ -58,5 +58,11 @@
     "--cap-drop=all",
     "--security-opt=no-new-privileges",
     "--network=agent-proxy-net"
-  ]
+  ],
+  "customizations": {
+    "podman-agent-sandbox": {
+      "version": 1,
+      "policies": []
+    }
+  }
 }

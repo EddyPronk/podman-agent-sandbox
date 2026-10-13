@@ -222,9 +222,11 @@ test('claude-containers: the claude template plus podman, and it says it weakens
     const meta = listTemplates().find((t) => t.id === 'claude-containers');
     assert.ok(meta, 'bundled');
     assert.match(meta.description, /weaken/i);
-    assert.deepEqual(meta['x-sandbox']?.seccompAllow, ['sethostname', 'setdomainname']);
     const dir = new URL('../templates/claude-containers/.devcontainer/', import.meta.url);
     const config = JSON.parse(readFileSync(new URL('devcontainer.json', dir), 'utf8'));
+    assert.deepEqual(config.customizations?.['podman-agent-sandbox']?.seccompAllow, ['sethostname', 'setdomainname'],
+        'in the config, so a template written into a project (--inplace) carries it');
+    assert.equal(meta['x-sandbox'], undefined, 'no longer in the metadata');
     const claude = JSON.parse(readFileSync(new URL('../templates/claude/.devcontainer/devcontainer.json', import.meta.url), 'utf8'));
     assert.deepEqual(config.features, claude.features, 'same features as claude');
     for (const arg of ['--userns=keep-id', '--device=/dev/net/tun', '--security-opt=unmask=/proc/*',

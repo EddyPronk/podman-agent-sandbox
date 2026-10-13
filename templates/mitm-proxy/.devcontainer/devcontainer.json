@@ -37,5 +37,11 @@
     "--security-opt=no-new-privileges",
     "--network=agent-proxy-net:alias=proxy",
     "--network=agent-egress"
-  ]
+  ],
+  "customizations": {
+    "podman-agent-sandbox": {
+      "version": 1,
+      "policies": []
+    }
+  }
 }
