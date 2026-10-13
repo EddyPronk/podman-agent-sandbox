@@ -34,7 +34,9 @@ shows `network  agent-proxy-net (internal: no route out)`.
 ## 3. The allowlist
 
 A new proxy allows only what Claude Code needs: its API, sign-in, downloads and the MCP proxy.
-Anything else is refused with `403 Forbidden`. To allow more:
+Anything else is refused with `403 Forbidden`. A client that keeps retrying a refused host (npm does,
+hundreds of times a second) gets its connections reset for a while instead, so it gives up, and the
+logs record the burst once. To allow more:
 
 - **Approve what was refused:**
   ```sh

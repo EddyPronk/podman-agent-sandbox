@@ -7,8 +7,8 @@
   "options": {
     "ref": {
       "type": "string",
-      "default": "0f86d89c6d5b026b26a5472c9a7c60c97896bf42",
-      "description": "agent-mitm-proxy commit (or tag) to build; the default is v1.0.0's commit. A full commit hash pins exactly what runs; a tag can be moved"
+      "default": "e8643e5b56099d4a17de53318e1a4952339c376f",
+      "description": "agent-mitm-proxy commit (or tag) to build; the default is v1.1.0's commit. A full commit hash pins exactly what runs; a tag can be moved"
     }
   },
   "platforms": ["Any"]
