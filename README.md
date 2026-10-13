@@ -115,6 +115,12 @@ environment as `enter`, and returns its exit status. Everything after NAME is th
 again. It gets a terminal when you run it at one, so interactive tools work, and none in a pipe or a
 script.
 
+Like `enter`, it starts a stopped sandbox first, and checks it before running anything. It refuses a
+git repository in the workspace whose hooks or config would be writable, and a project config
+(`--inplace`) that changed since you confirmed it. `podman exec NAME COMMAND` also works on a
+running sandbox, also as you, but it runs in `/`, with the image's PATH (without, e.g., `~/.local/bin`),
+and without those checks. Use `sandbox exec`.
+
 Sandboxes live in `~/sandboxes`; set `SANDBOX_DIR` to use another folder. A sandbox that
 already has a container is found through the container's `devcontainer.local_folder` label,
 wherever its folder is.
