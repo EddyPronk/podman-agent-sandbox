@@ -19,7 +19,10 @@ sandbox enter project
   - the network;
   - Features and lifecycle commands.
 
-  It offers to show the files, then asks. `--yes` skips the questions, for scripts.
+  What only takes rights away (`--userns=keep-id`, `no-new-privileges`, read-only mounts of the
+  project's own files) isn't listed. `${localEnv:…}` is shown with the value it will have. Then it
+  asks one question: "Use this config for NAME?" `--yes` skips it, for scripts. To read the
+  files themselves, look in `.devcontainer/`.
 - **Only a sandbox config is accepted.** It must contain this block in `devcontainer.json`:
   ```json
   "customizations": {
@@ -92,7 +95,7 @@ Add the command to the project's README, e.g. "To work in a sandbox: `sandbox ne
 
 ## Without `sandbox`
 
-The config is an ordinary dev container config, so the Dev Containers CLI
+The config is an ordinary dev container config, so the Dev Container CLI
 (`devcontainer up --workspace-folder . --docker-path podman`) and VS Code's "Reopen in Container"
 start it too. They run the project's files as they are:
 - no check;

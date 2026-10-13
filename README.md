@@ -36,6 +36,8 @@ one opens a shell in it.
   doesn't protect
 - [A sandbox around an existing project](docs/sandbox-around-an-existing-project.md)
 - [A project's own sandbox config](docs/project-config.md)
+- [`sandbox` and the Dev Container CLI](docs/sandbox-vs-devcontainer-cli.md): what `sandbox` adds,
+  and what it isn't
 - [Your project behind the egress proxy](docs/behind-the-proxy.md)
 - [VS Code to connect to a sandbox](docs/vscode.md)
 - [Containers inside a sandbox](docs/containers-inside-a-sandbox.md)
@@ -185,7 +187,7 @@ To share a sandbox config with everyone who works on a project, commit it as the
 npm uninstall -g podman-agent-sandbox
 ```
 
-This removes `sandbox` and its copy of the Dev Containers CLI. It does not touch what your
+This removes `sandbox` and its copy of the Dev Container CLI. It does not touch what your
 sandboxes created; remove those yourself if you no longer need them:
 
 ```sh
