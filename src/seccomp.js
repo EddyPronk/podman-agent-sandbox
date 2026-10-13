@@ -1,8 +1,10 @@
 // A seccomp profile for templates that run containers inside the sandbox (claude-containers):
-// the host podman's own default profile, plus a few calls the template names in its metadata
-// ("x-sandbox": { "seccompAllow": [...] }), written to the new sandbox's .devcontainer/seccomp.json.
-// Generated at `sandbox new` so it matches the user's podman; the template ships a copy of podman's
-// default as the fallback for hosts whose podman has no profile file.
+// the host podman's own default profile, plus a few calls the config names in its devcontainer.json
+// ("customizations": { "podman-agent-sandbox": { "seccompAllow": [...] } }, or in older templates'
+// metadata "x-sandbox"), written to the sandbox's .devcontainer/seccomp.json. Generated at
+// `sandbox new` (and for --inplace sandboxes at every container creation) so it matches the user's
+// podman; the template ships a copy of podman's default as the fallback for hosts whose podman has no
+// profile file.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -20,7 +22,7 @@ export function allowSyscalls(profile, names) {
     out.syscalls.push({
         names: [...names],
         action: 'SCMP_ACT_ALLOW',
-        comment: 'sandbox: allowed for containers inside the sandbox (template x-sandbox.seccompAllow)',
+        comment: 'sandbox: allowed for containers inside the sandbox (seccompAllow)',
     });
     return out;
 }

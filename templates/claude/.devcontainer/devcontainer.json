@@ -47,5 +47,11 @@
     "--userns=keep-id",
     "--cap-drop=all",
     "--security-opt=no-new-privileges"
-  ]
+  ],
+  "customizations": {
+    "podman-agent-sandbox": {
+      "version": 1,
+      "policies": []
+    }
+  }
 }

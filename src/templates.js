@@ -10,6 +10,9 @@ import { writeSeccompProfile } from './seccomp.js';
 export const TEMPLATES_DIR = fileURLToPath(new URL('../templates/', import.meta.url));
 const METADATA = 'devcontainer-template.json';
 
+/** Our namespace in devcontainer.json's "customizations": marks a config written for sandbox. */
+export const MARKER = 'podman-agent-sandbox';
+
 /** Metadata of every template under ROOT, sorted by id. */
 export function listTemplates(root = TEMPLATES_DIR) {
     return readdirSync(root, { withFileTypes: true })
@@ -113,9 +116,25 @@ export function findTemplate(spec, root = TEMPLATES_DIR) {
 }
 
 /**
+ * The system calls DIR's config adds to the seccomp profile: its devcontainer.json's
+ * "customizations": { "podman-agent-sandbox": { "seccompAllow": [...] } }, or else (older templates
+ * given by path) TEMPLATE metadata's "x-sandbox": { "seccompAllow": [...] }.
+ */
+export function seccompAllow(dir, template = {}) {
+    const file = join(dir, '.devcontainer', 'devcontainer.json');
+    let config = {};
+    try {
+        config = JSON.parse(readFileSync(file, 'utf8'));
+    } catch {
+        // no config, or JSONC: only the metadata can say
+    }
+    return config.customizations?.[MARKER]?.seccompAllow ?? template['x-sandbox']?.seccompAllow;
+}
+
+/**
  * Create DEST from template SPEC (see findTemplate). DEST must not exist yet. A template whose
- * metadata has "x-sandbox": { "seccompAllow": [...] } also gets its seccomp profile (seccomp.js);
- * HOOKS are passed on to it (tests). Returns the template's metadata.
+ * config has seccompAllow (above) also gets its seccomp profile (seccomp.js), unless HOOKS.seccomp is
+ * false (--inplace makes it later); HOOKS are passed on to it (tests). Returns the template's metadata.
  */
 export function applyTemplate(spec, dest, given = {}, root = TEMPLATES_DIR, hooks = {}) {
     const { template, src } = findTemplate(spec, root);
@@ -129,8 +148,8 @@ export function applyTemplate(spec, dest, given = {}, root = TEMPLATES_DIR, hook
         const replaced = substitute(text, values);
         if (replaced !== text) writeFileSync(path, replaced);
     }
-    const allow = template['x-sandbox']?.seccompAllow;
-    if (allow?.length) {
+    const allow = seccompAllow(dest, template);
+    if (allow?.length && hooks.seccomp !== false) {
         try {
             writeSeccompProfile(dest, allow, hooks);
         } catch (err) {

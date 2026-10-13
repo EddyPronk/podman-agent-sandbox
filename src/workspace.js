@@ -139,7 +139,7 @@ export function readConfig(file) {
         return JSON.parse(text);
     } catch {
         throw new SandboxError(`${file} isn't plain JSON (comments or trailing commas?); `
-            + '--workspace rewrites it and would lose them, so remove them from the template first');
+            + 'sandbox rewrites it and would lose them, so remove them first');
     }
 }
 
@@ -150,12 +150,23 @@ export function readConfig(file) {
 export function applyWorkspace(configDir, { workspace, hide, readonly, mounts }) {
     const file = configFile(configDir);
     if (!existsSync(file)) throw new SandboxError(`--workspace needs a template with .devcontainer/devcontainer.json`);
-    const config = readConfig(file);
-    config.workspaceMount = `source=${workspace},target=${workspace},type=bind`;
-    config.workspaceFolder = workspace;
-    config.mounts = [...(config.mounts ?? []).filter((m) => m !== CONFIG_MOUNT), ...mounts];
-    writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
-    writeFileSync(join(configDir, SETTINGS), `${JSON.stringify({ workspace, hide, readonly }, null, 2)}\n`);
+    writeFileSync(file, `${JSON.stringify(aroundWorkspace(readConfig(file), workspace, mounts), null, 2)}\n`);
+    writeSettings(configDir, { workspace, hide, readonly });
+}
+
+/** CONFIG turned into one around WORKSPACE, with MOUNTS after its own (its CONFIG_MOUNT dropped). */
+export function aroundWorkspace(config, workspace, mounts) {
+    return {
+        ...config,
+        workspaceMount: `source=${workspace},target=${workspace},type=bind`,
+        workspaceFolder: workspace,
+        mounts: [...(config.mounts ?? []).filter((m) => m !== CONFIG_MOUNT), ...mounts],
+    };
+}
+
+/** Write SETTINGS to CONFIG_DIR/sandbox.json. */
+export function writeSettings(configDir, settings) {
+    writeFileSync(join(configDir, SETTINGS), `${JSON.stringify(settings, null, 2)}\n`);
 }
 
 /** The recorded --workspace choices of the sandbox in CONFIG_DIR, or null if it has none. */

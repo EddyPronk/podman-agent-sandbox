@@ -46,5 +46,12 @@
     "--device=/dev/net/tun",
     "--security-opt=unmask=/proc/*",
     "--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp.json"
-  ]
+  ],
+  "customizations": {
+    "podman-agent-sandbox": {
+      "version": 1,
+      "policies": [],
+      "seccompAllow": ["sethostname", "setdomainname"]
+    }
+  }
 }

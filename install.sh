@@ -30,6 +30,8 @@ command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1 \
 node -e 'const [a, b] = process.versions.node.split(".").map(Number);
          process.exit(a > 20 || (a === 20 && b >= 12) ? 0 : 1)' \
   || die "Node.js $(node --version) is too old; 20.12 or later is needed"
+command -v git >/dev/null 2>&1 \
+  || die "git not found. On Debian 13: sudo apt install git"
 
 # npm install -g writes to $prefix/lib/node_modules and $prefix/bin. Debian's npm uses
 # /usr/local, which needs root; switch to ~/.local then, rather than using sudo.
