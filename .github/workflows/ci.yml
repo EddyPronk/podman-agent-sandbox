@@ -60,10 +60,20 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write       # for the attestation's signing certificate (Sigstore)
+      attestations: write   # to store it with the repository
     steps:
       - uses: actions/download-artifact@v8
         with:
           name: tarball
+      # A signed statement that this workflow, at this tag's commit, built the tarball: checked with
+      # `gh attestation verify` (INSTALL.md). Before the release, so every release has one. It
+      # covers the copy under the fixed name too: attestations are by the file's digest.
+      # Pinned by commit, not by tag: this step can sign as us, and a tag can be moved.
+      - name: Attest the tarball's provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: podman-agent-sandbox-*.tgz
       - name: Create the GitHub release with the tarball
         env:
           GH_TOKEN: ${{ github.token }}
