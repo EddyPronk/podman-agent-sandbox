@@ -255,7 +255,8 @@ export function checkNotHidden(workspace, hidden) {
 export function configChange(dest, settings) {
     const now = configTree(settings.workspace);
     if (now === settings.configTree) return null;
-    return { trusted: settings.configTree, now, diff: ['diff', '-ru', join(dest, TRUSTED), join(settings.workspace, '.devcontainer')] };
+    // -N: a new file (a Feature's install.sh, say) is shown in full, not as "Only in ...".
+    return { trusted: settings.configTree, now, diff: ['diff', '-ruN', join(dest, TRUSTED), join(settings.workspace, '.devcontainer')] };
 }
 
 /** A short id for messages. */

@@ -189,16 +189,18 @@ test('a changed project config: build refuses and offers the diff; trust shows i
         const file = join(root, '.devcontainer', 'devcontainer.json');
         const config = JSON.parse(readFileSync(file, 'utf8'));
         writeFileSync(file, JSON.stringify({ ...config, runArgs: ['--privileged'] }, null, 2));
+        writeFileSync(join(root, '.devcontainer', 'setup.sh'), 'echo from-a-new-file\n');
 
         const build = sandbox(['build', 'p'], dir);
         assert.notEqual(build.status, 0);
         assert.match(build.stderr, new RegExp(`the project's config changed since you trusted it \\(${trusted.slice(0, 7)} -> `));
-        assert.match(build.stderr, new RegExp(`See what changed: +diff -ru ${join(dir, 'p', 'trusted')} ${root}/\\.devcontainer`));
+        assert.match(build.stderr, new RegExp(`See what changed: +diff -ruN ${join(dir, 'p', 'trusted')} ${root}/\\.devcontainer`));
         assert.match(build.stderr, /'sandbox trust p' to review and use the new config, or restore/);
 
         const asked = sandbox(['trust', 'p'], dir);
         assert.notEqual(asked.status, 0);
         assert.match(asked.stderr, /\+ {2}"runArgs": \[/, 'the diff is shown');
+        assert.match(asked.stderr, /^\+echo from-a-new-file$/m, 'a new file is shown in full, not as "Only in"');
         assert.match(asked.stderr, /not at a terminal/);
         assert.equal(JSON.parse(readFileSync(join(dir, 'p', 'sandbox.json'), 'utf8')).configTree, trusted, 'still the old one');
 

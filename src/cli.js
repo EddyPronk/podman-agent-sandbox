@@ -511,7 +511,8 @@ function cmdTrust(args) {
         }
         console.error(`sandbox: ${name}: the project's config changed since you trusted it `
             + `(${short(settings.configTree)} -> ${short(staged.id)}):`);
-        spawnSync('diff', ['-ru', join(dir, TRUSTED), config], { stdio: ['ignore', 2, 2] });
+        // -N: a new file is shown in full, not as "Only in ...": it may be code that runs at build.
+        spawnSync('diff', ['-ruN', join(dir, TRUSTED), config], { stdio: ['ignore', 2, 2] });
         const host = riskSummary(staged.config).filter(([what]) => what === 'runs on your machine');
         if (host.length) console.error(`\nNote: ${host[0][0]}: ${host[0][1]}`);
         if (!values.yes) {
