@@ -22,6 +22,19 @@ curl -fsSL https://raw.githubusercontent.com/EddyPronk/podman-agent-sandbox/main
   ```
 - **A branch or tag, from source:** `PAS_REF=<branch or tag>` instead.
 
+## Check where a release came from
+
+Each release tarball, from 0.8.0 on, has a provenance attestation: a signed statement that this
+repository's CI built it, from the tag's commit. Check it with the [GitHub CLI](https://cli.github.com/):
+
+```sh
+curl -fsSLO https://github.com/EddyPronk/podman-agent-sandbox/releases/latest/download/podman-agent-sandbox.tgz
+gh attestation verify podman-agent-sandbox.tgz --repo EddyPronk/podman-agent-sandbox
+npm install -g ./podman-agent-sandbox.tgz
+```
+
+`install.sh` doesn't check it: it would need `gh`, signed in.
+
 ## Manual install
 
 `npm install -g` writes to the folder that `npm config get prefix` prints. With Debian's npm
