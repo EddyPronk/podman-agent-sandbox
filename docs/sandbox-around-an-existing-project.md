@@ -13,7 +13,9 @@ sandbox enter myproject
   error messages and caches mean the same inside and out. NAME defaults to the folder's name.
 - **Nothing is written into the project.** The sandbox's config stays in `~/sandboxes/myproject`,
   outside the project, so the agent can't change how its own container is made. If the config
-  folder is inside the project anyway (a `SANDBOX_DIR` in it), it is mounted read-only.
+  folder is inside the project anyway (a `SANDBOX_DIR` in it), it is mounted read-only. To keep the
+  config in the project instead, for everyone who works on it, see
+  [A project's own sandbox config](project-config.md).
 - **Every git repo in the project** (any `.git` folder, also nested ones; not in `node_modules` or
   `.venv`) gets `.git/hooks` and `.git/config` read-only: git on the host runs what they name
   (hooks, `core.hooksPath`, `core.fsmonitor`, aliases), so a writable one would let the agent run

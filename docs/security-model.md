@@ -44,6 +44,10 @@ them.
   `"type=bind,source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,readonly"`
   to `mounts` in the sandbox's `.devcontainer/devcontainer.json` (on the host), then `sandbox rm NAME`
   and `sandbox enter NAME`. Look at the config before you do: the agent could have changed it.
+- **A project's own config** (`--inplace`) is read-only inside too. `sandbox` runs only the copy you
+  confirmed, kept in `~/sandboxes/NAME`. When the project's config changes, including through a git
+  commit the agent made, `enter`, `exec` and `build` refuse until you confirm the change with
+  `sandbox trust NAME`. See [A project's own sandbox config](project-config.md).
 - **Git hooks and config** of every repository in a `--workspace` project are read-only: git on your
   machine runs what they name.
 - **`--hide`** keeps a file or folder of the project out of sight, and **`--readonly`** makes one

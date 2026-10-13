@@ -66,10 +66,11 @@ vscode          VS Code server running (18 processes); it forwards, while VS Cod
 
 Many projects come with a dev container config of their own (`.devcontainer/devcontainer.json`).
 
-- **`sandbox` ignores it.** The container is built from the sandbox's template, copied to
-  `~/sandboxes/NAME`, not from the project's config. None of the project's image, Features,
-  `postCreateCommand` or port settings are used: run what its `postCreateCommand` would have run
-  yourself, inside the sandbox.
+- **`sandbox` ignores it,** unless you make the sandbox with `--inplace` and the config is written for
+  `sandbox` ([A project's own sandbox config](project-config.md)). A config written for VS Code isn't.
+  The container is built from the sandbox's template, copied to `~/sandboxes/NAME`, not from the
+  project's config. None of the project's image, Features, `postCreateCommand` or port settings are
+  used: run what its `postCreateCommand` would have run yourself, inside the sandbox.
 - **It isn't hidden.** Inside, the agent sees `.devcontainer/` like any other file in the project, and
   can change it. Make it read-only or hide it when you make the sandbox:
   ```sh
