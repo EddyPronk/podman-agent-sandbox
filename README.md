@@ -23,6 +23,9 @@ one opens a shell in it.
   run containers of its own.
 - **Standard dev containers:** each sandbox is a folder with a `devcontainer.json`, so VS Code can
   connect to it.
+- **A project's own sandbox config:** commit it in `.devcontainer/`, and whoever clones the project
+  gets the same sandbox. `sandbox` runs only the version you confirmed; a change, for example by the
+  agent through git, has to be confirmed again.
 - **`sandbox inspect`:** how a sandbox runs, as a `podman run` command line and a summary of its
   rights, with warnings about anything that weakens it.
 
@@ -32,6 +35,7 @@ one opens a shell in it.
 - [How a sandbox is isolated](docs/security-model.md): what it may and may not do, and what it
   doesn't protect
 - [A sandbox around an existing project](docs/sandbox-around-an-existing-project.md)
+- [A project's own sandbox config](docs/project-config.md)
 - [Your project behind the egress proxy](docs/behind-the-proxy.md)
 - [VS Code to connect to a sandbox](docs/vscode.md)
 - [Containers inside a sandbox](docs/containers-inside-a-sandbox.md)
@@ -89,6 +93,9 @@ sandbox templates                                   # list the templates
 sandbox new sandbox_with_claude --template claude   # create ~/sandboxes/sandbox_with_claude
 sandbox new sandbox_with_ubuntu --template claude --image docker.io/library/ubuntu:26.04   # on another base image
 sandbox new --template claude --workspace ~/src/app # around an existing folder
+sandbox new --workspace ~/src/app --inplace         # from the project's own .devcontainer
+sandbox trust app                                   # confirm a change in the project's config
+sandbox export app                                  # write a --workspace sandbox's config into its project
 sandbox enter sandbox_with_claude                   # build and start if needed, open a shell
 sandbox exec sandbox_with_claude git status         # run one command in it (start it if needed), like ssh
 sandbox help sandbox_with_claude                    # what this sandbox offers (from its template)
@@ -168,6 +175,9 @@ Your own templates don't need to be bundled: give `--template` a path to a templ
 ```sh
 sandbox new work --template ./templates/mine     # templates/mine/devcontainer-template.json
 ```
+
+To share a sandbox config with everyone who works on a project, commit it as the project's
+`.devcontainer/` instead: [A project's own sandbox config](docs/project-config.md).
 
 ## Uninstall
 
