@@ -30,7 +30,8 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        create $SANDBOX_DIR/NAME from a template: a bundled
                        one's ID, or a path to a template folder (has a '/').
                        --image: its base image, any Debian or Ubuntu based
-                       image (claude, proxy-client; default debian:trixie-slim)
+                       image (claude, offline, proxy-client; default
+                       debian:trixie-slim)
   sandbox new [NAME] --template TEMPLATE --workspace PATH [--image IMAGE]
               [--hide PATH ...] [--readonly PATH ...] [--option KEY=VALUE ...]
                        a sandbox around an existing folder: PATH is mounted at

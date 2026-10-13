@@ -1,0 +1,43 @@
+{
+  "name": "${localWorkspaceFolderBasename}",
+  "build": {
+    "dockerfile": "Containerfile",
+    "args": {
+      "BASE_IMAGE": "${templateOption:image}",
+      "SANDBOX_UID": "${localEnv:SANDBOX_UID:1000}",
+      "SANDBOX_USER": "${localEnv:USER}"
+    }
+  },
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "containerUser": "${localEnv:SANDBOX_UID:1000}:${localEnv:SANDBOX_GID:1000}",
+  "remoteUser": "${localEnv:USER}",
+  "updateRemoteUserUID": false,
+  "remoteEnv": {
+    "TERM": "${localEnv:TERM:xterm-256color}",
+    "USER": "${localEnv:USER}",
+    "LOGNAME": "${localEnv:USER}"
+  },
+  "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/",
+  "mounts": [
+    "type=volume,source=${localWorkspaceFolderBasename}-home,target=/home/${localEnv:USER},U=true",
+    "type=bind,source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,readonly"
+  ],
+  "runArgs": [
+    "--name",
+    "${localWorkspaceFolderBasename}",
+    "--hostname",
+    "${localWorkspaceFolderBasename}",
+    "--label=podman-agent-sandbox=${localEnv:SANDBOX_VERSION}",
+    "--network=none",
+    "--userns=keep-id",
+    "--cap-drop=all",
+    "--security-opt=no-new-privileges"
+  ],
+  "customizations": {
+    "podman-agent-sandbox": {
+      "version": 1,
+      "policies": []
+    }
+  }
+}

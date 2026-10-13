@@ -19,8 +19,8 @@ one opens a shell in it.
   agent can't run code on your machine through git, and `--hide` keeps secrets out of sight.
 - **Optional egress proxy:** a sandbox with no route out except through a proxy that allows only the
   hosts you list; refused hosts can be approved from a terminal.
-- **Ready-made templates:** Claude Code on Debian or Ubuntu, a proxy and its client, and one that can
-  run containers of its own.
+- **Ready-made templates:** Claude Code on Debian or Ubuntu, a proxy and its client, one that can
+  run containers of its own, and one with no network for code you don't trust.
 - **Standard dev containers:** each sandbox is a folder with a `devcontainer.json`, so VS Code can
   connect to it.
 - **A project's own sandbox config:** commit it in `.devcontainer/`, and whoever clones the project
@@ -87,6 +87,16 @@ outside. The sandbox's own config is in `~/sandboxes/your-project`. Leave the sh
 sandbox keeps running until `sandbox stop your-project`. More in
 [A sandbox around an existing project](docs/sandbox-around-an-existing-project.md), and
 [Your project behind the egress proxy](docs/behind-the-proxy.md) as the next step.
+
+Or run code you don't trust, such as a project's tests, with no network at all:
+
+```sh
+sandbox new --template offline --workspace ~/src/app --image docker.io/library/python:3.13-slim-trixie
+sandbox exec app make test      # the first time builds the image; only the build has a network
+```
+
+Use `sandbox exec`, not `podman exec`: it runs in the project folder and checks the sandbox first
+(see [Usage](#usage)).
 
 ## Usage
 
@@ -157,11 +167,12 @@ isolated](docs/security-model.md#no-way-to-gain-rights) says how to add them.
 | `claude-containers` | Like `claude`, plus rootless Podman and `sandbox` inside, for an agent that needs containers of its own. Weakens the sandbox: see [Containers inside a sandbox](docs/containers-inside-a-sandbox.md) |
 | `mitm-proxy` | [agent-mitm-proxy](https://github.com/EddyPronk/agent-mitm-proxy): an egress proxy with TLS interception and an allowlist (`allowlist.txt` in the sandbox folder; changes apply without a restart). Option `ref`: the agent-mitm-proxy commit to build |
 | `proxy-client` | Like `claude` (also `--image`), but with no route out: only the proxy's internal network, all HTTP(S) through `http://proxy:8899`, trusting the proxy's CA |
+| `offline` | No network at all, only loopback; for running code you don't trust. Debian trixie with `git` and `make`, or another base image with `--image`. No agent: it couldn't reach its API. Tools your code needs come from the image, since nothing can be downloaded later |
 
 `mitm-proxy` and `proxy-client` work as a pair: [Your project behind the egress
 proxy](docs/behind-the-proxy.md).
 
-`claude` and `proxy-client` are built on `debian:trixie-slim` unless you choose another base image with
+`claude`, `offline` and `proxy-client` are built on `debian:trixie-slim` unless you choose another base image with
 `--image` (`sandbox templates` lists some):
 
 ```sh
