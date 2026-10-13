@@ -38,7 +38,8 @@ export function resolveOptions(template, given) {
     for (const key of Object.keys(given)) {
         if (!Object.hasOwn(declared, key)) {
             if (key === 'image') {
-                const able = listTemplates().filter((t) => t.options?.image).map((t) => t.id).join(' and ');
+                const ids = listTemplates().filter((t) => t.options?.image).map((t) => t.id);
+                const able = ids.length > 1 ? `${ids.slice(0, -1).join(', ')} and ${ids.at(-1)}` : ids.join('');
                 throw new SandboxError(`template '${template.id}' has no image option; --image works with ${able}`);
             }
             throw new SandboxError(`template '${template.id}' has no option '${key}'`);

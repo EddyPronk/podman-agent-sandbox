@@ -1,0 +1,20 @@
+{
+  "id": "offline",
+  "version": "0.1.0",
+  "name": "Offline",
+  "description": "Debian trixie (or another Debian or Ubuntu base image) with git and make, and no network at all: for running code you don't trust, such as a project's tests or build. Your user via --userns=keep-id, no capabilities, no new privileges, home on a per-sandbox volume. No agent: it couldn't reach its API",
+  "options": {
+    "image": {
+      "type": "string",
+      "description": "Base image, with the tools your code needs (nothing can be downloaded later): Ubuntu 26.04 is tested; other Debian or Ubuntu based images are experimental",
+      "proposals": [
+        "docker.io/library/debian:trixie-slim",
+        "docker.io/library/ubuntu:26.04",
+        "docker.io/library/python:3.13-slim-trixie",
+        "docker.io/library/node:24-trixie-slim"
+      ],
+      "default": "docker.io/library/debian:trixie-slim"
+    }
+  },
+  "platforms": ["Any"]
+}

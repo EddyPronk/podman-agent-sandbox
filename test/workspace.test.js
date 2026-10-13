@@ -263,7 +263,7 @@ test('the enter check ignores sandboxes made without --workspace', () => {
 
 test('every bundled template works with --workspace (plain JSON config)', () => {
     const templates = fileURLToPath(new URL('../templates/', import.meta.url));
-    for (const id of ['claude', 'mitm-proxy', 'proxy-client']) {
+    for (const id of ['claude', 'mitm-proxy', 'offline', 'proxy-client']) {
         JSON.parse(readFileSync(join(templates, id, '.devcontainer', 'devcontainer.json'), 'utf8'));
     }
 });

@@ -21,10 +21,13 @@
 #           agent's git commit of the config refused until trust, trust, export
 #   T21     a claude sandbox on Ubuntu 26.04 (--image): its ubuntu user (UID 1000) renamed
 #           to yours, so keep-id works; removed again afterwards, with unused images, to save disk
+#   T28     an offline sandbox around a project, on a Python image: sandbox exec runs make in the
+#           project folder; only loopback, no name lookup, no connection, hardened; removed again.
+#           Interfaces from /proc/net/dev: nested, /sys/class/net shows the outer sandbox's
 # Each test's full output is in LOG_DIR (default ./nested-logs), and on a failure the end of it is
 # printed, followed by the state of both levels (containers, their logs, disk).
 # Exit status: the number of failed tests; 99 if `nested` couldn't be set up.
-# Needs rootless podman and /dev/net/tun on the host. Takes a while: it builds seven images (the
+# Needs rootless podman and /dev/net/tun on the host. Takes a while: it builds eight images (the
 # two for T24-T27 mostly from the claude image's cached layers).
 set -uo pipefail
 
@@ -137,6 +140,16 @@ run "T21 claude on Ubuntu 26.04 (--image): your user and home, claude, hardened"
         touch ~/.p; rm ~/.p; test -f ~/.bashrc; claude --version
         grep -E \"^(CapBnd|NoNewPrivs):\" /proc/self/status | tr -s \"\t\n\" \"  \" | grep -qx \"CapBnd: 0000000000000000 NoNewPrivs: 1 \"; echo u26-ok"
     s=$?; sandbox rm u26 >/dev/null 2>&1; podman volume rm u26-home >/dev/null 2>&1; podman image prune -af >/dev/null 2>&1; exit $s'
+
+run "T28 offline around a project (--image python): sandbox exec in the project, only loopback, hardened" 'p=$HOME/t28; rm -rf "$p"; mkdir "$p" && git -C "$p" init -q && printf "test:\n\tpwd\n\tpython3 --version\n" >"$p/Makefile" || exit 1
+    [ -d "${SANDBOX_DIR:-$HOME/sandboxes}/t28" ] || sandbox new t28 --template offline --workspace "$p" --image docker.io/library/python:3.13-slim-trixie || exit 1
+    out=$(sandbox exec t28 make test 2>/tmp/enter-t28.log); s=$?; echo "$out"; [ $s -eq 0 ] || tail -n 40 /tmp/enter-t28.log
+    [ $s -eq 0 ] && echo "$out" | grep -qx "$p" && echo "$out" | grep -q "^Python 3\.13" \
+    && sandbox exec t28 bash -c "cat /proc/net/dev; [ \"\$(tail -n +3 /proc/net/dev | cut -d: -f1 | tr -d \" \")\" = lo ] || exit 1
+        getent hosts example.com && { echo name lookup works; exit 1; }
+        timeout 5 bash -c \"exec 3<>/dev/tcp/1.1.1.1/443\" && { echo connection works; exit 1; }
+        grep -E \"^(CapBnd|NoNewPrivs):\" /proc/self/status | tr -s \"\t\n\" \"  \" | grep -qx \"CapBnd: 0000000000000000 NoNewPrivs: 1 \" && echo t28-ok"
+    s=$?; sandbox rm t28 >/dev/null 2>&1; podman volume rm t28-home >/dev/null 2>&1; rm -rf "$p" "${SANDBOX_DIR:-$HOME/sandboxes}/t28"; podman image prune -af >/dev/null 2>&1; exit $s'
 
 echo "failed: $failed"
 if ((failed)); then

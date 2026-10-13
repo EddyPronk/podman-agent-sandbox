@@ -136,10 +136,10 @@ test('every bundled template labels its container as a sandbox, with the version
     }
 });
 
-test('claude and proxy-client: the base image is an option, Debian trixie by default', () => {
+test('claude, offline and proxy-client: the base image is an option, Debian trixie by default', () => {
     // The Containerfile's ARG default and the option's default must agree: a build without the
     // option (sandbox build on an old folder, the CLI by hand) gets the same image.
-    for (const id of ['claude', 'proxy-client']) {
+    for (const id of ['claude', 'offline', 'proxy-client']) {
         const dir = new URL(`../templates/${id}/`, import.meta.url);
         const containerfile = readFileSync(new URL('.devcontainer/Containerfile', dir), 'utf8');
         const config = JSON.parse(readFileSync(new URL('.devcontainer/devcontainer.json', dir), 'utf8'));
@@ -207,7 +207,7 @@ test('sandbox new --image: the image reaches the build args; templates without t
     assert.match(other.stderr, /run 'sandbox inspect ts': it may show warnings about weaknesses/);
     const refused = sandbox('new', 'p', '--template', 'mitm-proxy', '--image', 'docker.io/library/ubuntu:26.04');
     assert.notEqual(refused.status, 0);
-    assert.match(refused.stderr, /template 'mitm-proxy' has no image option; --image works with claude and proxy-client/);
+    assert.match(refused.stderr, /template 'mitm-proxy' has no image option; --image works with claude, offline and proxy-client/);
     assert.ok(!existsSync(join(dir, 'p')), 'nothing is created');
     // A template from a path whose image option has no default: a warning, not a crash.
     const root = demoRoot();
@@ -216,6 +216,17 @@ test('sandbox new --image: the image reaches the build args; templates without t
     const custom = sandbox('new', 'c', '--template', join(root, 'demo'), '--image', 'ubuntu:24.04');
     assert.equal(custom.status, 0, custom.stderr);
     assert.match(custom.stderr, /--image ubuntu:24\.04 is experimental \(tested: docker\.io\/library\/ubuntu:26\.04\)\./);
+});
+
+test('offline: no network, and no agent or Node.js', () => {
+    // --network=none leaves only loopback: no DNS, no proxy. An agent couldn't reach its API.
+    const dir = new URL('../templates/offline/.devcontainer/', import.meta.url);
+    const config = JSON.parse(readFileSync(new URL('devcontainer.json', dir), 'utf8'));
+    assert.ok(config.runArgs.includes('--network=none'));
+    assert.ok(!config.runArgs.some((arg) => arg.startsWith('--network') && arg !== '--network=none'));
+    assert.equal(config.features, undefined, 'no features: no Node.js, no Claude Code');
+    assert.ok(!JSON.stringify(config).includes('containerEnv'), 'no proxy settings or NVM variables');
+    assert.match(readFileSync(new URL('Containerfile', dir), 'utf8'), /^\s+make \\$/m);
 });
 
 test('claude-containers: the claude template plus podman, and it says it weakens the sandbox', () => {
