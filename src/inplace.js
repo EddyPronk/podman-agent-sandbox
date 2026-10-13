@@ -154,12 +154,31 @@ function commandText(command) {
 const LIFECYCLE = ['onCreateCommand', 'updateContentCommand', 'postCreateCommand', 'postStartCommand',
     'postAttachCommand'];
 const RISKY_ARGS = /^--(privileged|cap-add|device|security-opt|network|net|pid|ipc|userns|volume|mount|uts)\b|^-v$/;
+// Of those, the ones that only take rights away, as the bundled templates use them: not risks.
+const PROTECTIVE_ARGS = new Set(['--userns=keep-id', '--security-opt=no-new-privileges']);
+
+/** A read-only bind mount of a path in the project (e.g. its own .devcontainer): protects, grants nothing. */
+function readonlyProjectMount(text) {
+    const parts = text.split(',');
+    return parts.includes('readonly') && parts.some((part) => part.startsWith('source=${localWorkspaceFolder}'));
+}
+
+/** TEXT with ${localEnv:NAME} and ${localEnv:NAME:DEFAULT} filled in from ENV, as the Dev Containers CLI does. */
+export function resolveLocalEnv(text, env) {
+    return text.replace(/\$\{localEnv:([^}:]+)(?::([^}]*))?\}/g, (_, name, fallback) => env[name] ?? fallback ?? '');
+}
 
 /**
  * What a config asks for that matters when trusting it, most important first: what runs on the
- * host, then the container's rights, mounts, network, Features and commands inside.
+ * host, then the container's rights, mounts, network, Features and commands inside. With ENV (the
+ * environment sandbox runs the Dev Containers CLI with), ${localEnv:…} is shown as it will be.
  */
-export function riskSummary(config) {
+export function riskSummary(config, env = null) {
+    const lines = riskLines(config);
+    return env ? lines.map(([what, value]) => [what, resolveLocalEnv(value, env)]) : lines;
+}
+
+function riskLines(config) {
     const lines = [];
     if (config.initializeCommand) lines.push(['runs on your machine', commandText(config.initializeCommand)]);
     if (config.privileged) lines.push(['privileged', 'every capability and device']);
@@ -169,12 +188,13 @@ export function riskSummary(config) {
     if (allow?.length) lines.push(['seccomp allows', allow.join(', ')]);
     const args = config.runArgs ?? [];
     args.forEach((arg, i) => {
-        if (!RISKY_ARGS.test(arg)) return;
+        if (!RISKY_ARGS.test(arg) || PROTECTIVE_ARGS.has(arg)) return;
         const value = !arg.includes('=') && args[i + 1] && !args[i + 1].startsWith('-') ? ` ${args[i + 1]}` : '';
         lines.push(['runArgs', `${arg}${value}`]);
     });
     for (const mount of config.mounts ?? []) {
         const text = typeof mount === 'string' ? mount : JSON.stringify(mount);
+        if (typeof mount === 'string' && readonlyProjectMount(mount)) continue;
         if (/(^|,)type=bind\b/.test(text) || (typeof mount === 'object' && mount.type === 'bind')) {
             lines.push(['host mount', text]);
         }

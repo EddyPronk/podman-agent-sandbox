@@ -5,8 +5,8 @@ import { constants, tmpdir } from 'node:os';
 import { basename, dirname, join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
-    SANDBOX_LABEL, SandboxError, checkName, cliPath, containerSandbox, containerState, dc, folderOf, hasConfig, podman,
-    sandboxDir, sandboxReason,
+    SANDBOX_LABEL, SandboxError, checkName, childEnv, cliPath, containerSandbox, containerState, dc, folderOf, hasConfig,
+    podman, sandboxDir, sandboxReason,
 } from './devcontainer.js';
 import {
     TRUSTED, ask, checkNotHidden, configChange, hasMarker, keepTrusted, riskSummary, short, stageConfig,
@@ -308,26 +308,19 @@ function writeTemplateInto(spec, workspace, given) {
 }
 
 /**
- * The first trust of a project's config: what it asks for, its files on request, and a yes. YES
- * (--yes) skips the questions; not at a terminal without it, refuse.
+ * The first trust of a project's config: what it asks for, and a yes. YES (--yes) skips the
+ * question; not at a terminal without it, refuse.
  */
 function firstTrust(name, config, staged, yesFlag) {
-    const risks = riskSummary(staged.config);
+    const risks = riskSummary(staged.config, childEnv());
     console.error(`sandbox: ${config} (${short(staged.id)}) asks for:`);
     console.error(risks.length ? table(risks.map(([what, value]) => [`  ${what}`, value])) : '  nothing beyond a plain container');
     if (yesFlag) return true;
-    const empty = mkdtempSync(join(tmpdir(), 'sandbox-empty-'));
-    try {
-        const command = ['diff', '-ruN', empty, config];
-        const show = ask(`Show its files (${command.join(' ')})? [Y/n] `);
-        if (show === null) {
-            throw new SandboxError(`not at a terminal, so not asking: review ${config}, then run this again with --yes`);
-        }
-        if (!['n', 'no'].includes(show)) spawnSync(command[0], command.slice(1), { stdio: 'inherit' });
-    } finally {
-        rmSync(empty, { recursive: true, force: true });
+    const answer = ask(`Use this config for ${name}? [y/N] `);
+    if (answer === null) {
+        throw new SandboxError(`not at a terminal, so not asking: review ${config}, then run this again with --yes`);
     }
-    return yes(ask(`Use this config for ${name}? [y/N] `));
+    return yes(answer);
 }
 
 /** Everything --workspace adds, checked: the mounts, and the choices for sandbox.json. */
@@ -513,7 +506,7 @@ function cmdTrust(args) {
             + `(${short(settings.configTree)} -> ${short(staged.id)}):`);
         // -N: a new file is shown in full, not as "Only in ...": it may be code that runs at build.
         spawnSync('diff', ['-ruN', join(dir, TRUSTED), config], { stdio: ['ignore', 2, 2] });
-        const host = riskSummary(staged.config).filter(([what]) => what === 'runs on your machine');
+        const host = riskSummary(staged.config, childEnv()).filter(([what]) => what === 'runs on your machine');
         if (host.length) console.error(`\nNote: ${host[0][0]}: ${host[0][1]}`);
         if (!values.yes) {
             const answer = ask(`Use the new config for ${name}? [y/N] `);
