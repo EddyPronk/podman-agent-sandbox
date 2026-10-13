@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
-    KNOWN_POLICIES, MARKER_VERSION, checkMarker, checkSelfContained, configTree, hasMarker, riskSummary,
+    KNOWN_POLICIES, MARKER_VERSION, checkMarker, checkSelfContained, configTree, hasMarker, resolveLocalEnv, riskSummary,
 } from '../src/inplace.js';
 import { listTemplates } from '../src/templates.js';
 
@@ -130,6 +130,36 @@ test('riskSummary lists what runs on the host first, then rights, mounts and Fea
     assert.deepEqual(riskSummary({ image: 'x' }), [['image', 'x']]);
 });
 
+test('riskSummary leaves out what only takes rights away: keep-id, no-new-privileges, read-only project mounts', () => {
+    const lines = riskSummary({
+        runArgs: ['--userns=keep-id', '--security-opt=no-new-privileges', '--userns=host', '--security-opt=unmask=/proc/*'],
+        mounts: [
+            'type=bind,source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,readonly',
+            'type=bind,source=${localWorkspaceFolder}/data,target=/data',
+            'type=bind,source=/home/me/.ssh,target=/ssh,readonly',
+        ],
+    });
+    assert.deepEqual(lines, [
+        ['runArgs', '--userns=host'],
+        ['runArgs', '--security-opt=unmask=/proc/*'],
+        ['host mount', 'type=bind,source=${localWorkspaceFolder}/data,target=/data'],
+        ['host mount', 'type=bind,source=/home/me/.ssh,target=/ssh,readonly'],
+    ], 'a writable project mount and a read-only mount from elsewhere still count');
+});
+
+test('riskSummary shows ${localEnv:…} as it will be, given the environment sandbox passes', () => {
+    const config = {
+        initializeCommand: 'echo ${localEnv:USER}',
+        postCreateCommand: 'PAS_VERSION=${localEnv:SANDBOX_VERSION} sh x.sh; echo ${localEnv:MISSING:fallback}${localEnv:GONE}.',
+    };
+    assert.deepEqual(riskSummary(config, { USER: 'me', SANDBOX_VERSION: '0.7.0' }), [
+        ['runs on your machine', 'echo me'],
+        ['postCreateCommand (inside)', 'PAS_VERSION=0.7.0 sh x.sh; echo fallback.'],
+    ]);
+    assert.deepEqual(riskSummary(config)[0], ['runs on your machine', 'echo ${localEnv:USER}'], 'without ENV, as written');
+    assert.equal(resolveLocalEnv('${localEnv:A}-${localEnv:B:b}', { A: 'a' }), 'a-b');
+});
+
 test('every bundled template carries the marker, so --inplace --template accepts what it writes', () => {
     for (const { id } of listTemplates()) {
         const config = JSON.parse(readFileSync(new URL(`../templates/${id}/.devcontainer/devcontainer.json`, import.meta.url), 'utf8'));
@@ -156,6 +186,7 @@ test('new --inplace: asks for trust (refused without a terminal), --yes makes it
         assert.notEqual(asked.status, 0);
         assert.match(asked.stderr, /asks for:\n {2}image +docker\.io\/library\/debian:trixie-slim/);
         assert.match(asked.stderr, /not at a terminal, so not asking: review .*, then run this again with --yes/);
+        assert.doesNotMatch(asked.stderr, /Show its files|diff -ruN/, 'the list, then one question; no diff against nothing');
         assert.ok(!existsSync(join(dir, 'p')));
 
         const made = sandbox(['new', 'p', '--workspace', root, '--inplace', '--yes'], dir);
