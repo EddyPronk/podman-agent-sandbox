@@ -63,7 +63,7 @@ Add the command to the project's README, e.g. "To work in a sandbox: `sandbox ne
 `~/sandboxes/NAME/trusted`, with your machine's settings added.
 
 - **When the project's config differs from that copy, `enter`, `exec` and `build` refuse.** At a
-  terminal they offer to show the difference (`diff -ru`).
+  terminal they offer to show the difference (`diff -ruN`: a new file is shown in full).
 - **`sandbox trust NAME` shows the difference and asks.** On yes, the new version is used. Then make
   the container again.
 - **Why:** the project's `.devcontainer/` is read-only inside, but an agent can still change it
@@ -83,15 +83,23 @@ Add the command to the project's README, e.g. "To work in a sandbox: `sandbox ne
 - **Plain JSON, no comments:** `sandbox` adds your machine's settings to it.
 - **Extra system calls for the seccomp profile** go in the block above, as
   `"seccompAllow": ["sethostname", "setdomainname"]`. `sandbox` generates the profile from your
-  Podman's default.
+  Podman's default, and adds the `--security-opt=seccomp=…` that names it. Commit neither.
 
 ## Removing
 
 `sandbox rm NAME` removes the container. `~/sandboxes/NAME` stays, with the copy you confirmed, so
 `sandbox enter NAME` makes the container again without asking. To start over, remove that folder too.
 
-## VS Code
+## Without `sandbox`
 
-VS Code's "Reopen in Container" also reads the project's `.devcontainer/`, but runs it without
-`sandbox`: no check, no read-only git hooks, no generated seccomp profile. Attach to the running
-sandbox instead; see [VS Code and sandboxes](vscode.md).
+The config is an ordinary dev container config, so the Dev Containers CLI
+(`devcontainer up --workspace-folder . --docker-path podman`) and VS Code's "Reopen in Container"
+start it too. They run the project's files as they are:
+- no check;
+- no read-only git hooks and config;
+- no generated seccomp profile, so containers inside (`claude-containers`) fail.
+
+The CLI writes a `devcontainer-lock.json` into `.devcontainer/` (the Features' exact versions).
+That's worth committing, and `sandbox` asks you to confirm it like any other change.
+
+To use VS Code with a sandbox, attach to it instead; see [VS Code and sandboxes](vscode.md).
