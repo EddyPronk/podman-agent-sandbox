@@ -5,12 +5,12 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SandboxError } from './devcontainer.js';
+import { SECCOMP_RUN_ARG } from './seccomp.js';
 import { MARKER } from './templates.js';
 import { CONFIG_MOUNT, configFile, isInside, readConfig } from './workspace.js';
 
 // The rule seccomp.js adds to the host's profile; older versions ended the comment differently.
 const SECCOMP_RULE = 'sandbox: allowed for containers inside the sandbox';
-const SECCOMP_ARG = '--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp.json';
 
 /** Is MOUNT one that --workspace adds for WORKSPACE (git protection, --readonly, --hide)? */
 export function addedMount(mount, workspace) {
@@ -57,15 +57,16 @@ export function exportedConfig(dest, settings, home = process.env.HOME) {
     const kept = mounts.filter((m) => !addedMount(m, workspace));
     for (const m of mounts.filter((m) => addedMount(m, workspace))) removed.push(`mount ${m}`);
     out.mounts = kept.includes(CONFIG_MOUNT) ? kept : [...kept, CONFIG_MOUNT];
-    // The seccomp profile sandbox generated from the host's: declared, not committed.
+    // The seccomp profile sandbox generated from the host's, and the runArg that points at it: declared
+    // as seccompAllow, not committed. sandbox adds both again when it makes the container.
     const skip = [];
     const names = generatedSeccomp(join(dest, '.devcontainer'));
     const marker = { version: 1, policies: [], ...(config.customizations?.[MARKER] ?? {}) };
     if (names) {
         skip.push('seccomp.json');
-        removed.push('seccomp.json (generated from this host\'s profile; declared as seccompAllow instead)');
+        removed.push('seccomp.json and its runArg (generated from this host\'s profile; declared as seccompAllow instead)');
         marker.seccompAllow ??= names;
-        if (!(config.runArgs ?? []).includes(SECCOMP_ARG)) out.runArgs = [...(config.runArgs ?? []), SECCOMP_ARG];
+        out.runArgs = (config.runArgs ?? []).filter((arg) => arg !== SECCOMP_RUN_ARG);
     }
     out.customizations = { ...(config.customizations ?? {}), [MARKER]: marker };
     const text = JSON.stringify(out, null, 2);

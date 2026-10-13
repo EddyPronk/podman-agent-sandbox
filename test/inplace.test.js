@@ -224,6 +224,10 @@ test('new --inplace --template writes the template into the project, with the ma
         const config = JSON.parse(readFileSync(join(root, '.devcontainer', 'devcontainer.json'), 'utf8'));
         assert.deepEqual(config.customizations['podman-agent-sandbox'].seccompAllow, ['sethostname', 'setdomainname']);
         assert.ok(!existsSync(join(root, '.devcontainer', 'seccomp.json')), 'the profile is generated, not committed');
+        assert.ok(!config.runArgs.some((arg) => arg.startsWith('--security-opt=seccomp=')), 'so is the runArg naming it');
+        const running = JSON.parse(readFileSync(join(dir, 'c', '.devcontainer', 'devcontainer.json'), 'utf8'));
+        assert.ok(running.runArgs.includes('--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp.json'),
+            'the config that runs has both');
         assert.equal(config.workspaceFolder, '/workspace', 'the committed config has no paths of this machine');
         // The config that runs has the generated profile.
         const profile = JSON.parse(readFileSync(join(dir, 'c', '.devcontainer', 'seccomp.json'), 'utf8'));
