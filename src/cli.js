@@ -1,6 +1,6 @@
 // sandbox — lxc-style front end for dev containers on rootless Podman.
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { constants, tmpdir } from 'node:os';
 import { basename, dirname, join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -12,6 +12,7 @@ import {
     TRUSTED, ask, checkNotHidden, configChange, hasMarker, keepTrusted, riskSummary, short, stageConfig,
     writeEffective, yes,
 } from './inplace.js';
+import { checkExportable, exportedConfig } from './export.js';
 import { VSCODE_PROBE, audit, formatCommand, parseStatus, parseVscodeProbe } from './inspect.js';
 import {
     applyTemplate, experimentalImage, listTemplates, parseOptionArgs, seccompAllow, TESTED_IMAGES, withImage,
@@ -49,6 +50,10 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
   sandbox trust NAME [--yes]
                        show how an --inplace sandbox's project config changed,
                        and use it; until then, enter, exec and build refuse
+  sandbox export NAME  write the config of NAME (made with --workspace PATH),
+                       with your edits, into PATH/.devcontainer for you to
+                       commit, without this machine's settings; NAME then
+                       uses it, as with --inplace
   sandbox templates    list the bundled templates and their options
   sandbox build NAME [--no-cache]
                        build NAME's image, showing the full log
@@ -80,6 +85,7 @@ More: https://github.com/EddyPronk/podman-agent-sandbox#usage
 const commands = {
     new: cmdNew,
     trust: cmdTrust,
+    export: cmdExport,
     templates: cmdTemplates,
     build: cmdBuild,
     enter: cmdEnter,
@@ -524,6 +530,52 @@ function cmdTrust(args) {
         console.error(`sandbox: ${name}'s container still runs with the old config; use 'sandbox rm ${name}' then 'sandbox enter ${name}'`);
     }
     return 0;
+}
+
+/**
+ * sandbox export NAME: write NAME's config (made with --workspace) into its project as .devcontainer,
+ * without this machine's settings (export.js), check it as --inplace would, and make NAME use it.
+ */
+function cmdExport(args) {
+    const name = oneName(args, 'sandbox export NAME');
+    const dir = folderOf(name);
+    const settings = readSettings(dir);
+    checkExportable(name, dir, settings);
+    const { config, skip, removed, leftovers } = exportedConfig(dir, settings);
+    const source = join(dir, '.devcontainer');
+    const target = join(settings.workspace, '.devcontainer');
+    const skipped = skip.map((file) => join(source, file));
+    cpSync(source, target, { recursive: true, verbatimSymlinks: true, filter: (path) => !skipped.includes(path) });
+    writeFileSync(join(target, 'devcontainer.json'), `${JSON.stringify(config, null, 2)}\n`);
+    let staged;
+    try {
+        staged = stageConfig(settings.workspace);
+    } catch (err) {
+        rmSync(target, { recursive: true, force: true });
+        throw new SandboxError(`${name}'s config can't be used as a project config, so nothing was written: ${err.message}`);
+    }
+    try {
+        keepTrusted(dir, staged.root);
+        const updated = { ...settings, inplace: true, configTree: staged.id };
+        writeSettings(dir, updated);
+        writeEffective(dir, updated);
+    } finally {
+        rmSync(staged.root, { recursive: true, force: true });
+    }
+    console.log(`wrote ${target} (${short(staged.id)}): ${name}'s config, with your edits, without this machine's settings`);
+    for (const what of removed) console.log(`  left out: ${what}`);
+    if (leftovers.length) {
+        console.error(`sandbox: warning: it still names paths of this machine; edit them out before you commit:\n`
+            + leftovers.map((line) => `  ${line}\n`).join(''));
+    }
+    console.log(`${name} now uses the project's config, as if made with --inplace: a change there needs 'sandbox trust ${name}'.`);
+    if (containerState(name)) {
+        console.error(`sandbox: warning: ${name}'s container predates ${target}, which is writable inside it until `
+            + `you make it again: sandbox rm ${name}, then sandbox enter ${name}`);
+    }
+    console.log(`Review and commit ${target}. For the project's README:\n`
+        + '  To work in a sandbox (https://github.com/EddyPronk/podman-agent-sandbox):\n'
+        + '      sandbox new --workspace . --inplace');
 }
 
 /** Destinations of container NAME's read-only mounts. */
