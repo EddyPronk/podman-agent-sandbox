@@ -13,12 +13,13 @@ import {
     writeEffective, yes,
 } from './inplace.js';
 import { checkExportable, exportedConfig } from './export.js';
+import { SECCOMP_RUN_ARG } from './seccomp.js';
 import { VSCODE_PROBE, audit, formatCommand, parseStatus, parseVscodeProbe } from './inspect.js';
 import {
     applyTemplate, experimentalImage, listTemplates, parseOptionArgs, seccompAllow, TESTED_IMAGES, withImage,
 } from './templates.js';
 import {
-    SETTINGS, applyWorkspace, defaultName, findGitDirs, readSettings, realConfigDir, resolveWorkspace,
+    SETTINGS, applyWorkspace, configFile, defaultName, findGitDirs, readConfig, readSettings, realConfigDir, resolveWorkspace,
     uncoveredInSandbox, workspaceMounts, workspacePath, writeSettings,
 } from './workspace.js';
 
@@ -282,8 +283,8 @@ function newInplace(name, dest, workspace, values) {
 
 /**
  * Write template SPEC (with GIVEN options) into WORKSPACE/.devcontainer, as `sandbox new` would copy
- * it, but only its .devcontainer, and without a seccomp.json that sandbox generates from seccompAllow.
- * Returns the template's metadata.
+ * it, but only its .devcontainer, and without what sandbox makes from seccompAllow: the profile
+ * (seccomp.json) and the runArg naming it (SECCOMP_RUN_ARG). Returns the template's metadata.
  */
 function writeTemplateInto(spec, workspace, given) {
     const tmp = mkdtempSync(join(tmpdir(), 'sandbox-template-'));
@@ -291,6 +292,11 @@ function writeTemplateInto(spec, workspace, given) {
         const copy = join(tmp, 'template');
         const template = applyTemplate(spec, copy, given, undefined, { seccomp: false });
         const generated = seccompAllow(copy, template)?.length ? join(copy, '.devcontainer', 'seccomp.json') : null;
+        if (generated) {
+            const config = readConfig(configFile(copy));
+            config.runArgs = (config.runArgs ?? []).filter((arg) => arg !== SECCOMP_RUN_ARG);
+            writeFileSync(configFile(copy), `${JSON.stringify(config, null, 2)}\n`);
+        }
         cpSync(join(copy, '.devcontainer'), join(workspace, '.devcontainer'),
             { recursive: true, filter: (path) => path !== generated });
         const left = readdirSync(copy).filter((entry) => entry !== '.devcontainer');
@@ -505,7 +511,8 @@ function cmdTrust(args) {
         }
         console.error(`sandbox: ${name}: the project's config changed since you trusted it `
             + `(${short(settings.configTree)} -> ${short(staged.id)}):`);
-        spawnSync('diff', ['-ru', join(dir, TRUSTED), config], { stdio: ['ignore', 2, 2] });
+        // -N: a new file is shown in full, not as "Only in ...": it may be code that runs at build.
+        spawnSync('diff', ['-ruN', join(dir, TRUSTED), config], { stdio: ['ignore', 2, 2] });
         const host = riskSummary(staged.config).filter(([what]) => what === 'runs on your machine');
         if (host.length) console.error(`\nNote: ${host[0][0]}: ${host[0][1]}`);
         if (!values.yes) {

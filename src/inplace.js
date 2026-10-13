@@ -8,7 +8,7 @@ import { cpSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, 
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { SandboxError } from './devcontainer.js';
-import { writeSeccompProfile } from './seccomp.js';
+import { SECCOMP_RUN_ARG, writeSeccompProfile } from './seccomp.js';
 import { MARKER, seccompAllow } from './templates.js';
 import {
     aroundWorkspace, configFile, findGitDirs, hiddenPaths, isInside, readConfig, workspaceMounts,
@@ -232,9 +232,8 @@ export function writeEffective(dest, settings, hooks = {}) {
     if (allow?.length) {
         writeSeccompProfile(dest, allow, hooks);
         const runArgs = config.runArgs ?? [];
-        if (!runArgs.some((arg) => arg.startsWith('--security-opt=seccomp='))) {
-            config.runArgs = [...runArgs, '--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp.json'];
-        }
+        // Projects don't commit it (seccomp.js); a config that has it anyway keeps the one it names.
+        if (!runArgs.some((arg) => arg.startsWith('--security-opt=seccomp='))) config.runArgs = [...runArgs, SECCOMP_RUN_ARG];
     }
     const { workspace } = settings;
     const hide = hiddenPaths(settings);
@@ -256,7 +255,8 @@ export function checkNotHidden(workspace, hidden) {
 export function configChange(dest, settings) {
     const now = configTree(settings.workspace);
     if (now === settings.configTree) return null;
-    return { trusted: settings.configTree, now, diff: ['diff', '-ru', join(dest, TRUSTED), join(settings.workspace, '.devcontainer')] };
+    // -N: a new file (a Feature's install.sh, say) is shown in full, not as "Only in ...".
+    return { trusted: settings.configTree, now, diff: ['diff', '-ruN', join(dest, TRUSTED), join(settings.workspace, '.devcontainer')] };
 }
 
 /** A short id for messages. */

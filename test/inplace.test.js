@@ -189,16 +189,18 @@ test('a changed project config: build refuses and offers the diff; trust shows i
         const file = join(root, '.devcontainer', 'devcontainer.json');
         const config = JSON.parse(readFileSync(file, 'utf8'));
         writeFileSync(file, JSON.stringify({ ...config, runArgs: ['--privileged'] }, null, 2));
+        writeFileSync(join(root, '.devcontainer', 'setup.sh'), 'echo from-a-new-file\n');
 
         const build = sandbox(['build', 'p'], dir);
         assert.notEqual(build.status, 0);
         assert.match(build.stderr, new RegExp(`the project's config changed since you trusted it \\(${trusted.slice(0, 7)} -> `));
-        assert.match(build.stderr, new RegExp(`See what changed: +diff -ru ${join(dir, 'p', 'trusted')} ${root}/\\.devcontainer`));
+        assert.match(build.stderr, new RegExp(`See what changed: +diff -ruN ${join(dir, 'p', 'trusted')} ${root}/\\.devcontainer`));
         assert.match(build.stderr, /'sandbox trust p' to review and use the new config, or restore/);
 
         const asked = sandbox(['trust', 'p'], dir);
         assert.notEqual(asked.status, 0);
         assert.match(asked.stderr, /\+ {2}"runArgs": \[/, 'the diff is shown');
+        assert.match(asked.stderr, /^\+echo from-a-new-file$/m, 'a new file is shown in full, not as "Only in"');
         assert.match(asked.stderr, /not at a terminal/);
         assert.equal(JSON.parse(readFileSync(join(dir, 'p', 'sandbox.json'), 'utf8')).configTree, trusted, 'still the old one');
 
@@ -224,6 +226,10 @@ test('new --inplace --template writes the template into the project, with the ma
         const config = JSON.parse(readFileSync(join(root, '.devcontainer', 'devcontainer.json'), 'utf8'));
         assert.deepEqual(config.customizations['podman-agent-sandbox'].seccompAllow, ['sethostname', 'setdomainname']);
         assert.ok(!existsSync(join(root, '.devcontainer', 'seccomp.json')), 'the profile is generated, not committed');
+        assert.ok(!config.runArgs.some((arg) => arg.startsWith('--security-opt=seccomp=')), 'so is the runArg naming it');
+        const running = JSON.parse(readFileSync(join(dir, 'c', '.devcontainer', 'devcontainer.json'), 'utf8'));
+        assert.ok(running.runArgs.includes('--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp.json'),
+            'the config that runs has both');
         assert.equal(config.workspaceFolder, '/workspace', 'the committed config has no paths of this machine');
         // The config that runs has the generated profile.
         const profile = JSON.parse(readFileSync(join(dir, 'c', '.devcontainer', 'seccomp.json'), 'utf8'));

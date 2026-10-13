@@ -77,6 +77,8 @@ test('export writes the config with the user\'s edits and without this machine\'
         assert.deepEqual(config.customizations['podman-agent-sandbox'],
             { version: 1, policies: [], seccompAllow: ['sethostname', 'setdomainname'] });
         assert.ok(!existsSync(join(root, '.devcontainer', 'seccomp.json')), 'generated, not committed');
+        assert.ok(!config.runArgs.some((arg) => arg.startsWith('--security-opt=seccomp=')),
+            'nor the runArg naming it: the Dev Containers CLI on its own can start the committed config');
 
         // The sandbox now uses it, as with --inplace.
         const settings = json(join(dir, 'ex', 'sandbox.json'));
@@ -88,6 +90,8 @@ test('export writes the config with the user\'s edits and without this machine\'
         assert.ok(effective.mounts.includes(`type=bind,source=/dev/null,target=${root}/.env,readonly`));
         assert.ok(effective.mounts.includes(`type=bind,source=${root}/.devcontainer,target=${root}/.devcontainer,readonly`));
         assert.ok(existsSync(join(dir, 'ex', '.devcontainer', 'seccomp.json')), 'and its profile');
+        assert.ok(effective.runArgs.includes('--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp.json'),
+            'with the runArg naming it');
         assert.match(sandbox(['trust', 'ex'], dir).stdout, /unchanged/);
 
         const twice = sandbox(['export', 'ex'], dir);

@@ -11,6 +11,13 @@ import { join } from 'node:path';
 import { SandboxError } from './devcontainer.js';
 
 /**
+ * The runArg that points podman at that profile. Like the profile, it belongs to the config that
+ * runs, not to one committed in a project (--inplace, export): there the file doesn't exist, and
+ * the Dev Containers CLI on its own would fail to start the container.
+ */
+export const SECCOMP_RUN_ARG = '--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp.json';
+
+/**
  * PROFILE with NAMES allowed without conditions: removed from every other rule (podman's default
  * allows sethostname only with CAP_SYS_ADMIN), then allowed in a rule of their own. Returns a copy.
  */
