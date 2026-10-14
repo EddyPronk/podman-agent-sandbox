@@ -173,7 +173,7 @@ isolated](docs/security-model.md#no-way-to-gain-rights) says how to add them.
 | Template | What you get |
 |---|---|
 | `claude` | Debian trixie (or another base image: `--image`, below), Node.js and Claude Code (Dev Container Features); unrestricted network |
-| `claude-containers` | Like `claude`, plus rootless Podman and `sandbox` inside, for an agent that needs containers of its own. Weakens the sandbox: see [Containers inside a sandbox](docs/containers-inside-a-sandbox.md) |
+| `claude-containers` | Like `claude`, plus rootless Podman and `sandbox` inside, for an agent that needs containers of its own, and Python 3 with uv for Python projects. Weakens the sandbox: see [Containers inside a sandbox](docs/containers-inside-a-sandbox.md) |
 | `mitm-proxy` | [agent-mitm-proxy](https://github.com/EddyPronk/agent-mitm-proxy): an egress proxy with TLS interception and an allowlist (`allowlist.txt` in the sandbox folder; changes apply without a restart). Option `ref`: the agent-mitm-proxy commit to build |
 | `proxy-client` | Like `claude` (also `--image`), but with no route out: only the proxy's internal network, all HTTP(S) through `http://proxy:8899`, trusting the proxy's CA |
 | `offline` | No network at all, only loopback; for running code you don't trust. Debian trixie with `git` and `make`, or another base image with `--image`. No agent: it couldn't reach its API. Tools your code needs come from the image, since nothing can be downloaded later |

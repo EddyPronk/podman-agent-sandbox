@@ -251,9 +251,11 @@ test('claude-containers: the claude template plus podman, and it says it weakens
     const shipped = JSON.parse(readFileSync(new URL('seccomp.json', dir), 'utf8'));
     assert.ok(shipped.syscalls.length > 10);
     const containerfile = readFileSync(new URL('Containerfile', dir), 'utf8');
-    for (const pkg of ['podman', 'uidmap', 'passt', 'aardvark-dns', 'nftables', 'libcap2-bin']) {
+    for (const pkg of ['podman', 'uidmap', 'passt', 'aardvark-dns', 'nftables', 'libcap2-bin', 'python3']) {
         assert.match(containerfile, new RegExp(`^\\s+${pkg} \\\\$`, 'm'), `installs ${pkg}`);
     }
+    // uv at a fixed release, not :latest: the image is the same whenever it's built.
+    assert.match(containerfile, /^COPY --from=ghcr\.io\/astral-sh\/uv:\d+\.\d+\.\d+ \/uv \/uvx \/usr\/local\/bin\/$/m);
     // The subordinate ranges come from the build's ID map (subid-ranges.sh, tested below).
     assert.match(containerfile, /subid-ranges\.sh "\$SANDBOX_UID" \/proc\/self\/uid_map > \/etc\/subuid/);
     assert.match(containerfile, /subid-ranges\.sh "\$SANDBOX_UID" \/proc\/self\/gid_map > \/etc\/subgid/);

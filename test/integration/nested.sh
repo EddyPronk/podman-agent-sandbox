@@ -9,7 +9,8 @@
 # claude-containers in $SANDBOX_DIR (default ~/sandboxes), installs TARBALL inside it over the
 # release the template installs, then checks, one line per test (PASS or FAIL):
 #   T1-T6   podman inside: info, run, network, exec, build
-#   T7-T12  the sandbox command inside: a nested `claude` sandbox made, entered, its home and USER
+#   T7      node, npm, python3 (Debian's 3.13) and uv in claude-containers
+#   T8-T12  the sandbox command inside: a nested `claude` sandbox made, entered, its home and USER
 #   T13-T16 a mitm-proxy and a proxy-client sandbox inside: the client's only way out is the
 #           proxy (proxy-network.sh, run inside)
 #   T22     also in proxy-network.sh: the proxy's approve through sandbox exec
@@ -102,7 +103,7 @@ run "T3 run a container"                     'podman run --rm docker.io/library/
 run "T4 the inner container has network"    'podman run --rm docker.io/library/alpine:latest wget -q -O /dev/null http://example.com'
 run "T5 exec into a running container"      'podman rm -f t5 >/dev/null 2>&1; podman run -d --name t5 docker.io/library/alpine:latest sleep 60 >/dev/null && podman exec t5 echo exec-ok; s=$?; podman rm -f t5 >/dev/null; exit $s'
 run "T6 build an image"                      'd=$(mktemp -d) && printf "FROM docker.io/library/alpine:latest\nRUN echo built > /built\n" > $d/Containerfile && podman build -q -t t6 $d && podman run --rm t6 cat /built; s=$?; rm -r $d; podman rmi -f t6 >/dev/null 2>&1; exit $s'
-run "T7 node and npm are installed"          'node --version && npm --version'
+run "T7 node, npm, python3 and uv are installed" 'node --version && npm --version && python3 --version && uv --version && readlink -f "$(command -v python3)" | grep -qx /usr/bin/python3.13'
 run "T8 sandbox is this build ($VERSION)"     "sandbox --version | grep '^sandbox $VERSION ' || exit 1
     pkg=\$(dirname \$(readlink -f \$(command -v sandbox)))/..; t=\$(mktemp -d); tar -xzf /tmp/podman-agent-sandbox.tgz -C \$t
     diff -r \$t/package/src \$pkg/src && diff -r \$t/package/templates \$pkg/templates && echo \"same code as the tarball (\$(readlink -f \$pkg))\""
