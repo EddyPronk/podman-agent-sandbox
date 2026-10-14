@@ -137,9 +137,10 @@ wherever its folder is.
 
 `stop` and `rm` only act on sandboxes, so they can't remove a container made with `podman` or other
 tools by mistake. A sandbox's container has the label `podman-agent-sandbox` (the templates add
-it, since 0.6.0); older ones count when their config folder is in `$SANDBOX_DIR` or has a
-`sandbox.json` (`--workspace`). For anything else, `--force` (`sandbox rm --force NAME`), or use
-`podman` directly.
+it, since 0.6.0), and only the label counts: a config folder in `$SANDBOX_DIR` doesn't, since
+other tools (VS Code) put containers' configs there too. For anything else, `--force`
+(`sandbox rm --force NAME`), or use `podman` directly. A sandbox made before 0.6.0 has no label:
+use `--force`, or make it again with `sandbox new` to get the label.
 
 `sandbox inspect NAME` shows a sandbox's container in two parts. First the `podman run` command
 that created it, as Podman recorded it, quoted for the shell with one option per line. Then what it

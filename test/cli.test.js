@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { helpText, table, writableConfig } from '../src/cli.js';
-import { checkName, childEnv, cliPath, folderOf, sandboxDir, sandboxReason } from '../src/devcontainer.js';
+import { checkName, childEnv, cliPath, folderOf, sandboxDir, sandboxReason, unlabelledHint } from '../src/devcontainer.js';
 
 test('sandboxDir defaults to ~/sandboxes', () => {
     assert.equal(sandboxDir({}), join(homedir(), 'sandboxes'));
@@ -30,17 +30,20 @@ test('folderOf prefers the container label, then $SANDBOX_DIR/NAME', () => {
     assert.throws(() => folderOf('missing', { lookup: () => '', env }), /no container or dev container config/);
 });
 
-test('sandboxReason: the label, else a config folder in $SANDBOX_DIR or with sandbox.json', () => {
+test('sandboxReason: only the label; unlabelledHint: what the config folder suggests', () => {
+    // A config folder in $SANDBOX_DIR only says where a config lives: VS Code made hopeful_hugle there
+    // (lab 09), so stop and rm must not act on it without --force.
+    assert.equal(sandboxReason({ label: '0.6.0' }), 'label podman-agent-sandbox=0.6.0');
+    assert.equal(sandboxReason({}), '');
     const files = new Set(['/sb/old/.devcontainer/devcontainer.json', '/elsewhere/ws/.devcontainer/devcontainer.json',
         '/elsewhere/ws/sandbox.json', '/src/app/.devcontainer/devcontainer.json']);
     const opts = { env: { SANDBOX_DIR: '/sb/' }, exists: (p) => files.has(p) };
-    assert.equal(sandboxReason({ label: '0.6.0', folder: '/src/app' }, opts), 'label podman-agent-sandbox=0.6.0');
-    assert.equal(sandboxReason({ folder: '/sb/old' }, opts), 'config folder in /sb/');
-    assert.equal(sandboxReason({ folder: '/elsewhere/ws' }, opts), 'config folder with sandbox.json');
+    assert.equal(unlabelledHint({ folder: '/sb/old' }, opts), 'its config folder is in /sb/');
+    assert.equal(unlabelledHint({ folder: '/elsewhere/ws' }, opts), 'its config folder has a sandbox.json');
     // A dev container VS Code opened from a project folder, one made in a volume, a folder gone.
-    assert.equal(sandboxReason({ folder: '/src/app' }, opts), '');
-    assert.equal(sandboxReason({}, opts), '');
-    assert.equal(sandboxReason({ folder: '/sb/gone' }, opts), '');
+    assert.equal(unlabelledHint({ folder: '/src/app' }, opts), '');
+    assert.equal(unlabelledHint({}, opts), '');
+    assert.equal(unlabelledHint({ folder: '/sb/gone' }, opts), '');
 });
 
 test('cliPath points at the pinned Dev Containers CLI', () => {

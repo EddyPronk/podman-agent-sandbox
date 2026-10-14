@@ -83,25 +83,32 @@ function inspect(name, format) {
 export const SANDBOX_LABEL = 'podman-agent-sandbox';
 
 /**
- * Whether a container is a sandbox, from its labels: LABEL is SANDBOX_LABEL's value, FOLDER the
- * devcontainer.local_folder label. Containers made before the label (0.6.0), or from a template
- * without it, count when their config folder is in $SANDBOX_DIR or has a sandbox.json (--workspace).
- * Dev containers VS Code makes have neither. Returns how it was recognised, or '' when it isn't.
+ * Whether a container is a sandbox: only its SANDBOX_LABEL (LABEL, the value) says so; the bundled
+ * templates add it since 0.6.0. Returns how it was recognised, or '' when it isn't.
  */
-export function sandboxReason({ label = '', folder = '' }, { env = process.env, exists = existsSync } = {}) {
-    if (label) return `label ${SANDBOX_LABEL}=${label}`;
+export function sandboxReason({ label = '' }) {
+    return label ? `label ${SANDBOX_LABEL}=${label}` : '';
+}
+
+/**
+ * For a container without the label: what its config folder (FOLDER, the devcontainer.local_folder
+ * label) suggests, or ''. A folder in $SANDBOX_DIR, or with a sandbox.json, looks like a sandbox
+ * made before 0.6.0, but only says where a config lives: VS Code made one there too.
+ */
+export function unlabelledHint({ folder = '' }, { env = process.env, exists = existsSync } = {}) {
     if (!folder || !hasConfig(folder, exists)) return '';
-    if (resolve(dirname(folder)) === resolve(sandboxDir(env))) return `config folder in ${sandboxDir(env)}`;
-    if (exists(join(folder, 'sandbox.json'))) return 'config folder with sandbox.json';
+    if (resolve(dirname(folder)) === resolve(sandboxDir(env))) return `its config folder is in ${sandboxDir(env)}`;
+    if (exists(join(folder, 'sandbox.json'))) return 'its config folder has a sandbox.json';
     return '';
 }
 
-/** sandboxReason() for container NAME; null when there's no such container. */
+/** For container NAME: { reason, hint } (sandboxReason, unlabelledHint); null when there's no such container. */
 export function containerSandbox(name) {
     const out = inspect(name, `{{index .Config.Labels "${SANDBOX_LABEL}"}}|{{index .Config.Labels "devcontainer.local_folder"}}`);
     if (!out) return null;
     const [label, folder] = out.split('|').map((s) => (s === '<no value>' ? '' : s));
-    return sandboxReason({ label, folder });
+    const reason = sandboxReason({ label });
+    return { reason, hint: reason ? '' : unlabelledHint({ folder }) };
 }
 
 /** The workspace folder recorded on container NAME, or '' if there is none. */

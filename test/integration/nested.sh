@@ -16,6 +16,7 @@
 #   T17-T18 those three are hardened (no capabilities, no new privileges) and still work
 #   T19     sandbox inspect on the nested claude, recognised as a sandbox by its label
 #   T20     sandbox rm refuses a container that isn't a sandbox, unless --force
+#   T29     ... also when its config folder is in SANDBOX_DIR: only the label counts
 #   T23     the nested claude's own config (/workspace/.devcontainer) is read-only inside
 #   T24-T27 sandboxes from their project's own config (inplace.sh, run inside): --inplace, an
 #           agent's git commit of the config refused until trust, trust, export
@@ -124,6 +125,9 @@ run "T17 claude, proxy, work: no capabilities, no new privileges" 'f=; for c in 
 run "T18 everyday work in the hardened claude" 'podman exec claude bash -lc "set -e; touch ~/.p /workspace/.p; rm ~/.p /workspace/.p; test -f ~/.bashrc; d=\$(mktemp -d); cd \$d; git init -q; git -c user.name=t -c user.email=t@t commit -q --allow-empty -m x; npm install --silent --no-audit --no-fund is-number >/dev/null; echo everyday-ok"'
 run "T19 sandbox inspect: the podman run command, and no warnings for the claude" 'out=$(sandbox inspect claude) || exit 1; echo "$out"; echo "$out" | grep -q "^# claude is a sandbox (label podman-agent-sandbox=" && echo "$out" | grep -q "^podman run" && echo "$out" | grep -q "^capabilities  *none" && ! echo "$out" | grep -q "^warning:"'
 run "T20 sandbox rm refuses a container that isn't a sandbox; --force removes it" 'podman rm -f t20 >/dev/null 2>&1; podman create --name t20 docker.io/library/alpine:latest true >/dev/null || exit 1; sandbox rm t20; s=$?; podman container exists t20 || { echo "t20 was removed without --force"; exit 1; }; [ $s -ne 0 ] && sandbox rm --force t20 && ! podman container exists t20'
+run "T29 sandbox rm refuses an unlabelled container whose config is in SANDBOX_DIR (as VS Code's hopeful_hugle)" 'd=${SANDBOX_DIR:-$HOME/sandboxes}/t29; mkdir -p $d/.devcontainer && echo "{}" > $d/.devcontainer/devcontainer.json; podman rm -f t29 >/dev/null 2>&1; podman create --name t29 --label devcontainer.local_folder=$d docker.io/library/alpine:latest true >/dev/null || exit 1
+    out=$(sandbox rm t29 2>&1); s=$?; echo "$out"; podman container exists t29 || { echo "t29 was removed without --force"; exit 1; }
+    [ $s -ne 0 ] && echo "$out" | grep -q "made before 0.6.0" && sandbox rm --force t29 && ! podman container exists t29; s=$?; rm -r $d; exit $s'
 run "T23 the nested claude's own config is read-only inside, its workspace writable" 'podman exec claude sh -c "touch /workspace/.devcontainer/t23" 2>&1 && { echo "/workspace/.devcontainer is writable"; exit 1; }; podman exec claude sh -c "touch /workspace/t23 && rm /workspace/t23"'
 # T24-T27 run inside, as one script, like T13-T16.
 podman exec -u "$U" "$N" bash -lc 'bash /tmp/inplace.sh ~/inplace-logs' >"$LOG/inplace.log" 2>&1
