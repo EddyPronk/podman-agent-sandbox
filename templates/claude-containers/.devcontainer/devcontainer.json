@@ -50,6 +50,7 @@
   "customizations": {
     "podman-agent-sandbox": {
       "version": 1,
+      "minVersion": "0.7.0",
       "policies": [],
       "seccompAllow": ["sethostname", "setdomainname"]
     }

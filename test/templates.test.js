@@ -44,6 +44,17 @@ test('versionAtLeast and checkMinVersion: a config can ask for a newer sandbox',
     assert.throws(() => checkMinVersion(config(9), 'f', '0.8.0'), /minVersion must be a version like/);
 });
 
+test('no bundled template needs a newer sandbox than the release it ships in', () => {
+    const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+    for (const { id } of listTemplates()) {
+        const config = JSON.parse(readFileSync(new URL(`../templates/${id}/.devcontainer/devcontainer.json`, import.meta.url), 'utf8'));
+        assert.doesNotThrow(() => checkMinVersion(config, id, version), `${id}`);
+    }
+    // claude-containers relies on seccompAllow in the marker (0.7.0): older ones leave podman inside without sethostname.
+    const containers = JSON.parse(readFileSync(new URL('../templates/claude-containers/.devcontainer/devcontainer.json', import.meta.url), 'utf8'));
+    assert.equal(containers.customizations['podman-agent-sandbox'].minVersion, '0.7.0');
+});
+
 test('sandbox new refuses a template that needs a newer sandbox, and makes nothing', () => {
     const root = demoRoot();
     writeFileSync(join(root, 'demo', '.devcontainer', 'devcontainer.json'),
