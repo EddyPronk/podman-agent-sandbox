@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { SandboxError } from './devcontainer.js';
 import { SECCOMP_RUN_ARG, writeSeccompProfile } from './seccomp.js';
-import { MARKER, seccompAllow } from './templates.js';
+import { MARKER, checkMinVersion, seccompAllow } from './templates.js';
 import {
     aroundWorkspace, configFile, findGitDirs, hiddenPaths, isInside, readConfig, workspaceMounts,
 } from './workspace.js';
@@ -89,6 +89,7 @@ export function checkMarker(config, file) {
         throw new SandboxError(`${file} is for a newer sandbox (its "${MARKER}" version is ${marker.version}; `
             + `this sandbox knows ${MARKER_VERSION}): update sandbox`);
     }
+    checkMinVersion(config, file);
     const policies = marker.policies ?? [];
     if (!Array.isArray(policies)) throw new SandboxError(`${file}: "${MARKER}".policies must be a list`);
     const unknown = policies.filter((p) => !KNOWN_POLICIES.includes(p));

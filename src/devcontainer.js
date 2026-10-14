@@ -29,7 +29,7 @@ export function cliPath() {
     return join(dirname(require.resolve('@devcontainers/cli/package.json')), 'devcontainer.js');
 }
 
-const PACKAGE_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+export const PACKAGE_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 /**
  * The Dev Containers CLI's environment. Templates read it through ${localEnv:…}:

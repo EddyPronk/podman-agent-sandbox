@@ -32,6 +32,11 @@ sandbox enter project
   A dev container config written for VS Code has no such block, and `--inplace` refuses it. Make a
   sandbox from a template around such a project instead:
   `sandbox new --workspace . --template claude`.
+- **`"minVersion": "X.Y.Z"` in that block** says which `sandbox` the config needs, for example
+  `"minVersion": "0.8.0"`. An older `sandbox` would otherwise run it without what it relies on,
+  such as a seccomp allowance. `sandbox new`, `trust`, and `enter`, `exec` and `build` (before
+  they create anything) refuse with "needs sandbox X.Y.Z or later". The same works in a template
+  of your own. Releases before 0.8.0 ignore it.
 - **`--hide` and `--readonly` work as with `--workspace`**
   ([A sandbox around an existing project](sandbox-around-an-existing-project.md)). The project's
   `.devcontainer/` is always read-only inside.
