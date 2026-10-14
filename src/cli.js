@@ -6,7 +6,7 @@ import { basename, dirname, join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
     SANDBOX_LABEL, SandboxError, checkName, childEnv, cliPath, containerSandbox, containerState, dc, folderOf, hasConfig,
-    podman, sandboxDir, sandboxReason,
+    podman, sandboxDir, sandboxReason, unlabelledHint,
 } from './devcontainer.js';
 import {
     TRUSTED, ask, checkNotHidden, configChange, hasMarker, keepTrusted, riskSummary, short, stageConfig,
@@ -612,9 +612,12 @@ function cmdInspect(args) {
     }
     const [info] = JSON.parse(result.stdout);
     const labels = info.Config?.Labels ?? {};
-    const reason = sandboxReason({ label: labels[SANDBOX_LABEL], folder: labels['devcontainer.local_folder'] });
+    const reason = sandboxReason({ label: labels[SANDBOX_LABEL] });
+    const hint = reason ? '' : unlabelledHint({ folder: labels['devcontainer.local_folder'] });
     console.log(reason ? `# ${name} is a sandbox (${reason}).`
-        : `# ${name} is not a sandbox: no ${SANDBOX_LABEL} label or sandbox config folder (VS Code's, or your own?).`);
+        : hint ? `# ${name} is not a sandbox: no ${SANDBOX_LABEL} label, though ${hint} (a sandbox made before 0.6.0,`
+            + ' or another tool\'s container?).'
+            : `# ${name} is not a sandbox: no ${SANDBOX_LABEL} label (VS Code's, or your own?).`);
     const command = info.Config?.CreateCommand ?? [];
     console.log(`\n# The command that created ${name} (podman recorded it):`);
     console.log(command.length ? formatCommand(command, info.ImageName ?? '')
@@ -708,11 +711,16 @@ function cmdList(args) {
 function sandboxName(args, sub) {
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { force: { type: 'boolean' } } });
     const name = oneName(positionals, `sandbox ${sub} [--force] NAME`);
-    if (!values.force && containerSandbox(name) === '') {
-        throw new SandboxError(`${name} isn't a sandbox: no ${SANDBOX_LABEL} label, and its config folder (if any) `
-            + `is neither in ${sandboxDir()} nor has a sandbox.json. It may be VS Code's or your own.\n`
-            + `To ${sub} it anyway: sandbox ${sub} --force ${name} (or podman ${sub} ${name}). For a sandbox made `
-            + 'with another SANDBOX_DIR, set that SANDBOX_DIR.');
+    const found = values.force ? null : containerSandbox(name);
+    if (found && !found.reason) {
+        const why = found.hint
+            ? `${found.hint[0].toUpperCase()}${found.hint.slice(1)}, so it may be a sandbox made before 0.6.0, `
+                + 'or a container another tool (VS Code) made there.'
+            : 'It may be VS Code\'s or your own.';
+        throw new SandboxError(`${name} isn't a sandbox: it has no ${SANDBOX_LABEL} label. ${why}\n`
+            + `Check it with sandbox inspect ${name}. To ${sub} it anyway: sandbox ${sub} --force ${name} `
+            + `(or podman ${sub} ${name}).`
+            + (found.hint ? ' A sandbox made before 0.6.0 gets the label when made again with sandbox new.' : ''));
     }
     return name;
 }
