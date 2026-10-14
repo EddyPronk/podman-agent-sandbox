@@ -1,13 +1,19 @@
 FROM docker.io/library/debian:trixie-slim
 
-# Basics missing from the slim image; Node.js comes from the node feature.
+# Basics missing from the slim image; Node.js comes from the node feature. Python is Debian's
+# python3 (3.13 on trixie, /usr/bin/python3.13): a project's .venv made here also works on a trixie
+# host, and the other way round.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
         git \
         less \
         procps \
+        python3 \
     && rm -rf /var/lib/apt/lists/*
+
+# uv for Python projects (venvs, dependencies, uv run): a fixed release, updated by hand.
+COPY --from=ghcr.io/astral-sh/uv:0.11.8 /uv /uvx /usr/local/bin/
 
 # Containers inside: rootless podman. Debian's podman only recommends uidmap (newuidmap/newgidmap),
 # passt (pasta, the network for rootless containers) and aardvark-dns (names on podman networks,
