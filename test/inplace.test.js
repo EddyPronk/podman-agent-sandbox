@@ -268,10 +268,13 @@ test('new --inplace --template writes the template into the project, with the ma
 
         const over = sandbox(['new', 'c2', '--workspace', root, '--inplace', '--template', 'claude'], dir);
         assert.match(over.stderr, /already exists, and --template would write over it/);
+        assert.doesNotMatch(made.stderr, /secrets/, 'nothing to warn about');
         const proxy = tempDir();
+        writeFileSync(join(proxy, '.env'), 'TOKEN=x');
         const client = sandbox(['new', 'pc', '--workspace', proxy, '--inplace', '--template', 'proxy-client'], dir);
         assert.equal(client.status, 0, client.stderr);
         assert.match(client.stdout, /not written into the project .*: CLAUDE\.md/);
+        assert.match(client.stderr, /warning: pc can read files whose names suggest secrets:\n {2}\.env\n/);
     });
 
 test('new --inplace refuses --hide of the project\'s .devcontainer; new without --template hints at --inplace',

@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
-    CONFIG_MOUNT, applyWorkspace, findGitDirs, readonlyTargets, readSettings, realConfigDir, resolveWorkspace,
+    CONFIG_MOUNT, applyWorkspace, findGitDirs, findSecretFiles, readonlyTargets, readSettings, realConfigDir, resolveWorkspace,
     uncoveredGitPaths, uncoveredInSandbox, workspaceMounts, workspacePath,
 } from '../src/workspace.js';
 
@@ -180,6 +180,46 @@ test('readonlyTargets reads the read-only targets of a mounts list', () => {
         'type=bind,source=/dev/null,target=/p/.env,readonly',
         { type: 'bind', source: '/c', target: '/c' },
     ]), ['/a', '/p/.env']);
+});
+
+test('findSecretFiles: .env files, keys and key stores, not examples, .git, node_modules or hidden paths', () => {
+    const root = project();   // has .env and secrets/key
+    for (const file of ['.env.local', '.env.example', 'tls/server.pem', 'tls/server.key', 'store.p12',
+        'deploy/id_ed25519', 'deploy/id_ed25519.pub', '.netrc', 'keys.md', 'node_modules/dep/test.pem', '.git/x.key',
+        'home/.claude/.credentials.json', 'gcp/credentials.json', 'credentials.md']) {
+        mkdirSync(join(root, file, '..'), { recursive: true });
+        writeFileSync(join(root, file), '');
+    }
+    assert.deepEqual(findSecretFiles(root), ['.env', '.env.local', '.netrc', 'deploy/id_ed25519', 'gcp/credentials.json',
+        'home/.claude/.credentials.json', 'store.p12', 'tls/server.key', 'tls/server.pem']);
+    assert.deepEqual(findSecretFiles(root, [join(root, 'tls'), join(root, '.env'), join(root, 'home'), join(root, 'gcp')]),
+        ['.env.local', '.netrc', 'deploy/id_ed25519', 'store.p12']);
+});
+
+test('an unreadable folder in the workspace is skipped, not a crash (the agent can\'t read it either)', () => {
+    const root = project();
+    mkdirSync(join(root, 'pgdata'));
+    writeFileSync(join(root, 'pgdata', 'server.key'), '');
+    chmodSync(join(root, 'pgdata'), 0o000);
+    try {
+        assert.deepEqual(findGitDirs(root), [join(root, '.git'), join(root, 'libs', 'nested', '.git')]);
+        assert.deepEqual(findSecretFiles(root), ['.env']);
+    } finally {
+        chmodSync(join(root, 'pgdata'), 0o755);
+    }
+});
+
+test('sandbox new --workspace warns about files that may hold secrets, unless hidden', () => {
+    const root = project();
+    writeFileSync(join(root, 'server.key'), '');
+    const warned = sandbox(['new', 'w1', '--template', 'claude', '--workspace', root], { SANDBOX_DIR: tempDir() });
+    assert.equal(warned.status, 0, warned.stderr);
+    assert.match(warned.stderr, /warning: w1 can read files whose names suggest secrets:\n {2}\.env\n {2}server\.key\n/);
+    assert.match(warned.stderr, /To hide them inside: rm -r .*\/w1, then this command again with --hide PATH/);
+    const quiet = sandbox(['new', 'w2', '--template', 'claude', '--workspace', root, '--hide', '.env', '--hide', 'server.key'],
+        { SANDBOX_DIR: tempDir() });
+    assert.equal(quiet.status, 0, quiet.stderr);
+    assert.doesNotMatch(quiet.stderr, /secrets/);
 });
 
 test('realConfigDir resolves the part that exists', () => {

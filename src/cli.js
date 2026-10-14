@@ -19,7 +19,7 @@ import {
     applyTemplate, experimentalImage, listTemplates, parseOptionArgs, seccompAllow, TESTED_IMAGES, withImage,
 } from './templates.js';
 import {
-    SETTINGS, applyWorkspace, configFile, defaultName, findGitDirs, readConfig, readSettings, realConfigDir, resolveWorkspace,
+    SETTINGS, applyWorkspace, configFile, defaultName, findGitDirs, findSecretFiles, readConfig, readSettings, realConfigDir, resolveWorkspace,
     uncoveredInSandbox, workspaceMounts, workspacePath, writeSettings,
 } from './workspace.js';
 
@@ -194,6 +194,7 @@ function cmdNew(args) {
     }
     console.log(`next: sandbox enter ${name}`);
     warnImage(name, template, given);
+    if (plan) warnSecrets(name, dest, plan);
 }
 
 /** Warn about an experimental --image (GIVEN.image) for TEMPLATE. */
@@ -280,6 +281,7 @@ function newInplace(name, dest, workspace, values) {
         + `${plan.readonly.length ? `, ${plan.readonly.join(', ')}` : ''}; hidden: ${plan.hide.join(', ') || 'nothing'}`);
     console.log(`next: sandbox enter ${name}`);
     if (template) warnImage(name, template, given);
+    warnSecrets(name, dest, plan);
 }
 
 /**
@@ -331,7 +333,22 @@ function planWorkspace(workspace, values, configDir) {
     const gitDirs = findGitDirs(workspace, hidden);
     const mounts = workspaceMounts({ workspace, hide: hidden, readonly, configDir, gitDirs });
     const rel = (path) => relative(workspace, path);
-    return { workspace, hide: hidden.map(rel), readonly: readonly.map(rel), mounts, gitDirs };
+    const secrets = findSecretFiles(workspace, hidden);
+    return { workspace, hide: hidden.map(rel), readonly: readonly.map(rel), mounts, gitDirs, secrets };
+}
+
+/** After making NAME (in DEST): warn about files in the workspace that may hold secrets (PLAN). */
+function warnSecrets(name, dest, plan) {
+    if (!plan.secrets.length) return;
+    const shown = plan.secrets.slice(0, 10);
+    const more = plan.secrets.length - shown.length;
+    console.error([
+        `sandbox: warning: ${name} can read files whose names suggest secrets:`,
+        ...shown.map((path) => `  ${path}`),
+        ...(more ? [`  ... and ${more} more`] : []),
+        `To hide them inside: rm -r ${dest}, then this command again with --hide PATH for each`
+            + ' (a folder hides what is in it). Hidden, they read as empty inside.',
+    ].join('\n'));
 }
 
 function cmdTemplates(args) {

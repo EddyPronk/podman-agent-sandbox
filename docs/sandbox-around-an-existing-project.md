@@ -28,6 +28,10 @@ sandbox enter myproject
   empty one in its place); `--readonly PATH` makes a path read-only. Neither can be added later:
   make the sandbox again. A hidden file that git tracks shows up as modified inside (it reads as
   empty there); committing it from inside would record it empty, not reveal it.
+- **`sandbox new` warns about files whose names suggest secrets** and that you didn't hide: `.env`
+  files (not `.env.example`), `*.pem`, `*.key`, `*.p12`, `*.pfx`, SSH keys (`id_rsa`, `id_ed25519`,
+  ...), `.netrc` and `credentials.json`. It's a hint from names only: a secret can be in any file.
+  Folders you can't read are skipped; the agent, running as you, can't read them either.
 - Templates that refer to `/workspace` themselves (like `mitm-proxy`'s `allowlist.txt`) need it to be
   the workspace; use them without `--workspace`. The template's `devcontainer.json` must be plain
   JSON (no comments), since `sandbox new` rewrites it.
