@@ -243,6 +243,27 @@ test('sandbox new --workspace on a project in SANDBOX_DIR under its own name: sa
     assert.equal(sandbox(['new', 'foo-box', '--template', 'offline', '--workspace', root], { SANDBOX_DIR: sandboxes }).status, 0);
 });
 
+test('already exists: rm -r only for a folder that holds nothing but config', () => {
+    const sandboxes = tempDir();
+    const env = { SANDBOX_DIR: sandboxes };
+    // Made without --workspace: the folder is the sandbox's workspace, with the work in it.
+    assert.equal(sandbox(['new', 'plain', '--template', 'offline'], env).status, 0);
+    const plain = sandbox(['new', 'plain', '--template', 'offline'], env);
+    assert.match(plain.stderr, /a sandbox made from a template, and its workspace/);
+    assert.match(plain.stderr, new RegExp(`move the folder aside, with the work in it \\(mv ${sandboxes}/plain ${sandboxes}/plain\\.old\\)`));
+    assert.doesNotMatch(plain.stderr, /rm -r/);
+    // A folder sandbox didn't make.
+    mkdirSync(join(sandboxes, 'mine'));
+    const mine = sandbox(['new', 'mine', '--template', 'offline'], env);
+    assert.match(mine.stderr, /a folder, not a sandbox[\s\S]*To use this NAME: +move the folder out of /);
+    assert.doesNotMatch(mine.stderr, /rm -r|To use it:/);
+    // --workspace: only config in it, the project elsewhere.
+    const root = project();
+    assert.equal(sandbox(['new', 'w', '--template', 'offline', '--workspace', root], env).status, 0);
+    const ws = sandbox(['new', 'w', '--template', 'offline', '--workspace', root], env);
+    assert.match(ws.stderr, new RegExp(`rm -r ${sandboxes}/w \\(only its config: ${root} stays\\)`));
+});
+
 test('realConfigDir resolves the part that exists', () => {
     const root = tempDir();
     symlinkSync(root, join(root, 'link'));
