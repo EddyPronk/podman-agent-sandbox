@@ -4,7 +4,7 @@
 import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SandboxError } from './devcontainer.js';
+import { PACKAGE_VERSION, SandboxError } from './devcontainer.js';
 import { writeSeccompProfile } from './seccomp.js';
 
 export const TEMPLATES_DIR = fileURLToPath(new URL('../templates/', import.meta.url));
@@ -12,6 +12,33 @@ const METADATA = 'devcontainer-template.json';
 
 /** Our namespace in devcontainer.json's "customizations": marks a config written for sandbox. */
 export const MARKER = 'podman-agent-sandbox';
+
+/** Is version HAVE (X.Y.Z) at least NEED? A prerelease or build suffix is ignored. */
+export function versionAtLeast(have, need) {
+    const parts = (v) => v.split(/[-+]/)[0].split('.').map(Number);
+    const [a, b] = [parts(have), parts(need)];
+    for (let i = 0; i < 3; i += 1) {
+        if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
+    }
+    return true;
+}
+
+/**
+ * Refuse CONFIG (from FILE) when its marker's "minVersion" is newer than this sandbox (VERSION): it
+ * relies on something an older sandbox would silently do without (a seccomp allowance, a check).
+ * Releases before 0.8.0 ignore the field.
+ */
+export function checkMinVersion(config, file, version = PACKAGE_VERSION) {
+    const min = config?.customizations?.[MARKER]?.minVersion;
+    if (min === undefined) return;
+    if (typeof min !== 'string' || !/^\d+\.\d+\.\d+$/.test(min)) {
+        throw new SandboxError(`${file}: "${MARKER}".minVersion must be a version like "0.8.0", not ${JSON.stringify(min)}`);
+    }
+    if (!versionAtLeast(version, min)) {
+        throw new SandboxError(`${file} needs sandbox ${min} or later, and this is ${version}: update sandbox `
+            + '(run the install one-liner from the README again)');
+    }
+}
 
 /** Metadata of every template under ROOT, sorted by id. */
 export function listTemplates(root = TEMPLATES_DIR) {
@@ -141,6 +168,16 @@ export function applyTemplate(spec, dest, given = {}, root = TEMPLATES_DIR, hook
     const { template, src } = findTemplate(spec, root);
     if (existsSync(dest)) throw new SandboxError(`${dest} already exists`);
     const values = resolveOptions(template, given);
+    const config = join(src, '.devcontainer', 'devcontainer.json');
+    if (existsSync(config)) {
+        let parsed = null;
+        try {
+            parsed = JSON.parse(readFileSync(config, 'utf8'));
+        } catch {
+            // not plain JSON: readConfig says so later, where it matters
+        }
+        checkMinVersion(parsed, config);
+    }
     cpSync(src, dest, { recursive: true, filter: (path) => path !== join(src, METADATA) });
     for (const file of readdirSync(dest, { recursive: true, withFileTypes: true })) {
         if (!file.isFile()) continue;

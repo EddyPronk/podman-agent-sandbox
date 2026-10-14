@@ -19,7 +19,7 @@ import {
     parseVscodeProbe, podmanStorageRows, removedRows,
 } from './inspect.js';
 import {
-    applyTemplate, experimentalImage, listTemplates, parseOptionArgs, seccompAllow, TESTED_IMAGES, withImage,
+    applyTemplate, checkMinVersion, experimentalImage, listTemplates, parseOptionArgs, seccompAllow, TESTED_IMAGES, withImage,
 } from './templates.js';
 import {
     SETTINGS, applyWorkspace, configFile, defaultName, findGitDirs, findSecretFiles, isInside, readConfig, readSettings, realConfigDir,
@@ -404,12 +404,30 @@ function cmdTemplates(args) {
     }
 }
 
+/**
+ * Before creating NAME's container or image from the config in DIR: refuse when its marker asks for
+ * a newer sandbox (minVersion), e.g. after installing an older release. A container that exists was
+ * made already, and keeps running.
+ */
+function checkConfigVersion(dir) {
+    const file = configFile(dir);
+    if (!existsSync(file)) return;
+    let config = null;
+    try {
+        config = JSON.parse(readFileSync(file, 'utf8'));
+    } catch {
+        return;   // not plain JSON: the Dev Containers CLI reads it (JSONC) and has the last word
+    }
+    checkMinVersion(config, file);
+}
+
 function cmdBuild(args) {
     const [name, ...rest] = args;
     if (!name) throw new SandboxError('usage: sandbox build NAME [--no-cache]');
     const dir = folderOf(name);
     const inplace = checkTrusted(name, dir);
     if (inplace) writeEffective(dir, inplace);
+    checkConfigVersion(dir);
     const result = dc('build', ['--workspace-folder', dir, ...rest]);
     if (result.status !== 0) return exitStatus(result);
     if (containerState(name)) {
@@ -480,6 +498,7 @@ function ensureRunning(name, dir) {
     // before creating the container (a newer sandbox's settings apply without a new trust).
     const inplace = checkTrusted(name, dir);
     if (inplace && !state) writeEffective(dir, inplace);
+    if (!state) checkConfigVersion(dir);
     checkWorkspace(name, dir, state);
     if (state !== 'running') {
         // up creates the container, or starts it if it exists but is stopped.

@@ -277,6 +277,19 @@ test('new --inplace --template writes the template into the project, with the ma
         assert.match(client.stderr, /warning: pc can read files whose names suggest secrets:\n {2}\.env\n/);
     });
 
+test('new --inplace refuses a project config that needs a newer sandbox', { skip: noGit }, () => {
+    const dir = tempDir();
+    const root = project();
+    const file = join(root, '.devcontainer', 'devcontainer.json');
+    const config = JSON.parse(readFileSync(file, 'utf8'));
+    config.customizations['podman-agent-sandbox'].minVersion = '99.0.0';
+    writeFileSync(file, JSON.stringify(config, null, 2));
+    const result = sandbox(['new', 'p', '--workspace', root, '--inplace', '--yes'], dir);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /devcontainer\.json needs sandbox 99\.0\.0 or later/);
+    assert.ok(!existsSync(join(dir, 'p')));
+});
+
 test('new --inplace --template that fails after writing the template takes it out of the project again',
     { skip: noGit }, () => {
         const sandboxes = tempDir();

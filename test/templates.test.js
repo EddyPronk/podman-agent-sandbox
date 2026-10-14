@@ -8,7 +8,8 @@ import { test } from 'node:test';
 import { SandboxError } from '../src/devcontainer.js';
 import { CONFIG_MOUNT } from '../src/workspace.js';
 import {
-    applyTemplate, experimentalImage, listTemplates, parseOptionArgs, resolveOptions, substitute, withImage,
+    applyTemplate, checkMinVersion, experimentalImage, listTemplates, parseOptionArgs, resolveOptions, substitute,
+    versionAtLeast, withImage,
 } from '../src/templates.js';
 
 /** A template root with one template "demo" that has a network option. */
@@ -27,6 +28,44 @@ function demoRoot() {
         '{"name": "${localWorkspaceFolderBasename}", "net": "${templateOption:network}", "x": "${templateOption:nope}"}');
     return root;
 }
+
+test('versionAtLeast and checkMinVersion: a config can ask for a newer sandbox', () => {
+    assert.ok(versionAtLeast('0.8.0', '0.8.0'));
+    assert.ok(versionAtLeast('0.10.0', '0.9.3'), 'numbers, not strings');
+    assert.ok(versionAtLeast('1.0.0', '0.99.99'));
+    assert.ok(!versionAtLeast('0.7.9', '0.8.0'));
+    assert.ok(versionAtLeast('0.8.0-rc.1', '0.8.0'), 'a prerelease suffix is ignored');
+    const config = (min) => ({ customizations: { 'podman-agent-sandbox': { version: 1, minVersion: min } } });
+    assert.doesNotThrow(() => checkMinVersion({}, 'f', '0.8.0'), 'no marker: nothing to check');
+    assert.doesNotThrow(() => checkMinVersion(config(undefined), 'f', '0.8.0'));
+    assert.doesNotThrow(() => checkMinVersion(config('0.8.0'), 'f', '0.8.0'));
+    assert.throws(() => checkMinVersion(config('0.9.0'), 'f', '0.8.1'), /f needs sandbox 0\.9\.0 or later, and this is 0\.8\.1/);
+    assert.throws(() => checkMinVersion(config('0.9'), 'f', '0.8.0'), /minVersion must be a version like/);
+    assert.throws(() => checkMinVersion(config(9), 'f', '0.8.0'), /minVersion must be a version like/);
+});
+
+test('no bundled template needs a newer sandbox than the release it ships in', () => {
+    const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+    for (const { id } of listTemplates()) {
+        const config = JSON.parse(readFileSync(new URL(`../templates/${id}/.devcontainer/devcontainer.json`, import.meta.url), 'utf8'));
+        assert.doesNotThrow(() => checkMinVersion(config, id, version), `${id}`);
+    }
+    // claude-containers relies on seccompAllow in the marker (0.7.0): older ones leave podman inside without sethostname.
+    const containers = JSON.parse(readFileSync(new URL('../templates/claude-containers/.devcontainer/devcontainer.json', import.meta.url), 'utf8'));
+    assert.equal(containers.customizations['podman-agent-sandbox'].minVersion, '0.7.0');
+});
+
+test('sandbox new refuses a template that needs a newer sandbox, and makes nothing', () => {
+    const root = demoRoot();
+    writeFileSync(join(root, 'demo', '.devcontainer', 'devcontainer.json'),
+        JSON.stringify({ name: 'x', customizations: { 'podman-agent-sandbox': { version: 1, minVersion: '99.0.0' } } }));
+    const dir = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/sandbox.js', import.meta.url)),
+        'new', 'box', '--template', join(root, 'demo')], { encoding: 'utf8', env: { ...process.env, SANDBOX_DIR: dir } });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /needs sandbox 99\.0\.0 or later, and this is \d+\.\d+\.\d+: update sandbox/);
+    assert.ok(!existsSync(join(dir, 'box')));
+});
 
 test('bundled templates include claude with its dot-folder', () => {
     const ids = listTemplates().map((t) => t.id);

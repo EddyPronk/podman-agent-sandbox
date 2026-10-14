@@ -75,7 +75,8 @@ test('export writes the config with the user\'s edits and without this machine\'
         assert.match(readFileSync(join(root, '.devcontainer', 'Containerfile'), 'utf8'), /astral-sh\/uv/, 'so is this one');
         assert.ok(config.mounts.includes('type=bind,source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,readonly'));
         assert.deepEqual(config.customizations['podman-agent-sandbox'],
-            { version: 1, policies: [], seccompAllow: ['sethostname', 'setdomainname'] });
+            { version: 1, minVersion: '0.7.0', policies: [], seccompAllow: ['sethostname', 'setdomainname'] },
+            'the template\'s marker goes along, minVersion included');
         assert.ok(!existsSync(join(root, '.devcontainer', 'seccomp.json')), 'generated, not committed');
         assert.ok(!config.runArgs.some((arg) => arg.startsWith('--security-opt=seccomp=')),
             'nor the runArg naming it: the Dev Containers CLI on its own can start the committed config');
