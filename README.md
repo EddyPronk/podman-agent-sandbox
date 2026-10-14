@@ -113,6 +113,7 @@ sandbox exec sandbox_with_claude git status         # run one command in it (sta
 sandbox help sandbox_with_claude                    # what this sandbox offers (from its template)
 sandbox inspect sandbox_with_claude                 # the podman run command that made it, and what it runs with
 sandbox list
+sandbox list --removed                              # sandboxes without a container, and the volumes they keep
 sandbox stop sandbox_with_claude
 sandbox rm sandbox_with_claude                      # removes the container; the home volume is kept
 sandbox build sandbox_with_claude [--no-cache]      # rebuild the image, showing the full log
@@ -154,6 +155,11 @@ Warnings follow, e.g. for a sandbox made before 0.5.2 that still has capabilitie
 `--workspace` whose hooks or config would be writable. It works on any container, e.g. one VS Code
 made, and says first whether it is a sandbox. Podman records the command line only for containers
 made with the `podman` command, not through its API socket (as VS Code does).
+
+After `sandbox rm`, the container is gone but its config folder and volumes stay: `sandbox inspect
+NAME` then shows what's left (the workspace, an `--inplace` config's trust, each volume with its
+size and how to remove it), and `sandbox list --removed` lists every such sandbox in
+`$SANDBOX_DIR`.
 
 ### Templates
 

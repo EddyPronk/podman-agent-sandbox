@@ -1,5 +1,7 @@
 // sandbox inspect: the podman command that created a sandbox, and what it runs with.
 // Pure functions over `podman container inspect` output; cli.js does the podman calls.
+import { basename } from 'node:path';
+import { resolveLocalEnv } from './inplace.js';
 
 const SAFE = /^[A-Za-z0-9_@%+=:,./-]+$/;
 
@@ -194,6 +196,42 @@ export function podmanStorageRows(storage, mounts = []) {
         : holder.Type === 'volume' ? `in volume ${holder.Name} (${storage.root}): sandbox rm keeps it`
             : `in host folder ${holder.Source} (${storage.root}): sandbox rm keeps it`;
     return [['podman inside', `${disk}${parts.join(', ')}`], ['', where]];
+}
+
+/**
+ * The named volumes that CONFIG (a devcontainer.json) mounts, for the sandbox whose config folder is
+ * FOLDER: ${localWorkspaceFolderBasename} and ${localEnv:…} (from ENV) filled in, as the Dev
+ * Containers CLI does. They outlive the container: `sandbox rm` keeps them.
+ */
+export function configVolumes(config, folder, env = {}) {
+    const names = [];
+    for (const mount of config.mounts ?? []) {
+        const fields = typeof mount === 'string' ? mountFields(mount) : mount ?? {};
+        const source = fields.source ?? fields.src;
+        if (fields.type !== 'volume' || !source) continue;
+        names.push(resolveLocalEnv(source.replaceAll('${localWorkspaceFolderBasename}', basename(folder)), env));
+    }
+    return [...new Set(names)];
+}
+
+/**
+ * `sandbox inspect` of a sandbox without a container (removed, or not created yet): rows about what
+ * is left. FOLDER: its config folder; SETTINGS: its sandbox.json or null; UNTRUSTED: how an --inplace
+ * project's config changed, or null; VOLUMES: [{ name, bytes }], bytes null when the volume doesn't
+ * exist (the next `sandbox enter` makes it).
+ */
+export function removedRows(folder, settings, untrusted, volumes) {
+    const rows = [['config', folder], ['workspace', settings?.workspace ?? `${folder} (the config folder itself)`]];
+    if (settings?.inplace) {
+        rows.push(['project config', `--inplace, trusted ${String(settings.configTree ?? '').slice(0, 7)}: `
+            + (untrusted ? `${untrusted}: enter refuses until sandbox trust` : 'unchanged since')]);
+    }
+    volumes.forEach(({ name, bytes }, i) => {
+        rows.push([i ? '' : 'volumes', bytes === null ? `${name}: doesn't exist (the next sandbox enter makes it)`
+            : `${name}: ${formatBytes(bytes)} on disk; podman volume rm ${name} removes it`]);
+    });
+    if (!volumes.length) rows.push(['volumes', 'none']);
+    return rows;
 }
 
 /** What an agent's answer means, for people. ATTACHED: another socket answers now. */

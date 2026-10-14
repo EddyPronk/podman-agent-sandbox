@@ -6,8 +6,8 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, formatBytes, formatCommand, optionValues, parsePodmanStorage, parseStatus,
-    parseVscodeProbe, podmanStorageRows, shellQuote, splitCommand,
+    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, configVolumes, formatBytes, formatCommand, optionValues, parsePodmanStorage,
+    parseStatus, parseVscodeProbe, podmanStorageRows, removedRows, shellQuote, splitCommand,
 } from '../src/inspect.js';
 
 // PODMAN_STORAGE_PROBE's output in agent-mitm-proxy's sandbox, with a proxy and a client inside (2026-10-14).
@@ -43,6 +43,35 @@ test('parsePodmanStorage and podmanStorageRows: how much podman keeps inside, an
     assert.match(podmanStorageRows(storage, [home, bind])[1][1], /in host folder \/srv\/store .*: sandbox rm keeps it/,
         'the innermost mount holds it');
     assert.equal(parsePodmanStorage('root /x\ndisk \n').disk, null, 'du failed: no figure');
+});
+
+test('configVolumes: the named volumes a config mounts, variables filled in as the CLI does', () => {
+    const config = {
+        mounts: [
+            'type=volume,source=${localWorkspaceFolderBasename}-home,target=/home/${localEnv:USER},U=true',
+            'type=bind,source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,readonly',
+            { type: 'volume', source: 'cache-${localEnv:CACHE:shared}', target: '/cache' },
+            'type=volume,src=box-home,target=/elsewhere',
+            'type=tmpfs,target=/tmp',
+        ],
+    };
+    assert.deepEqual(configVolumes(config, '/sb/box', { USER: 'u' }), ['box-home', 'cache-shared']);
+    assert.deepEqual(configVolumes({}, '/sb/box'), []);
+});
+
+test('removedRows: what is left without a container', () => {
+    const settings = { workspace: '/src/app', inplace: true, configTree: 'bd010288d452549c' };
+    assert.deepEqual(removedRows('/sb/app', settings, null, [{ name: 'app-home', bytes: 3_430_000_000 }, { name: 'x', bytes: null }]), [
+        ['config', '/sb/app'],
+        ['workspace', '/src/app'],
+        ['project config', '--inplace, trusted bd01028: unchanged since'],
+        ['volumes', 'app-home: 3.43 GB on disk; podman volume rm app-home removes it'],
+        ['', 'x: doesn\'t exist (the next sandbox enter makes it)'],
+    ]);
+    assert.deepEqual(removedRows('/sb/plain', null, null, []), [
+        ['config', '/sb/plain'], ['workspace', '/sb/plain (the config folder itself)'], ['volumes', 'none'],
+    ]);
+    assert.match(removedRows('/sb/app', settings, 'changed', [])[2][1], /changed: enter refuses until sandbox trust/);
 });
 
 test('PODMAN_STORAGE_PROBE exits 3 where there is no podman', () => {
