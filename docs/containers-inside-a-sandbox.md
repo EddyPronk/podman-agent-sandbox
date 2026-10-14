@@ -41,5 +41,8 @@ open as `claude`'s: only *inner* `proxy-client` sandboxes are behind a proxy.
   so does everything inside it: turn on lingering (`loginctl enable-linger`) on machines you use
   over SSH.
 - **Disk:** each level keeps its own images and volumes, inside the sandbox's home volume: a
-  `claude` sandbox inside is about 1.3 GB more. Clean up inside with `podman image prune` and
-  `sandbox rm`.
+  `claude` sandbox inside is about 1.3 GB more. `sandbox inspect` shows how much (`podman inside`:
+  on disk, images, containers, volumes, and how much is reclaimable). Clean up inside with
+  `podman image prune -a` and `sandbox rm`. **`sandbox rm` on the outer sandbox keeps all of it**,
+  since it's in the home volume: the next `sandbox enter` finds it again. To delete it, run
+  `podman system reset` inside first, or `podman volume rm NAME-home` afterwards (the whole home).

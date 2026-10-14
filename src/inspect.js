@@ -128,6 +128,74 @@ export function parseVscodeProbe(text) {
     return probe;
 }
 
+/**
+ * Podman inside a sandbox (claude-containers and the like): where its storage is, how much is on
+ * disk, and podman's own summary. Exit 3: no podman inside. `podman unshare du`: plain du can't read
+ * the files that inner containers' users own, and counts far too little.
+ */
+export const PODMAN_STORAGE_PROBE = `
+command -v podman >/dev/null 2>&1 || exit 3
+root=$(podman info --format '{{.Store.GraphRoot}}') || exit 1
+echo "root $root"
+echo "disk $(podman unshare du -sk "$root" 2>/dev/null | cut -f1)"
+podman system df --format '{{.Type}}|{{.Total}}|{{.RawSize}}|{{.RawReclaimable}}'
+`;
+
+/** PODMAN_STORAGE_PROBE's output → { root, disk (bytes or null), Images: { count, size, reclaimable }, ... }. */
+export function parsePodmanStorage(text) {
+    const storage = { root: '', disk: null };
+    for (const line of text.split('\n')) {
+        if (line.startsWith('root ')) storage.root = line.slice(5).trim();
+        else if (line.startsWith('disk ')) {
+            const kb = Number(line.slice(5).trim());
+            storage.disk = line.slice(5).trim() && Number.isFinite(kb) ? kb * 1024 : null;
+        } else {
+            const [type, count, size, reclaimable] = line.split('|');
+            if (count !== undefined) storage[type] = { count: Number(count), size: Number(size), reclaimable: Number(reclaimable) };
+        }
+    }
+    return storage;
+}
+
+/** BYTES as podman prints sizes: 1.55 GB, 29.8 kB. */
+export function formatBytes(bytes) {
+    const units = ['B', 'kB', 'MB', 'GB', 'TB'];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1000 && unit < units.length - 1) {
+        value /= 1000;
+        unit += 1;
+    }
+    if (!unit) return `${bytes} B`;
+    // Three significant digits, without trailing zeros after the point: 1.55 GB, 29.8 kB, 21 kB, 100 MB.
+    const digits = value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2);
+    return `${digits.includes('.') ? digits.replace(/\.?0+$/, '') : digits} ${units[unit]}`;
+}
+
+/**
+ * Rows for `sandbox inspect` about STORAGE (parsePodmanStorage), and where it lives among MOUNTS
+ * (podman inspect's Mounts): in a volume or host folder, `sandbox rm` keeps it; in the container
+ * itself, rm removes it.
+ */
+export function podmanStorageRows(storage, mounts = []) {
+    const part = (type, label) => {
+        const t = storage[type];
+        if (!t) return null;
+        const free = t.reclaimable ? `, ${formatBytes(t.reclaimable)} reclaimable` : '';
+        return `${label} ${formatBytes(t.size)} (${t.count}${free})`;
+    };
+    const parts = [part('Images', 'images'), part('Containers', 'containers'), part('Local Volumes', 'volumes')]
+        .filter(Boolean);
+    const disk = storage.disk === null ? '' : `${formatBytes(storage.disk)} on disk: `;
+    const holder = mounts
+        .filter((m) => storage.root === m.Destination || storage.root.startsWith(`${m.Destination}/`))
+        .sort((a, b) => b.Destination.length - a.Destination.length)[0];
+    const where = !holder ? `in the container itself (${storage.root}): sandbox rm removes it`
+        : holder.Type === 'volume' ? `in volume ${holder.Name} (${storage.root}): sandbox rm keeps it`
+            : `in host folder ${holder.Source} (${storage.root}): sandbox rm keeps it`;
+    return [['podman inside', `${disk}${parts.join(', ')}`], ['', where]];
+}
+
 /** What an agent's answer means, for people. ATTACHED: another socket answers now. */
 function agentState(agent, attached) {
     const keys = /^keys (\d+)$/.exec(agent);

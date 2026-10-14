@@ -14,7 +14,10 @@ import {
 } from './inplace.js';
 import { checkExportable, exportedConfig } from './export.js';
 import { SECCOMP_RUN_ARG } from './seccomp.js';
-import { VSCODE_PROBE, audit, formatCommand, parseStatus, parseVscodeProbe } from './inspect.js';
+import {
+    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, formatCommand, parsePodmanStorage, parseStatus, parseVscodeProbe,
+    podmanStorageRows,
+} from './inspect.js';
 import {
     applyTemplate, experimentalImage, listTemplates, parseOptionArgs, seccompAllow, TESTED_IMAGES, withImage,
 } from './templates.js';
@@ -627,12 +630,16 @@ function cmdInspect(args) {
     // Measured inside while it runs: what the processes in it actually have.
     let status = null;
     let vscode = null;
+    let storage = null;
     if (info.State?.Status === 'running') {
         const proc = podman(['exec', name, 'cat', '/proc/1/status']);
         if (proc.status === 0) status = parseStatus(proc.stdout);
         // What VS Code forwards when attached: not mounts, so only visible inside (inspect.js).
         const probe = podman(['exec', name, 'sh', '-c', VSCODE_PROBE]);
         if (probe.status === 0) vscode = parseVscodeProbe(probe.stdout);
+        // Podman inside (claude-containers and the like): its images may outlive the container.
+        const inner = podman(['exec', name, 'sh', '-c', PODMAN_STORAGE_PROBE]);
+        if (inner.status === 0) storage = parsePodmanStorage(inner.stdout);
     }
     const internal = {};
     const networks = Object.keys(info.NetworkSettings?.Networks ?? {});
@@ -659,7 +666,8 @@ function cmdInspect(args) {
     if (untrusted) report.warnings.unshift(`${untrusted}: enter, exec and build refuse until 'sandbox trust ${name}'`);
 
     console.log(`\n# What it runs with${status ? ' (capabilities, new privileges, seccomp: measured inside)' : ''}:`);
-    const rows = [...report.rows, ...report.mounts.map((text, i) => [i ? '' : 'mounts', text])];
+    const rows = [...report.rows, ...report.mounts.map((text, i) => [i ? '' : 'mounts', text]),
+        ...(storage?.root ? podmanStorageRows(storage, info.Mounts ?? []) : [])];
     console.log(table(rows));
     if (report.warnings.length || report.notes.length) console.log('');
     for (const text of report.warnings) console.log(`warning: ${text}`);
@@ -734,9 +742,15 @@ function cmdStop(args) {
 
 function cmdRm(args) {
     const name = sandboxName(args, 'rm');
+    const volumes = podman(['container', 'inspect', '--format',
+        '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}', name]).stdout?.trim().split(/\s+/).filter(Boolean) ?? [];
     const result = podman(['rm', '-f', name]);
     if (result.status !== 0) throw new SandboxError(result.stderr.trim());
     console.log(`removed ${name}`);
+    for (const volume of volumes) {
+        console.log(`kept volume ${volume}, with what's in it (e.g. the home, podman's images inside): `
+            + `podman volume rm ${volume} removes it`);
+    }
     let settings = null;
     try {
         settings = readSettings(folderOf(name));
