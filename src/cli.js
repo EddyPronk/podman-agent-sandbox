@@ -245,11 +245,17 @@ function alreadyExists(dest, name) {
     }
     const sandbox = Boolean(settings) || hasConfig(dest);
     const what = settings ? `a sandbox around ${settings.workspace}, ${settings.inplace ? 'made with --inplace' : 'made from a template'}`
-        : sandbox ? 'a sandbox made from a template' : 'a folder, not a sandbox';
+        : sandbox ? 'a sandbox made from a template, and its workspace' : 'a folder, not a sandbox';
+    const rm = `sandbox rm ${name} (if it has a container), then`;
+    // Suggest rm -r only for a folder that holds nothing but config. A sandbox made without
+    // --workspace keeps its work in this folder, and a folder that isn't a sandbox is someone's.
+    const again = settings ? `${rm} rm -r ${dest} (only its config: ${settings.workspace} stays), then this command`
+        : sandbox ? `${rm} move the folder aside, with the work in it (mv ${dest} ${dest}.old), then this command`
+            : `move the folder out of ${sandboxDir()} (sandbox leaves folders it didn't make alone), then this command`;
     return new SandboxError([
         `${dest} already exists (${what}).`,
         ...(sandbox ? [`  To use it:            sandbox enter ${name}`] : []),
-        `  To make it again:     ${sandbox ? `sandbox rm ${name} (if it has a container), then ` : ''}rm -r ${dest}, then this command`,
+        `  ${sandbox ? 'To make it again:   ' : 'To use this NAME:   '}  ${again}`,
         '  To make another one:  give it another NAME: sandbox new OTHER-NAME ...',
     ].join('\n'));
 }
@@ -285,14 +291,16 @@ function newInplace(name, dest, workspace, values) {
         if (!template && !firstTrust(name, config, staged, values.yes)) {
             throw new SandboxError(`not trusted: ${dest} wasn't made`);
         }
-        mkdirSync(dest, { recursive: true });
         try {
+            mkdirSync(dest, { recursive: true });
             keepTrusted(dest, staged.root);
             const settings = { workspace, hide: plan.hide, readonly: plan.readonly, inplace: true, configTree: staged.id };
             writeSettings(dest, settings);
             writeEffective(dest, settings);
         } catch (err) {
             rmSync(dest, { recursive: true, force: true });
+            // The template's .devcontainer too: written by this command (there was none before).
+            if (template) rmSync(config, { recursive: true, force: true });
             throw err;
         }
     } finally {
@@ -326,8 +334,14 @@ function writeTemplateInto(spec, workspace, given) {
             config.runArgs = (config.runArgs ?? []).filter((arg) => arg !== SECCOMP_RUN_ARG);
             writeFileSync(configFile(copy), `${JSON.stringify(config, null, 2)}\n`);
         }
-        cpSync(join(copy, '.devcontainer'), join(workspace, '.devcontainer'),
-            { recursive: true, filter: (path) => path !== generated });
+        try {
+            cpSync(join(copy, '.devcontainer'), join(workspace, '.devcontainer'),
+                { recursive: true, filter: (path) => path !== generated });
+        } catch (err) {
+            // A partial copy (disk full, permissions): not left in the project, which had none.
+            rmSync(join(workspace, '.devcontainer'), { recursive: true, force: true });
+            throw err;
+        }
         const left = readdirSync(copy).filter((entry) => entry !== '.devcontainer');
         if (left.length) console.log(`not written into the project (the template has them outside .devcontainer): ${left.join(', ')}`);
         return template;
@@ -589,23 +603,37 @@ function cmdExport(args) {
     const source = join(dir, '.devcontainer');
     const target = join(settings.workspace, '.devcontainer');
     const skipped = skip.map((file) => join(source, file));
-    cpSync(source, target, { recursive: true, verbatimSymlinks: true, filter: (path) => !skipped.includes(path) });
-    writeFileSync(join(target, 'devcontainer.json'), `${JSON.stringify(config, null, 2)}\n`);
-    let staged;
+    // All or nothing: writeEffective removes the config folder's .devcontainer (the config with the
+    // user's edits) before it rebuilds it, and can fail after that (a .git file added to the project).
+    // So keep a copy, and on any failure put it back and remove what was written: the project had no
+    // .devcontainer before (checkExportable), nor the config folder a trusted copy (not --inplace).
+    const backup = mkdtempSync(join(tmpdir(), 'sandbox-export-'));
+    cpSync(source, join(backup, '.devcontainer'), { recursive: true, verbatimSymlinks: true });
+    cpSync(join(dir, SETTINGS), join(backup, SETTINGS));
+    let staged = null;
     try {
+        cpSync(source, target, { recursive: true, verbatimSymlinks: true, filter: (path) => !skipped.includes(path) });
+        writeFileSync(join(target, 'devcontainer.json'), `${JSON.stringify(config, null, 2)}\n`);
         staged = stageConfig(settings.workspace);
-    } catch (err) {
-        rmSync(target, { recursive: true, force: true });
-        throw new SandboxError(`${name}'s config can't be used as a project config, so nothing was written: ${err.message}`);
-    }
-    try {
         keepTrusted(dir, staged.root);
         const updated = { ...settings, inplace: true, configTree: staged.id };
         writeSettings(dir, updated);
         writeEffective(dir, updated);
+    } catch (err) {
+        try {
+            for (const path of [target, join(dir, TRUSTED), source]) rmSync(path, { recursive: true, force: true });
+            cpSync(join(backup, '.devcontainer'), source, { recursive: true, verbatimSymlinks: true });
+            cpSync(join(backup, SETTINGS), join(dir, SETTINGS));
+        } catch (restoreErr) {
+            throw new SandboxError(`export failed (${err.message}), and so did putting things back (${restoreErr.message}): `
+                + `${name}'s config and sandbox.json as they were are in ${backup}`);
+        }
+        rmSync(backup, { recursive: true, force: true });
+        throw new SandboxError(`export failed, so nothing changed (${name} and ${target} are as they were): ${err.message}`);
     } finally {
-        rmSync(staged.root, { recursive: true, force: true });
+        if (staged) rmSync(staged.root, { recursive: true, force: true });
     }
+    rmSync(backup, { recursive: true, force: true });
     console.log(`wrote ${target} (${short(staged.id)}): ${name}'s config, with your edits, without this machine's settings`);
     for (const what of removed) console.log(`  left out: ${what}`);
     if (leftovers.length) {

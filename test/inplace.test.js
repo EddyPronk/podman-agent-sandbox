@@ -277,6 +277,23 @@ test('new --inplace --template writes the template into the project, with the ma
         assert.match(client.stderr, /warning: pc can read files whose names suggest secrets:\n {2}\.env\n/);
     });
 
+test('new --inplace --template that fails after writing the template takes it out of the project again',
+    { skip: noGit }, () => {
+        const sandboxes = tempDir();
+        const root = tempDir();
+        chmodSync(sandboxes, 0o555);   // the config folder can't be made
+        try {
+            const failed = sandbox(['new', 'p', '--workspace', root, '--inplace', '--template', 'offline'], sandboxes);
+            assert.notEqual(failed.status, 0);
+            assert.match(failed.stderr, /EACCES|permission denied/i);
+            assert.ok(!existsSync(join(root, '.devcontainer')), 'no template left in the project');
+        } finally {
+            chmodSync(sandboxes, 0o755);
+        }
+        const again = sandbox(['new', 'p', '--workspace', root, '--inplace', '--template', 'offline'], sandboxes);
+        assert.equal(again.status, 0, again.stderr);
+    });
+
 test('new --inplace refuses --hide of the project\'s .devcontainer; new without --template hints at --inplace',
     { skip: noGit }, () => {
         const dir = tempDir();

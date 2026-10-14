@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -123,6 +123,34 @@ test('export warns about paths of this machine it can\'t take out', { skip: noGi
     const exported = sandbox(['export', 'p'], dir);
     assert.equal(exported.status, 0, exported.stderr);
     assert.match(exported.stderr, new RegExp(`still names paths of this machine.*\\n.*${root}/data`));
+});
+
+test('export that fails after it started writing puts everything back', { skip: noGit }, () => {
+    // writeEffective removes the config folder's .devcontainer, then walks the project for git repos:
+    // a .git file (worktree, submodule) added since sandbox new makes it throw after that removal.
+    const dir = tempDir();
+    const root = project();
+    assert.equal(sandbox(['new', 'p', '--template', 'claude', '--workspace', root], dir).status, 0);
+    const file = join(dir, 'p', '.devcontainer', 'devcontainer.json');
+    const config = json(file);
+    config.containerEnv.MY_EDIT = '1';
+    writeFileSync(file, JSON.stringify(config, null, 2));
+    const before = { config: readFileSync(file, 'utf8'), settings: readFileSync(join(dir, 'p', 'sandbox.json'), 'utf8') };
+    mkdirSync(join(root, 'sub'));
+    writeFileSync(join(root, 'sub', '.git'), 'gitdir: /elsewhere\n');
+
+    const failed = sandbox(['export', 'p'], dir);
+    assert.notEqual(failed.status, 0);
+    assert.match(failed.stderr, /export failed, so nothing changed .*: .*sub\/\.git is a file/);
+    assert.ok(!existsSync(join(root, '.devcontainer')), 'the project is as it was');
+    assert.equal(readFileSync(file, 'utf8'), before.config, 'the config with the user\'s edit is back');
+    assert.equal(readFileSync(join(dir, 'p', 'sandbox.json'), 'utf8'), before.settings, 'still not --inplace');
+    assert.ok(!existsSync(join(dir, 'p', 'trusted')));
+
+    rmSync(join(root, 'sub'), { recursive: true });
+    const again = sandbox(['export', 'p'], dir);
+    assert.equal(again.status, 0, again.stderr);
+    assert.equal(json(join(root, '.devcontainer', 'devcontainer.json')).containerEnv.MY_EDIT, '1');
 });
 
 test('export refuses a sandbox without --workspace, and a project that has a .devcontainer', { skip: noGit }, () => {
