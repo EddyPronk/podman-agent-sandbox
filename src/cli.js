@@ -14,7 +14,10 @@ import {
 } from './inplace.js';
 import { checkExportable, exportedConfig } from './export.js';
 import { SECCOMP_RUN_ARG } from './seccomp.js';
-import { VSCODE_PROBE, audit, formatCommand, parseStatus, parseVscodeProbe } from './inspect.js';
+import {
+    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, configVolumes, formatBytes, formatCommand, parsePodmanStorage, parseStatus,
+    parseVscodeProbe, podmanStorageRows, removedRows,
+} from './inspect.js';
 import {
     applyTemplate, experimentalImage, listTemplates, parseOptionArgs, seccompAllow, TESTED_IMAGES, withImage,
 } from './templates.js';
@@ -69,8 +72,12 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        template), e.g. sandbox help mitm-proxy
   sandbox inspect NAME the podman command that created NAME's container, as a
                        command line, and what it runs with: user, capabilities,
-                       new privileges, seccomp, network, mounts; with warnings
-  sandbox list         list dev containers
+                       new privileges, seccomp, network, mounts; with warnings.
+                       Without a container (after sandbox rm): what's left, its
+                       config and the volumes it keeps, with their size
+  sandbox list [--removed]
+                       list dev containers; --removed: sandboxes in
+                       $SANDBOX_DIR without a container, and their kept volumes
   sandbox stop [--force] NAME
                        stop NAME; --force also stops a container sandbox
                        didn't make
@@ -608,7 +615,13 @@ function cmdInspect(args) {
     const name = oneName(args, 'sandbox inspect NAME');
     const result = podman(['container', 'inspect', name]);
     if (result.status !== 0) {
-        throw new SandboxError(`no container '${name}' (sandbox enter ${name} creates it from its config)`);
+        const folder = join(sandboxDir(), name);
+        if (!hasConfig(folder)) throw new SandboxError(`no container '${name}', and no sandbox config in ${folder}`);
+        // Removed with sandbox rm, or not created yet: what's left of it.
+        console.log(`# ${name} has no container (removed, or not created yet); sandbox enter ${name} creates it`
+            + ' from its config.');
+        console.log(table(removedSandbox(folder).rows));
+        return;
     }
     const [info] = JSON.parse(result.stdout);
     const labels = info.Config?.Labels ?? {};
@@ -627,12 +640,16 @@ function cmdInspect(args) {
     // Measured inside while it runs: what the processes in it actually have.
     let status = null;
     let vscode = null;
+    let storage = null;
     if (info.State?.Status === 'running') {
         const proc = podman(['exec', name, 'cat', '/proc/1/status']);
         if (proc.status === 0) status = parseStatus(proc.stdout);
         // What VS Code forwards when attached: not mounts, so only visible inside (inspect.js).
         const probe = podman(['exec', name, 'sh', '-c', VSCODE_PROBE]);
         if (probe.status === 0) vscode = parseVscodeProbe(probe.stdout);
+        // Podman inside (claude-containers and the like): its images may outlive the container.
+        const inner = podman(['exec', name, 'sh', '-c', PODMAN_STORAGE_PROBE]);
+        if (inner.status === 0) storage = parsePodmanStorage(inner.stdout);
     }
     const internal = {};
     const networks = Object.keys(info.NetworkSettings?.Networks ?? {});
@@ -659,7 +676,8 @@ function cmdInspect(args) {
     if (untrusted) report.warnings.unshift(`${untrusted}: enter, exec and build refuse until 'sandbox trust ${name}'`);
 
     console.log(`\n# What it runs with${status ? ' (capabilities, new privileges, seccomp: measured inside)' : ''}:`);
-    const rows = [...report.rows, ...report.mounts.map((text, i) => [i ? '' : 'mounts', text])];
+    const rows = [...report.rows, ...report.mounts.map((text, i) => [i ? '' : 'mounts', text]),
+        ...(storage?.root ? podmanStorageRows(storage, info.Mounts ?? []) : [])];
     console.log(table(rows));
     if (report.warnings.length || report.notes.length) console.log('');
     for (const text of report.warnings) console.log(`warning: ${text}`);
@@ -698,13 +716,62 @@ export function writableConfig(info, folder, exists = existsSync) {
 }
 
 function cmdList(args) {
-    if (args.length) throw new SandboxError('usage: sandbox list');
+    const { values } = parseArgs({ args, options: { removed: { type: 'boolean' } } });
+    if (values.removed) return listRemoved();
     const result = podman(['ps', '-a', '--filter', 'label=devcontainer.local_folder', '--format',
         '{{.Names}}\t{{.State}}\t{{.Networks}}\t{{.Label "devcontainer.local_folder"}}']);
     if (result.status !== 0) throw new SandboxError(result.stderr.trim());
     const rows = [['NAME', 'STATE', 'NETWORK', 'FOLDER'],
         ...result.stdout.split('\n').filter(Boolean).map((line) => line.split('\t'))];
     console.log(table(rows));
+}
+
+/**
+ * sandbox list --removed: config folders in $SANDBOX_DIR that no container uses (removed with
+ * sandbox rm, or never entered), with the volumes they keep. Sandboxes whose config folder is
+ * elsewhere can't be found once their container is gone.
+ */
+function listRemoved() {
+    const result = podman(['ps', '-a', '--format', '{{.Label "devcontainer.local_folder"}}']);
+    if (result.status !== 0) throw new SandboxError(result.stderr.trim());
+    const used = new Set(result.stdout.split('\n').filter(Boolean));
+    const dir = sandboxDir();
+    const folders = existsSync(dir) ? readdirSync(dir, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && hasConfig(join(dir, e.name)) && !used.has(join(dir, e.name)))
+        .map((e) => join(dir, e.name)).sort() : [];
+    const rows = [['NAME', 'WORKSPACE', 'KEPT VOLUMES']];
+    for (const folder of folders) {
+        const { settings, volumes } = removedSandbox(folder);
+        const kept = volumes.filter((v) => v.bytes !== null).map((v) => `${v.name} (${formatBytes(v.bytes)})`);
+        rows.push([basename(folder), settings?.workspace ?? folder, kept.join(', ') || 'none']);
+    }
+    console.log(rows.length > 1 ? table(rows) : `no removed sandboxes in ${dir}`);
+}
+
+/** What's left of the sandbox in config folder FOLDER without its container: { settings, volumes, rows }. */
+function removedSandbox(folder) {
+    let settings = null;
+    let volumes = [];
+    try {
+        settings = readSettings(folder);
+        volumes = configVolumes(readConfig(configFile(folder)), folder, childEnv()).map((name) => ({ name, bytes: volumeBytes(name) }));
+    } catch {
+        // an unreadable sandbox.json or config: show what there is
+    }
+    const untrusted = settings?.inplace ? untrustedChange(folder) : null;
+    return { settings, volumes, rows: removedRows(folder, settings, untrusted, volumes) };
+}
+
+/**
+ * Bytes on disk in volume NAME, or null when it doesn't exist. `podman unshare du`: in a sandbox's
+ * home volume, files of containers inside are owned by subordinate IDs that a plain du can't read.
+ */
+function volumeBytes(name) {
+    const mountpoint = podman(['volume', 'inspect', '--format', '{{.Mountpoint}}', name]);
+    if (mountpoint.status !== 0) return null;
+    const du = podman(['unshare', 'du', '-sk', mountpoint.stdout.trim()]);
+    const kb = Number(du.stdout.split('\t')[0]);
+    return Number.isFinite(kb) && du.stdout ? kb * 1024 : 0;
 }
 
 /** NAME from `[--force] NAME`; refuses a container that isn't a sandbox unless --force. */
@@ -734,9 +801,15 @@ function cmdStop(args) {
 
 function cmdRm(args) {
     const name = sandboxName(args, 'rm');
+    const volumes = podman(['container', 'inspect', '--format',
+        '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}', name]).stdout?.trim().split(/\s+/).filter(Boolean) ?? [];
     const result = podman(['rm', '-f', name]);
     if (result.status !== 0) throw new SandboxError(result.stderr.trim());
     console.log(`removed ${name}`);
+    for (const volume of volumes) {
+        console.log(`kept volume ${volume}, with what's in it (e.g. the home, podman's images inside): `
+            + `podman volume rm ${volume} removes it`);
+    }
     let settings = null;
     try {
         settings = readSettings(folderOf(name));

@@ -6,8 +6,78 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-    VSCODE_PROBE, audit, formatCommand, optionValues, parseStatus, parseVscodeProbe, shellQuote, splitCommand,
+    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, configVolumes, formatBytes, formatCommand, optionValues, parsePodmanStorage,
+    parseStatus, parseVscodeProbe, podmanStorageRows, removedRows, shellQuote, splitCommand,
 } from '../src/inspect.js';
+
+// PODMAN_STORAGE_PROBE's output in agent-mitm-proxy's sandbox, with a proxy and a client inside (2026-10-14).
+const STORAGE_OUTPUT = `root /home/u/.local/share/containers/storage
+disk 3349104
+Images|37|1549842647|1091525051
+Containers|2|29774|0
+Local Volumes|3|21042|0
+`;
+
+test('formatBytes: three significant digits, as podman prints sizes', () => {
+    assert.equal(formatBytes(512), '512 B');
+    assert.equal(formatBytes(1549842647), '1.55 GB');
+    assert.equal(formatBytes(29774), '29.8 kB');
+    assert.equal(formatBytes(21042), '21 kB');
+    assert.equal(formatBytes(100_000_000), '100 MB');
+    assert.equal(formatBytes(1_500_000), '1.5 MB');
+});
+
+test('parsePodmanStorage and podmanStorageRows: how much podman keeps inside, and whether rm keeps it', () => {
+    const storage = parsePodmanStorage(STORAGE_OUTPUT);
+    assert.equal(storage.root, '/home/u/.local/share/containers/storage');
+    assert.equal(storage.disk, 3349104 * 1024);
+    assert.deepEqual(storage.Images, { count: 37, size: 1549842647, reclaimable: 1091525051 });
+    const home = { Type: 'volume', Name: 'box-home', Source: '/v/box-home/_data', Destination: '/home/u' };
+    const work = { Type: 'bind', Source: '/src/app', Destination: '/home/u/app' };
+    assert.deepEqual(podmanStorageRows(storage, [work, home]), [
+        ['podman inside', '3.43 GB on disk: images 1.55 GB (37, 1.09 GB reclaimable), containers 29.8 kB (2), volumes 21 kB (3)'],
+        ['', 'in volume box-home (/home/u/.local/share/containers/storage): sandbox rm keeps it'],
+    ]);
+    assert.match(podmanStorageRows(storage, [work])[1][1], /in the container itself .*: sandbox rm removes it/);
+    const bind = { Type: 'bind', Source: '/srv/store', Destination: '/home/u/.local/share/containers' };
+    assert.match(podmanStorageRows(storage, [home, bind])[1][1], /in host folder \/srv\/store .*: sandbox rm keeps it/,
+        'the innermost mount holds it');
+    assert.equal(parsePodmanStorage('root /x\ndisk \n').disk, null, 'du failed: no figure');
+});
+
+test('configVolumes: the named volumes a config mounts, variables filled in as the CLI does', () => {
+    const config = {
+        mounts: [
+            'type=volume,source=${localWorkspaceFolderBasename}-home,target=/home/${localEnv:USER},U=true',
+            'type=bind,source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,readonly',
+            { type: 'volume', source: 'cache-${localEnv:CACHE:shared}', target: '/cache' },
+            'type=volume,src=box-home,target=/elsewhere',
+            'type=tmpfs,target=/tmp',
+        ],
+    };
+    assert.deepEqual(configVolumes(config, '/sb/box', { USER: 'u' }), ['box-home', 'cache-shared']);
+    assert.deepEqual(configVolumes({}, '/sb/box'), []);
+});
+
+test('removedRows: what is left without a container', () => {
+    const settings = { workspace: '/src/app', inplace: true, configTree: 'bd010288d452549c' };
+    assert.deepEqual(removedRows('/sb/app', settings, null, [{ name: 'app-home', bytes: 3_430_000_000 }, { name: 'x', bytes: null }]), [
+        ['config', '/sb/app'],
+        ['workspace', '/src/app'],
+        ['project config', '--inplace, trusted bd01028: unchanged since'],
+        ['volumes', 'app-home: 3.43 GB on disk; podman volume rm app-home removes it'],
+        ['', 'x: doesn\'t exist (the next sandbox enter makes it)'],
+    ]);
+    assert.deepEqual(removedRows('/sb/plain', null, null, []), [
+        ['config', '/sb/plain'], ['workspace', '/sb/plain (the config folder itself)'], ['volumes', 'none'],
+    ]);
+    assert.match(removedRows('/sb/app', settings, 'changed', [])[2][1], /changed: enter refuses until sandbox trust/);
+});
+
+test('PODMAN_STORAGE_PROBE exits 3 where there is no podman', () => {
+    const result = spawnSync('/bin/sh', ['-c', PODMAN_STORAGE_PROBE], { env: { PATH: '/nonexistent' } });
+    assert.equal(result.status, 3);
+});
 
 // As the Dev Containers CLI makes a sandbox: the image without localhost/ and :latest, a boolean
 // flag (--init) right before it, and a multi-line script after it.
