@@ -22,8 +22,8 @@ import {
     applyTemplate, experimentalImage, listTemplates, parseOptionArgs, seccompAllow, TESTED_IMAGES, withImage,
 } from './templates.js';
 import {
-    SETTINGS, applyWorkspace, configFile, defaultName, findGitDirs, findSecretFiles, readConfig, readSettings, realConfigDir, resolveWorkspace,
-    uncoveredInSandbox, workspaceMounts, workspacePath, writeSettings,
+    SETTINGS, applyWorkspace, configFile, defaultName, findGitDirs, findSecretFiles, isInside, readConfig, readSettings, realConfigDir,
+    resolveWorkspace, uncoveredInSandbox, workspaceMounts, workspacePath, writeSettings,
 } from './workspace.js';
 
 const USAGE = `\
@@ -179,6 +179,10 @@ function cmdNew(args) {
     }
     const name = checkName(positionals[0] ?? defaultName(workspace));
     const dest = join(sandboxDir(), name);
+    // Before alreadyExists: its "rm -r" advice would delete the project.
+    if (workspace && isInside(workspace, realConfigDir(dest))) {
+        throw projectAsConfigFolder(realConfigDir(dest), name, workspace, positionals[0]);
+    }
     if (existsSync(dest)) throw alreadyExists(dest, name);
     if (values.inplace) return newInplace(name, dest, workspace, values);
     // Check everything about the workspace before creating anything.
@@ -214,6 +218,21 @@ function warnImage(name, template, given) {
         console.error(`sandbox: warning: --image ${given.image} is experimental (tested: ${tested.join(' and ')}).`
             + ` After 'sandbox enter ${name}', run 'sandbox inspect ${name}': it may show warnings about weaknesses.`);
     }
+}
+
+/**
+ * The error for `sandbox new --workspace` when the config folder DEST ($SANDBOX_DIR/NAME) would be
+ * the project (WORKSPACE) or a folder around it: NAME defaults to the project folder's name, so a
+ * project kept in $SANDBOX_DIR gets this. GIVEN: the NAME given, if any.
+ */
+function projectAsConfigFolder(dest, name, workspace, given) {
+    const what = dest === workspace ? 'which is your project itself' : `which contains your project (${workspace})`;
+    const why = given ? '' : ` (NAME defaults to the project folder's name, ${name})`;
+    return new SandboxError([
+        `the sandbox's config folder would be ${dest}, ${what}${why}.`,
+        `  Give the sandbox another NAME:  sandbox new ${name}-sandbox --workspace ${workspace} ...`,
+        `  Or keep the project outside ${sandboxDir()}: that folder holds the sandboxes' config folders.`,
+    ].join('\n'));
 }
 
 /** The error for `sandbox new` when $SANDBOX_DIR/NAME exists: what it is, and the ways out. */

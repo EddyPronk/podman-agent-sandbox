@@ -222,6 +222,27 @@ test('sandbox new --workspace warns about files that may hold secrets, unless hi
     assert.doesNotMatch(quiet.stderr, /secrets/);
 });
 
+test('sandbox new --workspace on a project in SANDBOX_DIR under its own name: says so, never "rm -r" the project', () => {
+    const sandboxes = tempDir();
+    const root = join(sandboxes, 'foo');
+    mkdirSync(root);
+    gitRepo(root);
+    for (const extra of [[], ['--inplace']]) {
+        const result = sandbox(['new', '--template', 'offline', '--workspace', root, ...extra], { SANDBOX_DIR: sandboxes });
+        assert.notEqual(result.status, 0);
+        assert.match(result.stderr, new RegExp(`config folder would be ${root}, which is your project itself `
+            + '\\(NAME defaults to the project folder\'s name, foo\\)'));
+        assert.match(result.stderr, /sandbox new foo-sandbox --workspace /);
+        assert.doesNotMatch(result.stderr, /rm -r/);
+    }
+    mkdirSync(join(sandboxes, 'group', 'app'), { recursive: true });
+    const around = sandbox(['new', 'group', '--template', 'offline', '--workspace', join(sandboxes, 'group', 'app')],
+        { SANDBOX_DIR: sandboxes });
+    assert.match(around.stderr, /which contains your project/);
+    assert.ok(!existsSync(join(root, '.devcontainer')) && !existsSync(join(root, 'sandbox.json')), 'the project is untouched');
+    assert.equal(sandbox(['new', 'foo-box', '--template', 'offline', '--workspace', root], { SANDBOX_DIR: sandboxes }).status, 0);
+});
+
 test('realConfigDir resolves the part that exists', () => {
     const root = tempDir();
     symlinkSync(root, join(root, 'link'));
