@@ -1,25 +1,19 @@
 // sandbox — lxc-style front end for dev containers on rootless Podman.
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { constants, tmpdir } from 'node:os';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { checkConfigVersion, checkTrusted, ensureRunning } from './container.js';
+import { SandboxError, checkName, childEnv, cliPath, folderOf } from './devcontainer.js';
 import {
-    SANDBOX_LABEL, SandboxError, checkName, childEnv, cliPath, containerSandbox, containerState, dc, folderOf, hasConfig,
-    podman, sandboxDir, sandboxReason, unlabelledHint,
-} from './devcontainer.js';
-import {
-    TRUSTED, ask, configChange, keepTrusted, riskSummary, short, stageConfig, writeEffective, yes,
+    TRUSTED, ask, keepTrusted, riskSummary, short, stageConfig, writeEffective, yes,
 } from './inplace.js';
 import { checkExportable, exportedConfig } from './export.js';
-import {
-    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, configVolumes, formatBytes, formatCommand, parsePodmanStorage, parseStatus,
-    parseVscodeProbe, podmanStorageRows, removedRows, table,
-} from './inspect.js';
+import { table } from './inspect.js';
 import { cmdNew } from './new.js';
+import { listRemoved, listSandboxes, loadSandbox } from './sandbox.js';
 import { listTemplates } from './templates.js';
-import { SETTINGS, configFile, readConfig, readSettings, uncoveredInSandbox, writeSettings } from './workspace.js';
+import { SETTINGS, readSettings, writeSettings } from './workspace.js';
 
 const USAGE = `\
 sandbox — lxc-style front end for dev containers on rootless Podman.
@@ -139,11 +133,6 @@ function oneName(args, usage) {
     return checkName(args[0]);
 }
 
-/** A child's exit status the way a shell reports it. */
-function exitStatus(result) {
-    return result.status ?? 128 + (constants.signals[result.signal] ?? 0);
-}
-
 function cmdTemplates(args) {
     if (args.length) throw new SandboxError('usage: sandbox templates');
     for (const t of listTemplates()) {
@@ -160,26 +149,12 @@ function cmdTemplates(args) {
 function cmdBuild(args) {
     const [name, ...rest] = args;
     if (!name) throw new SandboxError('usage: sandbox build NAME [--no-cache]');
-    const dir = folderOf(name);
-    const inplace = checkTrusted(name, dir);
-    if (inplace) writeEffective(dir, inplace);
-    checkConfigVersion(dir);
-    const result = dc('build', ['--workspace-folder', dir, ...rest]);
-    if (result.status !== 0) return exitStatus(result);
-    if (containerState(name)) {
-        console.error(`sandbox: ${name} still runs the old image; use 'sandbox rm ${name}' then 'sandbox enter ${name}'`);
-    }
+    return loadSandbox(name).build(rest);
 }
 
 function cmdEnter(args) {
     const name = oneName(args, 'sandbox enter NAME');
-    const dir = folderOf(name);
-    ensureRunning(name, dir);
-    // Node can't exec() in place: run the shell as a child and pass on its status.
-    // Ignore Ctrl-C here so it only reaches the shell in the container.
-    process.on('SIGINT', () => {});
-    // "--" stops the CLI from parsing -l as its own option.
-    return exitStatus(dc('exec', ['--workspace-folder', dir, '--', 'bash', '-l']));
+    return loadSandbox(name, { lock: true }).enter();
 }
 
 /**
@@ -192,10 +167,7 @@ function cmdExec(args) {
     if (!name || name.startsWith('-') || cmd.length === 0) {
         throw new SandboxError('usage: sandbox exec NAME [--] COMMAND [ARG ...]');
     }
-    const dir = folderOf(checkName(name));
-    ensureRunning(name, dir);
-    process.on('SIGINT', () => {});
-    return exitStatus(dc('exec', ['--workspace-folder', dir, '--', ...cmd]));
+    return loadSandbox(name, { lock: true }).exec(cmd);
 }
 
 /** sandbox help NAME: what helpText says for it. Works while the sandbox is stopped. */
@@ -234,7 +206,8 @@ export function helpText(name, dir) {
 function cmdTrust(args) {
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { yes: { type: 'boolean', short: 'y' } } });
     const name = oneName(positionals, 'sandbox trust NAME [--yes]');
-    const dir = folderOf(name);
+    const sandbox = loadSandbox(name);
+    const dir = sandbox.dir;
     const settings = readSettings(dir);
     if (!settings?.inplace) {
         throw new SandboxError(`${name} wasn't made with --inplace: its config is ${join(dir, '.devcontainer')}, `
@@ -271,7 +244,7 @@ function cmdTrust(args) {
         rmSync(staged.root, { recursive: true, force: true });
     }
     console.log(`${name}: now uses the project's config ${short(staged.id)}`);
-    if (containerState(name)) {
+    if (sandbox.made()) {
         console.error(`sandbox: ${name}'s container still runs with the old config; use 'sandbox rm ${name}' then 'sandbox enter ${name}'`);
     }
     return 0;
@@ -283,7 +256,8 @@ function cmdTrust(args) {
  */
 function cmdExport(args) {
     const name = oneName(args, 'sandbox export NAME');
-    const dir = folderOf(name);
+    const sandbox = loadSandbox(name);
+    const dir = sandbox.dir;
     const settings = readSettings(dir);
     checkExportable(name, dir, settings);
     const { config, skip, removed, leftovers } = exportedConfig(dir, settings);
@@ -328,7 +302,7 @@ function cmdExport(args) {
             + leftovers.map((line) => `  ${line}\n`).join(''));
     }
     console.log(`${name} now uses the project's config, as if made with --inplace: a change there needs 'sandbox trust ${name}'.`);
-    if (containerState(name)) {
+    if (sandbox.made()) {
         console.error(`sandbox: warning: ${name}'s container predates ${target}, which is writable inside it until `
             + `you make it again: sandbox rm ${name}, then sandbox enter ${name}`);
     }
@@ -339,208 +313,26 @@ function cmdExport(args) {
 
 function cmdInspect(args) {
     const name = oneName(args, 'sandbox inspect NAME');
-    const result = podman(['container', 'inspect', name]);
-    if (result.status !== 0) {
-        const folder = join(sandboxDir(), name);
-        if (!hasConfig(folder)) throw new SandboxError(`no container '${name}', and no sandbox config in ${folder}`);
-        // Removed with sandbox rm, or not created yet: what's left of it.
-        console.log(`# ${name} has no container (removed, or not created yet); sandbox enter ${name} creates it`
-            + ' from its config.');
-        console.log(table(removedSandbox(folder).rows));
-        return;
-    }
-    const [info] = JSON.parse(result.stdout);
-    const labels = info.Config?.Labels ?? {};
-    const reason = sandboxReason({ label: labels[SANDBOX_LABEL] });
-    const hint = reason ? '' : unlabelledHint({ folder: labels['devcontainer.local_folder'] });
-    console.log(reason ? `# ${name} is a sandbox (${reason}).`
-        : hint ? `# ${name} is not a sandbox: no ${SANDBOX_LABEL} label, though ${hint} (a sandbox made before 0.6.0,`
-            + ' or another tool\'s container?).'
-            : `# ${name} is not a sandbox: no ${SANDBOX_LABEL} label (VS Code's, or your own?).`);
-    const command = info.Config?.CreateCommand ?? [];
-    console.log(`\n# The command that created ${name} (podman recorded it):`);
-    console.log(command.length ? formatCommand(command, info.ImageName ?? '')
-        : '# (none: podman records it only for the podman command, not for containers made through its API\n'
-        + '# socket, as VS Code and other Docker clients do)');
-
-    // Measured inside while it runs: what the processes in it actually have.
-    let status = null;
-    let vscode = null;
-    let storage = null;
-    if (info.State?.Status === 'running') {
-        const proc = podman(['exec', name, 'cat', '/proc/1/status']);
-        if (proc.status === 0) status = parseStatus(proc.stdout);
-        // What VS Code forwards when attached: not mounts, so only visible inside (inspect.js).
-        const probe = podman(['exec', name, 'sh', '-c', VSCODE_PROBE]);
-        if (probe.status === 0) vscode = parseVscodeProbe(probe.stdout);
-        // Podman inside (claude-containers and the like): its images may outlive the container.
-        const inner = podman(['exec', name, 'sh', '-c', PODMAN_STORAGE_PROBE]);
-        if (inner.status === 0) storage = parsePodmanStorage(inner.stdout);
-    }
-    const internal = {};
-    const networks = Object.keys(info.NetworkSettings?.Networks ?? {});
-    if (networks.length) {
-        const nets = podman(['network', 'inspect', '--format', '{{.Name}} {{.Internal}}', ...networks]);
-        for (const line of nets.stdout.split('\n').filter(Boolean)) {
-            const [net, isInternal] = line.split(' ');
-            internal[net] = isInternal === 'true';
-        }
-    }
-    let uncovered = [];
-    const folder = info.Config?.Labels?.['devcontainer.local_folder'];
-    const configWritable = reason ? writableConfig(info, folder) : null;
-    if (folder) {
-        const readonly = (info.Mounts ?? []).filter((m) => !m.RW).map((m) => m.Destination);
-        try {
-            uncovered = uncoveredInSandbox(folder, readonly);
-        } catch {
-            // the config folder is gone: nothing to compare with
-        }
-    }
-    const report = audit(info, { status, internal, uncovered, sandbox: Boolean(reason), vscode, configWritable });
-    const untrusted = folder ? untrustedChange(folder) : null;
-    if (untrusted) report.warnings.unshift(`${untrusted}: enter, exec and build refuse until 'sandbox trust ${name}'`);
-
-    console.log(`\n# What it runs with${status ? ' (capabilities, new privileges, seccomp: measured inside)' : ''}:`);
-    const rows = [...report.rows, ...report.mounts.map((text, i) => [i ? '' : 'mounts', text]),
-        ...(storage?.root ? podmanStorageRows(storage, info.Mounts ?? []) : [])];
-    console.log(table(rows));
-    if (report.warnings.length || report.notes.length) console.log('');
-    for (const text of report.warnings) console.log(`warning: ${text}`);
-    for (const text of report.notes) console.log(`note: ${text}`);
-}
-
-/** For an --inplace sandbox in FOLDER: how its project's config differs from the trusted one, or null. */
-function untrustedChange(folder) {
-    let settings;
-    try {
-        settings = readSettings(folder);
-    } catch {
-        return null;
-    }
-    if (!settings?.inplace) return null;
-    const change = configChange(folder, settings);
-    if (!change) return null;
-    const config = join(settings.workspace, '.devcontainer');
-    return change.now
-        ? `the project's config changed since it was trusted (${short(change.trusted)} -> ${short(change.now)}; ${change.diff.join(' ')})`
-        : `the project's config ${config} is gone`;
-}
-
-/**
- * Where a sandbox made without --workspace has its own .devcontainer writable inside: its folder is
- * bind-mounted read-write (the workspace) and nothing read-only covers FOLDER/.devcontainer. Null when
- * protected, for --workspace sandboxes (their config stays outside), or when there's no such config.
- */
-export function writableConfig(info, folder, exists = existsSync) {
-    if (!folder || exists(join(folder, SETTINGS)) || !exists(join(folder, '.devcontainer'))) return null;
-    const mounts = (info.Mounts ?? []).filter((m) => m.Type === 'bind');
-    const workspace = mounts.find((m) => m.Source === folder && m.RW);
-    if (!workspace) return null;
-    const config = join(folder, '.devcontainer');
-    return mounts.some((m) => m.Source === config && !m.RW) ? null : join(workspace.Destination, '.devcontainer');
+    console.log(loadSandbox(name).describe());
 }
 
 function cmdList(args) {
     const { values } = parseArgs({ args, options: { removed: { type: 'boolean' } } });
-    if (values.removed) return listRemoved();
-    const result = podman(['ps', '-a', '--filter', 'label=devcontainer.local_folder', '--format',
-        '{{.Names}}\t{{.State}}\t{{.Networks}}\t{{.Label "devcontainer.local_folder"}}']);
-    if (result.status !== 0) throw new SandboxError(result.stderr.trim());
-    const rows = [['NAME', 'STATE', 'NETWORK', 'FOLDER'],
-        ...result.stdout.split('\n').filter(Boolean).map((line) => line.split('\t'))];
-    console.log(table(rows));
+    console.log(values.removed ? listRemoved() : listSandboxes());
 }
 
-/**
- * sandbox list --removed: config folders in $SANDBOX_DIR that no container uses (removed with
- * sandbox rm, or never entered), with the volumes they keep. Sandboxes whose config folder is
- * elsewhere can't be found once their container is gone.
- */
-function listRemoved() {
-    const result = podman(['ps', '-a', '--format', '{{.Label "devcontainer.local_folder"}}']);
-    if (result.status !== 0) throw new SandboxError(result.stderr.trim());
-    const used = new Set(result.stdout.split('\n').filter(Boolean));
-    const dir = sandboxDir();
-    const folders = existsSync(dir) ? readdirSync(dir, { withFileTypes: true })
-        .filter((e) => e.isDirectory() && hasConfig(join(dir, e.name)) && !used.has(join(dir, e.name)))
-        .map((e) => join(dir, e.name)).sort() : [];
-    const rows = [['NAME', 'WORKSPACE', 'KEPT VOLUMES']];
-    for (const folder of folders) {
-        const { settings, volumes } = removedSandbox(folder);
-        const kept = volumes.filter((v) => v.bytes !== null).map((v) => `${v.name} (${formatBytes(v.bytes)})`);
-        rows.push([basename(folder), settings?.workspace ?? folder, kept.join(', ') || 'none']);
-    }
-    console.log(rows.length > 1 ? table(rows) : `no removed sandboxes in ${dir}`);
-}
-
-/** What's left of the sandbox in config folder FOLDER without its container: { settings, volumes, rows }. */
-function removedSandbox(folder) {
-    let settings = null;
-    let volumes = [];
-    try {
-        settings = readSettings(folder);
-        volumes = configVolumes(readConfig(configFile(folder)), folder, childEnv()).map((name) => ({ name, bytes: volumeBytes(name) }));
-    } catch {
-        // an unreadable sandbox.json or config: show what there is
-    }
-    const untrusted = settings?.inplace ? untrustedChange(folder) : null;
-    return { settings, volumes, rows: removedRows(folder, settings, untrusted, volumes) };
-}
-
-/**
- * Bytes on disk in volume NAME, or null when it doesn't exist. `podman unshare du`: in a sandbox's
- * home volume, files of containers inside are owned by subordinate IDs that a plain du can't read.
- */
-function volumeBytes(name) {
-    const mountpoint = podman(['volume', 'inspect', '--format', '{{.Mountpoint}}', name]);
-    if (mountpoint.status !== 0) return null;
-    const du = podman(['unshare', 'du', '-sk', mountpoint.stdout.trim()]);
-    const kb = Number(du.stdout.split('\t')[0]);
-    return Number.isFinite(kb) && du.stdout ? kb * 1024 : 0;
-}
-
-/** NAME from `[--force] NAME`; refuses a container that isn't a sandbox unless --force. */
-function sandboxName(args, sub) {
+/** NAME and the options of `sandbox SUB [--force] NAME`. */
+function forceAndName(args, sub) {
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { force: { type: 'boolean' } } });
-    const name = oneName(positionals, `sandbox ${sub} [--force] NAME`);
-    const found = values.force ? null : containerSandbox(name);
-    if (found && !found.reason) {
-        const why = found.hint
-            ? `${found.hint[0].toUpperCase()}${found.hint.slice(1)}, so it may be a sandbox made before 0.6.0, `
-                + 'or a container another tool (VS Code) made there.'
-            : 'It may be VS Code\'s or your own.';
-        throw new SandboxError(`${name} isn't a sandbox: it has no ${SANDBOX_LABEL} label. ${why}\n`
-            + `Check it with sandbox inspect ${name}. To ${sub} it anyway: sandbox ${sub} --force ${name} `
-            + `(or podman ${sub} ${name}).`
-            + (found.hint ? ' A sandbox made before 0.6.0 gets the label when made again with sandbox new.' : ''));
-    }
-    return name;
+    return { name: oneName(positionals, `sandbox ${sub} [--force] NAME`), force: Boolean(values.force) };
 }
 
 function cmdStop(args) {
-    const name = sandboxName(args, 'stop');
-    const result = podman(['stop', name]);
-    if (result.status !== 0) throw new SandboxError(result.stderr.trim());
-    console.log(`stopped ${name}`);
+    const { name, force } = forceAndName(args, 'stop');
+    console.log(loadSandbox(name, { lock: true }).stop({ force }));
 }
 
 function cmdRm(args) {
-    const name = sandboxName(args, 'rm');
-    const volumes = podman(['container', 'inspect', '--format',
-        '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}', name]).stdout?.trim().split(/\s+/).filter(Boolean) ?? [];
-    const result = podman(['rm', '-f', name]);
-    if (result.status !== 0) throw new SandboxError(result.stderr.trim());
-    console.log(`removed ${name}`);
-    for (const volume of volumes) {
-        console.log(`kept volume ${volume}, with what's in it (e.g. the home, podman's images inside): `
-            + `podman volume rm ${volume} removes it`);
-    }
-    let settings = null;
-    try {
-        settings = readSettings(folderOf(name));
-    } catch {
-        // no config folder left: nothing more to say
-    }
-    if (settings) console.log(`${settings.workspace} is untouched: only the container was removed`);
+    const { name, force } = forceAndName(args, 'rm');
+    console.log(loadSandbox(name, { lock: true }).remove({ force }));
 }

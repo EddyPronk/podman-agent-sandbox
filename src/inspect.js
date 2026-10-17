@@ -1,7 +1,9 @@
 // sandbox inspect: the podman command that created a sandbox, and what it runs with.
-// Pure functions over `podman container inspect` output; cli.js does the podman calls.
-import { basename } from 'node:path';
+// Pure functions over `podman container inspect` output; container.js does the podman calls.
+import { existsSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { resolveLocalEnv } from './inplace.js';
+import { SETTINGS } from './workspace.js';
 
 const SAFE = /^[A-Za-z0-9_@%+=:,./-]+$/;
 
@@ -397,6 +399,20 @@ export function audit(info, {
             + 'Add the read-only mount the templates have since 0.6.0 (see docs/security-model.md)');
     }
     return { rows, mounts: mounts.map(([, text]) => text), warnings, notes };
+}
+
+/**
+ * Where a sandbox made without --workspace has its own .devcontainer writable inside: its folder is
+ * bind-mounted read-write (the workspace) and nothing read-only covers FOLDER/.devcontainer. Null when
+ * protected, for --workspace sandboxes (their config stays outside), or when there's no such config.
+ */
+export function writableConfig(info, folder, exists = existsSync) {
+    if (!folder || exists(join(folder, SETTINGS)) || !exists(join(folder, '.devcontainer'))) return null;
+    const mounts = (info.Mounts ?? []).filter((m) => m.Type === 'bind');
+    const workspace = mounts.find((m) => m.Source === folder && m.RW);
+    if (!workspace) return null;
+    const config = join(folder, '.devcontainer');
+    return mounts.some((m) => m.Source === config && !m.RW) ? null : join(workspace.Destination, '.devcontainer');
 }
 
 /** Left-aligned columns, two spaces apart. */
