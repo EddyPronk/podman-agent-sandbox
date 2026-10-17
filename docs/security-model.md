@@ -69,4 +69,5 @@ them.
 - **What VS Code brings in:** attaching VS Code forwards your SSH agent and git credentials into the
   sandbox; see [VS Code and sandboxes](vscode.md).
 - **The kernel:** a sandbox is a container, not a virtual machine. It shares your kernel, so a kernel
-  bug reachable from inside is a way out.
+  bug reachable from inside is a way out. With krun installed, `sandbox enter --vm` runs it in a microVM
+  with its own kernel instead: see [A sandbox in a microVM](microvm.md), also for what that changes.
