@@ -1,0 +1,82 @@
+{
+  "Id": "0010001000100010001000100010001000100010001000100010001000100010",
+  "Name": "fx-offline",
+  "Created": "2026-10-17T04:08:17.748802029Z",
+  "Image": "0011001100110011001100110011001100110011001100110011001100110011",
+  "ImageName": "localhost/vsc-fx-offline-0012001200120012001200120012001200120012001200120012001200120012:latest",
+  "State": {
+    "Status": "exited"
+  },
+  "Config": {
+    "CreateCommand": [
+      "podman",
+      "run",
+      "--sig-proxy=false",
+      "-a",
+      "STDOUT",
+      "-a",
+      "STDERR",
+      "--mount",
+      "source=/home/user/sandboxes/fx-offline,target=/workspace,type=bind",
+      "--mount",
+      "type=volume,source=fx-offline-home,target=/home/user,U=true",
+      "--mount",
+      "type=bind,source=/home/user/sandboxes/fx-offline/.devcontainer,target=/workspace/.devcontainer,readonly",
+      "-l",
+      "devcontainer.local_folder=/home/user/sandboxes/fx-offline",
+      "-l",
+      "devcontainer.config_file=/home/user/sandboxes/fx-offline/.devcontainer/devcontainer.json",
+      "-u",
+      "1000:1000",
+      "--security-opt",
+      "label=disable",
+      "--userns=keep-id",
+      "--name",
+      "fx-offline",
+      "--hostname",
+      "fx-offline",
+      "--label=podman-agent-sandbox=0.7.0",
+      "--network=none",
+      "--userns=keep-id",
+      "--cap-drop=all",
+      "--security-opt=no-new-privileges",
+      "--entrypoint",
+      "/bin/sh",
+      "vsc-fx-offline-0012001200120012001200120012001200120012001200120012001200120012",
+      "-c",
+      "echo Container started\ntrap \"exit 0\" 15\n\nexec \"$@\"\nwhile sleep 1 & wait $!; do :; done",
+      "-"
+    ],
+    "Labels": {
+      "devcontainer.config_file": "/home/user/sandboxes/fx-offline/.devcontainer/devcontainer.json",
+      "devcontainer.local_folder": "/home/user/sandboxes/fx-offline",
+      "podman-agent-sandbox": "0.7.0"
+    }
+  },
+  "Mounts": [
+    {
+      "Type": "volume",
+      "Name": "fx-offline-home",
+      "Source": "/home/user/.local/share/containers/storage/volumes/fx-offline-home/_data",
+      "Destination": "/home/user",
+      "RW": true
+    },
+    {
+      "Type": "bind",
+      "Source": "/home/user/sandboxes/fx-offline",
+      "Destination": "/workspace",
+      "RW": true
+    },
+    {
+      "Type": "bind",
+      "Source": "/home/user/sandboxes/fx-offline/.devcontainer",
+      "Destination": "/workspace/.devcontainer",
+      "RW": false
+    }
+  ],
+  "NetworkSettings": {
+    "Networks": {
+      "none": {}
+    }
+  }
+}

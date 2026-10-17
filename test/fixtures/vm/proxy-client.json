@@ -1,0 +1,111 @@
+{
+  "Id": "0013001300130013001300130013001300130013001300130013001300130013",
+  "Name": "fx-proxy-client",
+  "Created": "2026-10-17T04:12:15.002613957Z",
+  "Image": "0014001400140014001400140014001400140014001400140014001400140014",
+  "ImageName": "localhost/vsc-fx-proxy-client-0015001500150015001500150015001500150015001500150015001500150015:latest",
+  "State": {
+    "Status": "exited"
+  },
+  "Config": {
+    "CreateCommand": [
+      "podman",
+      "run",
+      "--sig-proxy=false",
+      "-a",
+      "STDOUT",
+      "-a",
+      "STDERR",
+      "--mount",
+      "source=/home/user/sandboxes/fx-proxy-client,target=/workspace,type=bind",
+      "--mount",
+      "type=volume,source=fx-proxy-client-home,target=/home/user,U=true",
+      "--mount",
+      "type=volume,source=agent-proxy-ca,target=/proxy-ca,readonly",
+      "--mount",
+      "type=bind,source=/home/user/sandboxes/fx-proxy-client/.devcontainer,target=/workspace/.devcontainer,readonly",
+      "-l",
+      "devcontainer.local_folder=/home/user/sandboxes/fx-proxy-client",
+      "-l",
+      "devcontainer.config_file=/home/user/sandboxes/fx-proxy-client/.devcontainer/devcontainer.json",
+      "-e",
+      "HTTP_PROXY=http://proxy:8899",
+      "-e",
+      "HTTPS_PROXY=http://proxy:8899",
+      "-e",
+      "http_proxy=http://proxy:8899",
+      "-e",
+      "https_proxy=http://proxy:8899",
+      "-e",
+      "NO_PROXY=localhost,127.0.0.1,proxy",
+      "-e",
+      "no_proxy=localhost,127.0.0.1,proxy",
+      "-e",
+      "CURL_CA_BUNDLE=/proxy-ca/ca-cert.pem",
+      "-e",
+      "NODE_EXTRA_CA_CERTS=/proxy-ca/ca-cert.pem",
+      "-e",
+      "DISABLE_AUTOUPDATER=1",
+      "-e",
+      "NVM_SYMLINK_CURRENT=false",
+      "-u",
+      "1000:1000",
+      "--security-opt",
+      "label=disable",
+      "--userns=keep-id",
+      "--name",
+      "fx-proxy-client",
+      "--hostname",
+      "fx-proxy-client",
+      "--label=podman-agent-sandbox=0.7.0",
+      "--userns=keep-id",
+      "--cap-drop=all",
+      "--security-opt=no-new-privileges",
+      "--network=agent-proxy-net",
+      "--entrypoint",
+      "/bin/sh",
+      "vsc-fx-proxy-client-0015001500150015001500150015001500150015001500150015001500150015",
+      "-c",
+      "echo Container started\ntrap \"exit 0\" 15\n\nexec \"$@\"\nwhile sleep 1 & wait $!; do :; done",
+      "-"
+    ],
+    "Labels": {
+      "devcontainer.config_file": "/home/user/sandboxes/fx-proxy-client/.devcontainer/devcontainer.json",
+      "devcontainer.local_folder": "/home/user/sandboxes/fx-proxy-client",
+      "podman-agent-sandbox": "0.7.0"
+    }
+  },
+  "Mounts": [
+    {
+      "Type": "volume",
+      "Name": "fx-proxy-client-home",
+      "Source": "/home/user/.local/share/containers/storage/volumes/fx-proxy-client-home/_data",
+      "Destination": "/home/user",
+      "RW": true
+    },
+    {
+      "Type": "volume",
+      "Name": "agent-proxy-ca",
+      "Source": "/home/user/.local/share/containers/storage/volumes/agent-proxy-ca/_data",
+      "Destination": "/proxy-ca",
+      "RW": false
+    },
+    {
+      "Type": "bind",
+      "Source": "/home/user/sandboxes/fx-proxy-client",
+      "Destination": "/workspace",
+      "RW": true
+    },
+    {
+      "Type": "bind",
+      "Source": "/home/user/sandboxes/fx-proxy-client/.devcontainer",
+      "Destination": "/workspace/.devcontainer",
+      "RW": false
+    }
+  ],
+  "NetworkSettings": {
+    "Networks": {
+      "agent-proxy-net": {}
+    }
+  }
+}

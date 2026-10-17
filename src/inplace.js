@@ -146,7 +146,7 @@ function commandWords(command) {
 }
 
 /** A lifecycle command as one line. */
-function commandText(command) {
+export function commandText(command) {
     if (typeof command === 'string') return command;
     if (Array.isArray(command)) return command.join(' ');
     return Object.entries(command).map(([key, value]) => `${key}: ${commandText(value)}`).join('; ');

@@ -22,6 +22,7 @@ import { uncoveredInSandbox } from './workspace.js';
  *
  * @typedef {object} PodmanInfo
  * @property {string} Id
+ * @property {string} [Name]      the container's name
  * @property {string} Created     RFC 3339
  * @property {string} Image       the image's ID
  * @property {string} [ImageName] the image's name as given to podman run
