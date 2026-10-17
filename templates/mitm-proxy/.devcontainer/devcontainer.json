@@ -41,7 +41,7 @@
   "customizations": {
     "podman-agent-sandbox": {
       "version": 1,
-      "policies": []
+      "policies": ["no-vm"]
     }
   }
 }

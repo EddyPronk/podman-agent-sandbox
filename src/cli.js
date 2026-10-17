@@ -53,10 +53,17 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        build NAME's image, showing the full log
   sandbox enter NAME   start NAME if needed and open a shell as $USER; with
                        --workspace, first check every git repo is protected
+  sandbox enter --vm [--from-existing] NAME
+                       run NAME in a small KVM virtual machine (krun) with its
+                       own kernel, and attach to its shell (Ctrl-P Ctrl-Q
+                       detaches); made from NAME's container (--from-existing:
+                       from the one that exists already). NAME stays a VM until
+                       sandbox rm; see docs/microvm.md
   sandbox exec NAME [--] COMMAND [ARG ...]
                        start NAME if needed and run COMMAND in it, like
                        'ssh host COMMAND': as $USER, in the workspace folder,
                        with a terminal only if you're at one; its exit status
+                       (not for a VM)
   sandbox help [NAME]  this text; with NAME, what that sandbox offers (from its
                        template), e.g. sandbox help mitm-proxy
   sandbox inspect NAME the podman command that created NAME's container, as a
@@ -68,11 +75,12 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        list dev containers; --removed: sandboxes in
                        $SANDBOX_DIR without a container, and their kept volumes
   sandbox stop [--force] NAME
-                       stop NAME; --force also stops a container sandbox
-                       didn't make
+                       stop NAME (a VM at once); --force also stops a container
+                       sandbox didn't make
   sandbox rm [--force] NAME
-                       remove NAME's container (its home volume, config folder
-                       and any --workspace folder are kept); --force as for stop
+                       remove NAME's container and VM (its home volume, config
+                       folder and any --workspace folder are kept); --force as
+                       for stop
   sandbox --version    show the version (and the Dev Containers CLI's)
 
 Start with:  sandbox new work --template claude && sandbox enter work
@@ -153,8 +161,13 @@ function cmdBuild(args) {
 }
 
 function cmdEnter(args) {
-    const name = oneName(args, 'sandbox enter NAME');
-    return loadSandbox(name, { lock: true }).enter();
+    const { values, positionals } = parseArgs({
+        args, allowPositionals: true, options: { vm: { type: 'boolean' }, 'from-existing': { type: 'boolean' } },
+    });
+    const usage = 'sandbox enter [--vm [--from-existing]] NAME';
+    const name = oneName(positionals, usage);
+    if (values['from-existing'] && !values.vm) throw new SandboxError(`--from-existing goes with --vm; usage: ${usage}`);
+    return loadSandbox(name, { lock: true }).enter({ vm: Boolean(values.vm), fromExisting: Boolean(values['from-existing']) });
 }
 
 /**

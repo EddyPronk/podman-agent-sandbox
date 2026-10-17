@@ -78,8 +78,9 @@ test('configTree sees edits, untracked files, mode changes and a missing folder'
 
 test('checkMarker: no marker, a newer version, unknown policies are refused', () => {
     assert.equal(MARKER_VERSION, 1);
-    assert.deepEqual(KNOWN_POLICIES, []);
+    assert.deepEqual(KNOWN_POLICIES, ['no-vm']);
     assert.doesNotThrow(() => checkMarker({ customizations: MARKER }, 'f'));
+    assert.doesNotThrow(() => checkMarker({ customizations: { 'podman-agent-sandbox': { version: 1, policies: ['no-vm'] } } }, 'f'));
     assert.throws(() => checkMarker({}, 'f'), /isn't a sandbox config.*\n.*--template claude/s);
     assert.throws(() => checkMarker({ customizations: { vscode: {} } }, 'f'), /isn't a sandbox config/);
     assert.throws(() => checkMarker({ customizations: { 'podman-agent-sandbox': {} } }, 'f'), /needs a "version"/);
