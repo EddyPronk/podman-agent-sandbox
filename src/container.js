@@ -131,7 +131,7 @@ export class Container {
             ? { stdio: ['ignore', 2, 2] }
             : { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
         if (up.status !== 0) {
-            if (!create) process.stderr.write(up.stdout + up.stderr);
+            if (!create) process.stderr.write(String(up.stdout) + String(up.stderr));
             throw new SandboxError(`failed to start '${this.name}'`);
         }
     }
@@ -221,7 +221,8 @@ export class Container {
                 // the config folder is gone: nothing to compare with
             }
         }
-        const report = audit(info, { status, internal, uncovered, sandbox: Boolean(reason), vscode, configWritable });
+        // inspect.js isn't type-checked: its defaults (null) would be taken for the options' types.
+        const report = audit(info, /** @type {any} */ ({ status, internal, uncovered, sandbox: Boolean(reason), vscode, configWritable }));
         if (untrusted) report.warnings.unshift(`${untrusted}: enter, exec and build refuse until 'sandbox trust ${name}'`);
 
         lines.push(`\n# What it runs with${status ? ' (capabilities, new privileges, seccomp: measured inside)' : ''}:`);

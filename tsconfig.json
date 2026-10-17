@@ -1,0 +1,15 @@
+{
+  "//": "Type-checks the files marked // @ts-check (JSDoc types, no build step): npm run typecheck",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowJs": true,
+    "strict": true,
+    "noImplicitAny": false,
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "files": ["src/sandbox.js", "src/container.js", "src/vm.js", "src/lock.js"]
+}

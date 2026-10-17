@@ -40,6 +40,18 @@ export function loadSandbox(name, { lock = false } = {}) {
 }
 
 /**
+ * What podman has of sandbox NAME: the container named NAME (and, when that's another sandbox's VM,
+ * whose), and its VM, found by its label.
+ * @param {string} name
+ * @returns {{ container: Container, vmOf: string, vm: Vm | null }}
+ */
+function readState(name) {
+    const container = Container.load(name);
+    const vmOf = container.labels[VM_OF_LABEL] ?? '';
+    return { container, vmOf, vm: vmOf ? null : Vm.find(name) };
+}
+
+/**
  * What enterPlan decides from.
  * @typedef {object} EnterState
  * @property {string} name
@@ -101,17 +113,20 @@ export class Sandbox {
     constructor(name, release) {
         this.name = name;
         this.release = release;
-        this.reload();
+        const now = readState(name);
+        /** The container named NAME, unless it's another sandbox's VM (vmOf). */
+        this.container = now.container;
+        /** The sandbox whose VM the container named NAME is, or ''. */
+        this.vmOf = now.vmOf;
+        this.vm = now.vm;
     }
 
     /** Read the state again, after a step that changed it. */
     reload() {
-        /** @type {Container} the container named NAME, unless it's another sandbox's VM (vmOf) */
-        this.container = Container.load(this.name);
-        /** The sandbox whose VM the container named NAME is, or ''. */
-        this.vmOf = this.container.labels[VM_OF_LABEL] ?? '';
-        /** @type {Vm | null} */
-        this.vm = this.vmOf ? null : Vm.find(this.name);
+        const now = readState(this.name);
+        this.container = now.container;
+        this.vmOf = now.vmOf;
+        this.vm = now.vm;
     }
 
     /** The sandbox's config folder: the container's label, the VM's, or $SANDBOX_DIR/NAME; refuses when there's none. */
@@ -423,6 +438,7 @@ function readConfiguration(dir) {
  * (${containerEnv:…}) can't be known before it runs, and is left out. Without a remoteEnv: TERM, USER
  * and LOGNAME (from the user database when unset).
  * @param {Record<string, any>} config
+ * @param {NodeJS.ProcessEnv} [env]
  * @returns {Record<string, string>}
  */
 export function vmEnv(config, env = childEnv()) {
