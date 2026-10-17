@@ -398,3 +398,10 @@ export function audit(info, {
     }
     return { rows, mounts: mounts.map(([, text]) => text), warnings, notes };
 }
+
+/** Left-aligned columns, two spaces apart. */
+export function table(rows) {
+    const widths = rows[0].map((_, i) => Math.max(...rows.map((row) => (row[i] ?? '').length)));
+    return rows.map((row) => row.map((cell, i) => (i < row.length - 1 ? cell.padEnd(widths[i]) : cell)).join('  '))
+        .join('\n');
+}

@@ -5,7 +5,8 @@ import { homedir, tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { helpText, table, writableConfig } from '../src/cli.js';
+import { helpText, writableConfig } from '../src/cli.js';
+import { table } from '../src/inspect.js';
 import { checkName, childEnv, cliPath, folderOf, sandboxDir, sandboxReason, unlabelledHint } from '../src/devcontainer.js';
 
 test('sandboxDir defaults to ~/sandboxes', () => {
