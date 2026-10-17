@@ -1,0 +1,72 @@
+#!/usr/bin/env node
+// A fake podman for the tests of sandbox.js: answers container inspect, ps, stop, start, rm and
+// attach from the JSON state file $FAKE_PODMAN_STATE ({ containers: [podman inspect objects] }),
+// changes it, and logs each command line (JSON) to $FAKE_PODMAN_LOG. Anything else fails.
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+
+const args = process.argv.slice(2);
+const statePath = process.env.FAKE_PODMAN_STATE;
+appendFileSync(process.env.FAKE_PODMAN_LOG, `${JSON.stringify(args)}\n`);
+const state = JSON.parse(readFileSync(statePath, 'utf8'));
+const find = (ref) => state.containers.find((c) => c.Id === ref || c.Name === ref);
+const save = () => writeFileSync(statePath, JSON.stringify(state, null, 2));
+const fail = (message, code = 125) => {
+    process.stderr.write(`Error: ${message}\n`);
+    process.exit(code);
+};
+const noSuch = (ref) => fail(`no container with name or ID "${ref}" found: no such container`);
+
+/** {{.Names}}, {{.ID}}, {{.State}}, {{.Networks}}, {{.Label "x"}} of container C. */
+function format(template, c) {
+    return template
+        .replace(/\{\{\.Names\}\}/g, c.Name)
+        .replace(/\{\{\.ID\}\}/g, c.Id)
+        .replace(/\{\{\.State\}\}/g, c.State.Status)
+        .replace(/\{\{\.Networks\}\}/g, Object.keys(c.NetworkSettings?.Networks ?? {}).join(','))
+        .replace(/\{\{\.Label "([^"]+)"\}\}/g, (_, key) => c.Config?.Labels?.[key] ?? '');
+}
+
+/** The value of option FLAG in ARGS, or undefined. */
+const option = (flag) => {
+    const i = args.indexOf(flag);
+    return i >= 0 ? args[i + 1] : undefined;
+};
+
+const [cmd, ...rest] = args;
+if (cmd === 'container' && rest[0] === 'inspect') {
+    if (rest.includes('--format')) fail('the fake podman has no container inspect --format');
+    const c = find(rest[1]);
+    if (!c) noSuch(rest[1]);
+    process.stdout.write(JSON.stringify([c]));
+} else if (cmd === 'ps') {
+    const filter = option('--filter');
+    const template = option('--format');
+    let list = state.containers;
+    if (filter) {
+        const [key, value] = filter.replace(/^label=/, '').split(/=(.*)/s);
+        list = list.filter((c) => key in (c.Config?.Labels ?? {}) && (value === undefined || c.Config.Labels[key] === value));
+    }
+    process.stdout.write(list.map((c) => `${format(template, c)}\n`).join(''));
+} else if (cmd === 'stop' || cmd === 'start') {
+    const ref = rest.at(-1);
+    const c = find(ref);
+    if (!c) noSuch(ref);
+    c.State.Status = cmd === 'stop' ? 'exited' : 'running';
+    save();
+    console.log(ref);
+} else if (cmd === 'rm') {
+    const ref = rest.at(-1);
+    const c = find(ref);
+    if (!c) noSuch(ref);
+    state.containers = state.containers.filter((x) => x !== c);
+    save();
+    console.log(ref);
+} else if (cmd === 'attach') {
+    const c = find(rest.at(-1));
+    if (!c) noSuch(rest.at(-1));
+    console.log(`attached to ${c.Name}`);
+} else if (cmd === 'volume' || cmd === 'exec' || cmd === 'network') {
+    fail(`the fake podman has no ${cmd}`);
+} else {
+    fail(`the fake podman doesn't know: ${args.join(' ')}`);
+}

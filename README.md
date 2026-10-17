@@ -41,6 +41,7 @@ one opens a shell in it.
 - [Your project behind the egress proxy](docs/behind-the-proxy.md)
 - [VS Code to connect to a sandbox](docs/vscode.md)
 - [Containers inside a sandbox](docs/containers-inside-a-sandbox.md)
+- [A sandbox in a microVM](docs/microvm.md): `sandbox enter --vm`, with its own kernel (krun)
 - [Contributing](CONTRIBUTING.md)
 
 ## Prerequisites
@@ -48,6 +49,9 @@ one opens a shell in it.
 - Rootless Podman: `podman info --format '{{.Host.Security.Rootless}}'` prints `true`
 - Node.js 20.12 or later, with npm
 - git: `sandbox` uses it to check a project's own sandbox config (`--inplace`)
+- `flock`, from util-linux (part of every Debian and Ubuntu install): `sandbox` uses it so that two
+  commands on one sandbox don't race
+- For `sandbox enter --vm` only: krun and `/dev/kvm` ([A sandbox in a microVM](docs/microvm.md))
 
 On Debian 13 (trixie):
 
@@ -109,6 +113,7 @@ sandbox new --workspace ~/src/app --inplace         # from the project's own .de
 sandbox trust app                                   # confirm a change in the project's config
 sandbox export app                                  # write a --workspace sandbox's config into its project
 sandbox enter sandbox_with_claude                   # build and start if needed, open a shell
+sandbox enter --vm sandbox_with_claude              # the same in a KVM microVM, with its own kernel (krun)
 sandbox exec sandbox_with_claude git status         # run one command in it (start it if needed), like ssh
 sandbox help sandbox_with_claude                    # what this sandbox offers (from its template)
 sandbox inspect sandbox_with_claude                 # the podman run command that made it, and what it runs with

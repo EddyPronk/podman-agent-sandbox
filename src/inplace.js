@@ -14,9 +14,12 @@ import {
     aroundWorkspace, configFile, findGitDirs, hiddenPaths, isInside, readConfig, workspaceMounts,
 } from './workspace.js';
 
-/** The marker format this sandbox understands, and the policies it can check (none yet). */
+/**
+ * The marker format this sandbox understands, and the policies it can check. no-vm: the config can't
+ * run as a VM (sandbox enter --vm refuses it; vm.js).
+ */
 export const MARKER_VERSION = 1;
-export const KNOWN_POLICIES = [];
+export const KNOWN_POLICIES = ['no-vm'];
 
 /** In $SANDBOX_DIR/NAME: the trusted copy of the project's .devcontainer. */
 export const TRUSTED = 'trusted';
@@ -146,7 +149,7 @@ function commandWords(command) {
 }
 
 /** A lifecycle command as one line. */
-function commandText(command) {
+export function commandText(command) {
     if (typeof command === 'string') return command;
     if (Array.isArray(command)) return command.join(' ');
     return Object.entries(command).map(([key, value]) => `${key}: ${commandText(value)}`).join('; ');

@@ -37,6 +37,12 @@ sandbox enter project
   such as a seccomp allowance. `sandbox new`, `trust`, and `enter`, `exec` and `build` (before
   they create anything) refuse with "needs sandbox X.Y.Z or later". The same works in a template
   of your own. Releases before 0.8.0 ignore it.
+- **`"policies"` in that block** lists what the config requires of `sandbox`. One is known:
+  `"no-vm"`, for a config that can't run as a VM: `sandbox enter --vm` refuses it
+  ([A sandbox in a microVM](microvm.md)). Use it when the project needs something only a container
+  does, such as a service that `postStartCommand` starts. (A config with a `postStartCommand` or
+  `postAttachCommand` is refused anyway.) A `sandbox` that doesn't know a policy refuses the config,
+  so give it a `minVersion` too.
 - **`--hide` and `--readonly` work as with `--workspace`**
   ([A sandbox around an existing project](sandbox-around-an-existing-project.md)). The project's
   `.devcontainer/` is always read-only inside.

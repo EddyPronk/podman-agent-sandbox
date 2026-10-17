@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { homedir, userInfo } from 'node:os';
+import { constants, homedir, userInfo } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
 /** An error meant for the user: printed as "sandbox: <message>", no stack trace. */
@@ -65,12 +65,20 @@ export function dc(sub, args, options = {}) {
     return result;
 }
 
-/** Run podman and capture its output. */
-export function podman(args) {
-    const result = spawnSync('podman', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+/**
+ * Run podman and capture its output; OPTIONS for spawnSync replace that (e.g. { stdio: 'inherit' } for
+ * podman attach). Every podman call goes through here, so a missing podman is reported the same way.
+ */
+export function podman(args, options = {}) {
+    const result = spawnSync('podman', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...options });
     if (result.error?.code === 'ENOENT') throw new SandboxError('podman not found on PATH');
     if (result.error) throw result.error;
     return result;
+}
+
+/** A child's exit status the way a shell reports it. */
+export function exitStatus(result) {
+    return result.status ?? 128 + (constants.signals[result.signal] ?? 0);
 }
 
 function inspect(name, format) {

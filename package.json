@@ -16,9 +16,14 @@
     "node": ">=20.12"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "typecheck": "tsc"
   },
   "dependencies": {
     "@devcontainers/cli": "0.89.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "typescript": "5.6.3"
   }
 }
