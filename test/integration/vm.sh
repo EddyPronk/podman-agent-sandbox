@@ -58,16 +58,29 @@ run() {   # NAME COMMAND: run COMMAND, report
 }
 
 # vm NAME INPUT [OPTIONS]: sandbox enter --vm [OPTIONS] NAME in a pseudo-terminal, fed INPUT (printf %b).
-vm() { local name=$1 input=$2; shift 2; printf '%b' "$input" | script -qefc "$SB enter --vm $* $name" /dev/null; }
+vm() { local name=$1 input=$2; shift 2; printf "%b" "$input" | timeout 600 script -qefc "$SB enter --vm $* $name" /dev/null; }
+# vmd NAME INPUT: the same, then detach (Ctrl-P Ctrl-Q) once attached, as a person would: not with
+# INPUT, since what is typed before podman attach puts the terminal in raw mode goes through its flow
+# control, which takes Ctrl-Q (XON) for itself; and as two writes, since podman 5.4 misses the keys
+# when both come in one. The input stays open a little after, until the session has ended.
+vmd() {
+    local name=$1 input=$2
+    { printf '%b' "$input"
+      until [ "$(state "$name-vm")" = running ]; do sleep 0.5; done
+      sleep 5; printf '\x10'; sleep 0.5; printf '\x11'; sleep 3
+    } | timeout 120 script -qefc "$SB enter --vm $name" /dev/null
+}
 # state NAME: podman's state of container NAME, or "absent".
 state() { podman container inspect --format '{{.State.Status}}' "$1" 2> /dev/null || echo absent; }
-export -f vm state
+export -f vm vmd state
 
 cleanup() {
     for n in "${NAMES[@]}"; do
         $SB rm --force "$n" > /dev/null 2>&1
         podman rm -f "$n" "$n-vm" > /dev/null 2>&1
         podman volume rm "$n-home" > /dev/null 2>&1
+        # The images the Dev Containers CLI built for it (1-2 GB each for claude and claude-containers).
+        podman images --format '{{.Repository}}' | grep -E "^localhost/vsc-$n-[0-9a-f]{64}$" | xargs -r podman rmi > /dev/null 2>&1
     done
     rm -rf "$SANDBOX_DIR" "$WS"
 }
@@ -88,9 +101,9 @@ run "V1 first enter --vm: container made and stopped, VM made; guest kernel, you
 
 run "V2 a stopped VM is started; Ctrl-P Ctrl-Q detaches; the next enter attaches to the same shell" '
     set -e
-    vm v1 "export MARK=kept\necho PID=\$\$\n\x10\x11" > "$LOG/V2-first.log"
+    vmd v1 "export MARK=kept\necho PID=\$\$\n" > "$LOG/V2-first.log"
     [ "$(state v1-vm)" = running ] || { echo "VM after detach: $(state v1-vm)"; exit 1; }
-    out=$(vm v1 "echo MARK=\$MARK PID=\$\$\n\x10\x11")
+    out=$(vmd v1 "echo MARK=\$MARK PID=\$\$\n")
     echo "$out"
     echo "$out" | grep -q "MARK=kept" || { echo "not the same shell"; exit 1; }'
 
@@ -106,7 +119,7 @@ run "V3 plain enter and exec refuse for a VM sandbox, running and stopped" '
 
 run "V4 stop kills the VM at once; stop again says nothing is running" '
     set -e
-    vm v1 "\x10\x11" > /dev/null
+    vmd v1 "" > "$LOG/V4-attach.log"
     [ "$(state v1-vm)" = running ]
     start=$(date +%s%N); $SB stop v1; took=$(( ($(date +%s%N) - start) / 1000000 ))
     echo "stop took $took ms"; [ "$took" -lt 3000 ]
@@ -148,8 +161,8 @@ run "V6 enter --vm refuses an existing container; --from-existing; after rm, afr
 run "V7 two enter --vm at once: one waits for the other; one VM" '
     set -e
     $SB new v7 --template offline
-    (vm v7 "echo A\n\x10\x11" > "$LOG/V7-a.log" 2>&1) &
-    (vm v7 "echo B\n\x10\x11" > "$LOG/V7-b.log" 2>&1) &
+    (vmd v7 "echo A\n" > "$LOG/V7-a.log" 2>&1) &
+    (vmd v7 "echo B\n" > "$LOG/V7-b.log" 2>&1) &
     wait
     cat "$LOG/V7-a.log" "$LOG/V7-b.log"
     grep -q "waiting for another sandbox command on v7" "$LOG/V7-a.log" "$LOG/V7-b.log"
@@ -192,10 +205,12 @@ run "V10 a claude-template sandbox in a VM: Claude Code runs" '
 $SB new vcc --template claude-containers > "$LOG/V11.log" 2>&1
 if out=$(vm vcc "echo K=\$(uname -r)\nexit\n" 2>&1); then
     echo "$out" >> "$LOG/V11.log"
-    printf 'NOTE  V11 claude-containers: the VM starts with the custom seccomp profile (%s)\n' "$(echo "$out" | grep -o "K=[^ ]*" | head -1)"
+    printf 'NOTE  V11 claude-containers: the VM starts with the custom seccomp profile (%s)\n' "$(echo "$out" | grep -o "K=[0-9][^ ]*" | head -1)"
 else
     echo "$out" >> "$LOG/V11.log"
-    if [ "$(state vcc-vm)" = absent ]; then
+    if [ "$(state vcc)" = absent ]; then
+        printf 'NOTE  V11 claude-containers: not tested, its container could not be made (see %s)\n' "$LOG/V11.log"
+    elif [ "$(state vcc-vm)" = absent ]; then
         printf 'NOTE  V11 claude-containers: the VM fails; it was removed (R5): %s\n' "$(echo "$out" | grep -m1 "sandbox:")"
     else
         printf 'FAIL  V11 claude-containers: the VM failed and was left behind (%s)\n' "$(state vcc-vm)"

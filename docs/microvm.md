@@ -95,7 +95,9 @@ bundled templates' `remoteEnv` is just those three. The shell starts in the conf
 
 ## What it protects, and what it doesn't
 
-Measured with krun 1.30.1 and libkrun 1.19.6 in lab 34, with the prototype this command follows:
+Measured with krun 1.30.1 and libkrun 1.19.6, first with the prototype this command follows (lab 34),
+then with `sandbox enter --vm` itself (`test/integration/vm.sh`, which passes: every rule above,
+detaching and reattaching, two `enter --vm` at once, a `--workspace` sandbox, the `claude` template):
 
 - **The kernel is the guest's:** `uname -r` in the VM is the guest kernel (6.12.109), not the host's.
 - **The options confine the VM's host process, not the guest.** `--cap-drop=all`, `no-new-privileges`
@@ -104,6 +106,11 @@ Measured with krun 1.30.1 and libkrun 1.19.6 in lab 34, with the prototype this 
   seccomp. What stands between the guest and your machine is KVM and that confined host process.
 - **Read-only mounts hold against root in the guest:** they're enforced on the host side. Remounting one
   read-write in the guest "succeeds", but writes are still refused and the host file is unchanged.
+- **A `--workspace` sandbox keeps its protection in the VM:** its git repositories' `.git/hooks` and
+  `.git/config` are read-only and `--hide` paths read empty, for the user. (Not tried as root in the guest:
+  the image tested has no `sudo`.)
+- **A custom seccomp profile works:** `claude-containers`' VM starts with its profile (`seccompAllow`) on
+  the VM's host process.
 - **It runs as your UID only with `--userns=keep-id` and a user** (`containerUser` in the config, as in
   every template but `mitm-proxy`): uid 1000 in the guest, files owned by you on the host. Any `sudo` or
   setuid binary in the image makes the guest's user root in the guest. Read-only mounts still hold then.
@@ -114,14 +121,12 @@ Measured with krun 1.30.1 and libkrun 1.19.6 in lab 34, with the prototype this 
 
 Not tested yet:
 
-- `sandbox enter --vm` itself, from this branch, on a host with krun: `test/integration/vm.sh` covers
-  every rule above, a `--workspace` sandbox's read-only `.git` and hidden paths from inside the VM, and the
-  `claude` template; until it has run, the list above is the prototype's.
 - **Memory:** a VM gets 1 GiB by default. libkrun reads `krun.ram_mib` from the container's annotations
   (`"runArgs": ["--annotation", "krun.ram_mib=4096"]` in the config); whether `--memory` changes the
   guest's RAM isn't known.
-- **`claude-containers`** (Podman inside the VM) and a custom seccomp profile (`seccompAllow`) on the VM's
-  host process.
+- **Podman inside the VM** (`claude-containers`): the VM starts, but running containers in it hasn't been
+  tried.
+- **Guest root against a `--workspace` sandbox's read-only `.git`** (an image with `sudo`).
 
 ## Limits
 
