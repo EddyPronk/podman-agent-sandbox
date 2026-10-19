@@ -17,7 +17,9 @@ sandbox enter proxy          # builds and starts it; exit again, it keeps runnin
 It publishes its CA certificate for the clients, which trust it, so it can see inside HTTPS requests
 and check them against its allowlist. Its private data (CA keys, the decrypted-traffic log, the
 refusals) stays in its home volume, `proxy-home`. Only one proxy can run at a time: it takes the
-network name `proxy`.
+network name `proxy`. It runs as a container, never as a VM: `sandbox enter --vm proxy` refuses, since
+a VM wouldn't start the proxy, and its clients would lose their way out
+([why](microvm.md#why-the-proxy-cant-run-as-a-vm)). The clients can run as VMs.
 
 ## 2. Your project behind it
 

@@ -10,7 +10,7 @@
 # pseudo-terminal (script) fed its input. One line per test (PASS, FAIL or NOTE):
 #   V1   first enter --vm of a never-started sandbox: container made and stopped, VM made; inside: the
 #        guest kernel, your uid, /workspace; a file written there is yours; exit stops the VM
-#   V2   a stopped VM is started; Ctrl-P Ctrl-Q detaches and the VM keeps running; the next enter --vm
+#   V2   a stopped VM is started; Ctrl-] detaches and the VM keeps running; the next enter --vm
 #        attaches to the same shell
 #   V3   plain enter and exec refuse for a VM sandbox, running and stopped, without starting anything
 #   V4   stop kills the VM at once; stop again says nothing is running
@@ -59,15 +59,14 @@ run() {   # NAME COMMAND: run COMMAND, report
 
 # vm NAME INPUT [OPTIONS]: sandbox enter --vm [OPTIONS] NAME in a pseudo-terminal, fed INPUT (printf %b).
 vm() { local name=$1 input=$2; shift 2; printf "%b" "$input" | timeout 600 script -qefc "$SB enter --vm $* $name" /dev/null; }
-# vmd NAME INPUT: the same, then detach (Ctrl-P Ctrl-Q) once attached, as a person would: not with
-# INPUT, since what is typed before podman attach puts the terminal in raw mode goes through its flow
-# control, which takes Ctrl-Q (XON) for itself; and as two writes, since podman 5.4 misses the keys
-# when both come in one. The input stays open a little after, until the session has ended.
+# vmd NAME INPUT: the same, then detach (Ctrl-], sandbox's detach key) once attached, as a person
+# would: not with INPUT, since what is typed before podman attach puts the terminal in raw mode goes
+# through the terminal's line discipline. The input stays open a little after, until the session ended.
 vmd() {
     local name=$1 input=$2
     { printf '%b' "$input"
       until [ "$(state "$name-vm")" = running ]; do sleep 0.5; done
-      sleep 5; printf '\x10'; sleep 0.5; printf '\x11'; sleep 3
+      sleep 5; printf '\x1d'; sleep 3
     } | timeout 120 script -qefc "$SB enter --vm $name" /dev/null
 }
 # state NAME: podman's state of container NAME, or "absent".
@@ -99,7 +98,7 @@ run "V1 first enter --vm: container made and stopped, VM made; guest kernel, you
     [ "$(podman container inspect --format "{{index .Config.Labels \"podman-agent-sandbox.vm-of\"}}" v1-vm)" = v1 ]
     [ "$(state v1-vm)" = exited ] || { echo "VM: $(state v1-vm)"; exit 1; }'
 
-run "V2 a stopped VM is started; Ctrl-P Ctrl-Q detaches; the next enter attaches to the same shell" '
+run "V2 a stopped VM is started; Ctrl-] detaches; the next enter attaches to the same shell" '
     set -e
     vmd v1 "export MARK=kept\necho PID=\$\$\n" > "$LOG/V2-first.log"
     [ "$(state v1-vm)" = running ] || { echo "VM after detach: $(state v1-vm)"; exit 1; }

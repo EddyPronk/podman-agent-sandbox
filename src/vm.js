@@ -19,6 +19,9 @@ export const VM_FOLDER_LABEL = 'podman-agent-sandbox.vm-folder';
 /** The policy a config uses to say it can't run as a VM. */
 export const NO_VM = 'no-vm';
 
+/** What detaches from the VM's shell: one key, as in telnet, that bash and most programs leave alone. */
+export const DETACH_KEYS = 'ctrl-]';
+
 /** The name a VM gets when made; it's found by VM_OF_LABEL, never by this name. @param {string} name */
 export function vmName(name) {
     return `${name}-vm`;
@@ -312,12 +315,15 @@ export class Vm {
         if (result.status !== 0) throw new SandboxError(result.stderr.trim());
     }
 
-    /** Attach to the VM's shell (its main process); the exit status. */
+    /**
+     * Attach to the VM's shell (its main process); the exit status. Detached with DETACH_KEYS, not
+     * Podman's default Ctrl-P Ctrl-Q, which takes bash's previous-command key while attached.
+     */
     openShell() {
-        console.error(`sandbox: attached to ${this.name}'s VM (press Enter for a prompt). Ctrl-P Ctrl-Q detaches; `
+        console.error(`sandbox: attached to ${this.name}'s VM (press Enter for a prompt). Ctrl-] detaches; `
             + 'exit stops the VM. Another terminal attached shares this shell.');
         process.on('SIGINT', () => {});
-        return exitStatus(podman(['attach', this.info.Id], { stdio: 'inherit' }));
+        return exitStatus(podman(['attach', '--detach-keys', DETACH_KEYS, this.info.Id], { stdio: 'inherit' }));
     }
 
     /** One line for sandbox inspect. */
