@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "files": ["src/sandbox.js", "src/container.js", "src/vm.js", "src/lock.js"]
+  "files": ["src/sandbox.js", "src/container.js", "src/vm.js", "src/lock.js", "src/state.js"]
 }

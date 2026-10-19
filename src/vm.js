@@ -12,9 +12,8 @@ import { inspectContainer, isActive } from './container.js';
 import { commandText } from './inplace.js';
 import { MARKER } from './templates.js';
 
-/** The label that makes a container sandbox NAME's VM, and the one recording its config folder. */
+/** The label that makes a container sandbox NAME's VM. (Its config folder is in its record: state.js.) */
 export const VM_OF_LABEL = 'podman-agent-sandbox.vm-of';
-export const VM_FOLDER_LABEL = 'podman-agent-sandbox.vm-folder';
 
 /** The policy a config uses to say it can't run as a VM. */
 export const NO_VM = 'no-vm';
@@ -159,7 +158,7 @@ function dropped(/** @type {Option} */ option) {
         // The Dev Containers CLI finds a sandbox's container by its devcontainer.* labels, and the
         // sandbox label would make the VM pass as a sandbox of its own.
         const key = (value ?? '').split('=')[0];
-        return key.startsWith('devcontainer.') || key === SANDBOX_LABEL || key === VM_OF_LABEL || key === VM_FOLDER_LABEL;
+        return key.startsWith('devcontainer.') || key === SANDBOX_LABEL || key === VM_OF_LABEL;
     }
     return false;
 }
@@ -176,12 +175,11 @@ const CONFINING = /^(--mount|-v|--volume|--cap-drop|--security-opt|--network|--n
  * @param {string} from.imageName   its .ImageName: where the options end
  * @param {string} from.image       its .Image (ID): what the VM runs, not what the name points at now
  * @param {string} from.name        the sandbox's name
- * @param {string} from.folder      the sandbox's config folder
  * @param {string} from.workdir     the shell's folder: the config's workspaceFolder
  * @param {Record<string, string>} from.env  set for the shell (R8)
  * @returns {string[]}
  */
-export function vmRunArgs({ command, imageName, image, name, folder, workdir, env }) {
+export function vmRunArgs({ command, imageName, image, name, workdir, env }) {
     if (command.length < 3 || basename(command[0]) !== 'podman' || command[1] !== 'run') {
         throw unexpected(`not made with podman run: ${command.slice(0, 2).join(' ') || 'no command recorded'}`);
     }
@@ -203,7 +201,7 @@ export function vmRunArgs({ command, imageName, image, name, folder, workdir, en
     const hasWorkdir = kept.some((o) => o.flag === '-w' || o.flag === '--workdir');
     const added = [
         '-dit', '--runtime', 'krun', '--name', vmName(name),
-        '--label', `${VM_OF_LABEL}=${name}`, '--label', `${VM_FOLDER_LABEL}=${folder}`,
+        '--label', `${VM_OF_LABEL}=${name}`,
         '--entrypoint', '/bin/bash',
         ...(hasWorkdir ? [] : ['--workdir', workdir]),
     ];
@@ -283,11 +281,6 @@ export class Vm {
         return isActive(this.state);
     }
 
-    /** The sandbox's config folder, as recorded when the VM was made. */
-    get folder() {
-        return this.info.Config?.Labels?.[VM_FOLDER_LABEL] ?? '';
-    }
-
     readonlyMounts() {
         return (this.info.Mounts ?? []).filter((m) => !m.RW).map((m) => m.Destination);
     }
@@ -300,7 +293,7 @@ export class Vm {
         const result = podman(['start', this.info.Id]);
         if (result.status !== 0) {
             throw new SandboxError(`failed to start ${this.name}'s VM: ${result.stderr.trim()}\n`
-                + `To make it again: sandbox rm ${this.name}, then sandbox enter --vm ${this.name}`);
+                + `To make it again: sandbox rm ${this.name}, then sandbox enter ${this.name}`);
         }
     }
 
@@ -330,20 +323,20 @@ export class Vm {
     describe() {
         const made = this.info.Created ? `, made ${madeAt(this.info.Created)}` : '';
         return `${this.containerName}, ${this.state}${made} from the container as it was then; to make it again: `
-            + `sandbox rm ${this.name}, then sandbox enter --vm ${this.name}`;
+            + `sandbox rm ${this.name}, then sandbox enter ${this.name}`;
     }
 
     /**
      * Make sandbox NAME's VM from CONTAINER (stopped) and start it. A VM whose run fails is removed: it
      * never ran a session, and every later enter --vm would fail the same way on start.
      * @param {import('./container.js').Container} container
-     * @param {{ folder: string, workdir: string, env: Record<string, string> }} options
+     * @param {{ workdir: string, env: Record<string, string> }} options
      */
-    static makeFrom(container, { folder, workdir, env }) {
+    static makeFrom(container, { workdir, env }) {
         const info = /** @type {import('./container.js').PodmanInfo} */ (container.info);
         const { name } = container;
         const args = vmRunArgs({
-            command: info.Config?.CreateCommand ?? [], imageName: info.ImageName ?? '', image: info.Image, name, folder, workdir, env,
+            command: info.Config?.CreateCommand ?? [], imageName: info.ImageName ?? '', image: info.Image, name, workdir, env,
         });
         console.error(`sandbox: making ${name}'s VM ...`);
         const run = podman(args);

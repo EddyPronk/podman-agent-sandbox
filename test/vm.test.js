@@ -14,7 +14,7 @@ const ENV = { TERM: 'xterm-256color', USER: 'user', LOGNAME: 'user' };
 /** vmRunArgs for INFO (a fixture), with COMMAND instead of its recorded one if given. */
 function argsFor(info, command = info.Config.CreateCommand) {
     return vmRunArgs({
-        command, imageName: info.ImageName, image: info.Image, name: info.Name, folder: '/home/user/sandboxes/x',
+        command, imageName: info.ImageName, image: info.Image, name: info.Name,
         workdir: '/workspace', env: ENV,
     });
 }
@@ -54,7 +54,7 @@ test('vmRunArgs, from each recorded command: krun, the image ID, a login shell; 
         assert.equal(args[5], `${info.Name}-vm`, id);
         assert.deepEqual(args.slice(-2), [info.Image, '-l'], `${id}: the image it was made from, not its name`);
         assert.ok(text.includes(`podman-agent-sandbox.vm-of=${info.Name}`), id);
-        assert.ok(text.includes('podman-agent-sandbox.vm-folder=/home/user/sandboxes/x'), id);
+        assert.ok(!text.includes('vm-folder'), `${id}: no folder label (the record has it)`);
         assert.ok(!args.includes('-a') && !args.includes('--sig-proxy=false'), `${id}: -a and --sig-proxy dropped`);
         assert.ok(!/devcontainer\.|podman-agent-sandbox=|\/bin\/sh|echo Container started/.test(text), `${id}: labels, entrypoint, keep-alive dropped`);
         assert.equal(args.filter((a) => a === '--name').length, 1, id);

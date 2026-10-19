@@ -26,7 +26,7 @@ test('enterPlan: what sandbox enter [--vm [--from-existing]] does, for each stat
         [{}, {}, open('container')],
         [{ c: 'running' }, {}, open('container')],
         [{ c: 'exited' }, {}, open('container')],
-        [{ v: 'exited' }, {}, /x is a VM: 'sandbox enter --vm x' connects to it; 'sandbox rm x' makes it a container again/],
+        [{ v: 'exited' }, {}, /x is a VM: to make it a container, 'sandbox rm x' \(volumes are kept\), then 'sandbox enter --container x'/],
         [{ c: 'exited', v: 'running' }, {}, /x is a VM/],
         // --vm: the refusals that come first, on every path
         [{ v: 'running' }, { vm: true, host: no }, /krun not found/],
@@ -81,16 +81,32 @@ function container(name, status, { labels = {}, volumes = [] } = {}) {
 const sandbox = (name, status, options = {}) => container(name, status,
     { ...options, labels: { 'podman-agent-sandbox': '0.8.0', ...options.labels } });
 const vmOf = (of, status, options = {}) => container(`${of}-vm`, status,
-    { ...options, labels: { 'podman-agent-sandbox.vm-of': of, 'podman-agent-sandbox.vm-folder': `/s/${of}`, ...options.labels } });
+    { ...options, labels: { 'podman-agent-sandbox.vm-of': of, ...options.labels } });
 
 /** Run sandbox ARGS against the fake podman with CONTAINERS: { status, stdout, stderr, calls, containers }. */
 function run(containers, ...args) {
+    return runWith({}, containers, ...args);
+}
+
+/**
+ * run, in a $SANDBOX_DIR with a config folder for each of FOLDERS (names), and RECORDS ({ NAME: kind },
+ * state.js), whose folder is $SANDBOX_DIR/NAME. Also returns sandboxDir.
+ */
+function runWith({ folders = [], records = {} }, containers, ...args) {
     const dir = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
     const stateFile = join(dir, 'state.json');
     const log = join(dir, 'podman.log');
     writeFileSync(stateFile, JSON.stringify({ containers }));
     writeFileSync(log, '');
     mkdirSync(join(dir, 'sandboxes'));
+    for (const name of folders) {
+        mkdirSync(join(dir, 'sandboxes', name, '.devcontainer'), { recursive: true });
+        writeFileSync(join(dir, 'sandboxes', name, '.devcontainer', 'devcontainer.json'), '{}\n');
+    }
+    mkdirSync(join(dir, 'sandboxes', '.state'));
+    for (const [name, kind] of Object.entries(records)) {
+        writeFileSync(join(dir, 'sandboxes', '.state', `${name}.json`), JSON.stringify({ kind, folder: join(dir, 'sandboxes', name) }));
+    }
     const result = spawnSync(process.execPath, [SANDBOX, ...args], {
         encoding: 'utf8',
         env: { ...process.env, PATH: `${FAKE}:${process.env.PATH}`, SANDBOX_DIR: join(dir, 'sandboxes'), FAKE_PODMAN_STATE: stateFile, FAKE_PODMAN_LOG: log },
@@ -162,17 +178,79 @@ test('rm: the VM and the container, the kept volumes listed once; also when only
     assert.match(only.stdout, /^removed x's VM\nkept volume x-home/);
 });
 
-test('enter and exec refuse for a VM sandbox, running and stopped, before starting anything', () => {
+// Where the tests run there's no krun or /dev/kvm: a command that goes the VM way stops at that check.
+const NO_KVM = /krun not found on PATH|\/dev\/kvm isn't readable/;
+
+test('a VM sandbox: plain enter goes the VM way; enter --container and exec refuse; nothing starts', () => {
     for (const status of ['running', 'exited']) {
-        const enter = run([sandbox('x', 'exited'), vmOf('x', status)], 'enter', 'x');
+        const vmSandbox = () => [sandbox('x', 'exited'), vmOf('x', status)];
+        const enter = runWith({ folders: ['x'], records: { x: 'vm' } }, vmSandbox(), 'enter', 'x');
         assert.equal(enter.status, 1, status);
-        assert.match(enter.stderr, /x is a VM: 'sandbox enter --vm x' connects to it; 'sandbox rm x' makes it a container again/);
+        assert.match(enter.stderr, NO_KVM, `${status}: plain enter follows the record to the VM`);
         assert.deepEqual(changes(enter.calls), []);
-        const exec = run([sandbox('x', 'exited'), vmOf('x', status)], 'exec', 'x', 'true');
+        const container = runWith({ folders: ['x'], records: { x: 'vm' } }, vmSandbox(), 'enter', '--container', 'x');
+        assert.equal(container.status, 1, status);
+        assert.match(container.stderr, /x is a VM: to make it a container, 'sandbox rm x' \(volumes are kept\), then 'sandbox enter --container x'/);
+        assert.deepEqual(changes(container.calls), []);
+        const exec = runWith({ folders: ['x'], records: { x: 'vm' } }, vmSandbox(), 'exec', 'x', 'true');
         assert.equal(exec.status, 1, status);
-        assert.match(exec.stderr, /x is a VM; exec can't run commands in it\. Use 'sandbox enter --vm x', or 'sandbox rm x'/);
+        assert.match(exec.stderr, /x is a VM sandbox; exec can't run commands in it\. Use 'sandbox enter x', or, to make it a container: 'sandbox rm x', then 'sandbox enter --container x'/);
         assert.deepEqual(changes(exec.calls), []);
     }
+});
+
+test('a VM sandbox stays one after rm: rm says so, exec refuses, inspect and list --removed show it', () => {
+    const rm = runWith({ folders: ['x'], records: { x: 'vm' } }, [sandbox('x', 'exited'), vmOf('x', 'exited')], 'rm', 'x');
+    assert.equal(rm.status, 0, rm.stderr);
+    assert.match(rm.stdout, /x stays a VM sandbox: 'sandbox enter x' makes its VM again \('sandbox enter --container x' makes it a container\)/);
+    assert.ok(existsSync(join(rm.sandboxDir, '.state', 'x.json')), 'rm keeps the record');
+
+    const removed = { folders: ['x'], records: { x: 'vm' } };
+    const exec = runWith(removed, [], 'exec', 'x', 'true');
+    assert.equal(exec.status, 1);
+    assert.match(exec.stderr, /x is a VM sandbox; exec can't run commands in it/);
+    const enter = runWith(removed, [], 'enter', 'x');
+    assert.match(enter.stderr, NO_KVM, 'plain enter would make the VM again');
+    const inspect = runWith(removed, [], 'inspect', 'x');
+    assert.equal(inspect.status, 0, inspect.stderr);
+    assert.match(inspect.stdout, /sandbox enter x creates its VM from its config/);
+    assert.match(inspect.stdout, /# x is a VM sandbox: 'sandbox enter x' makes its VM$/m);
+    const list = runWith({ folders: ['x', 'y'], records: { x: 'vm' } }, [], 'list', '--removed');
+    const rows = list.stdout.trim().split('\n').map((line) => line.split(/\s{2,}/).slice(0, 2));
+    assert.deepEqual(rows, [['NAME', 'KIND'], ['x', 'VM'], ['y', 'container']]);
+});
+
+test('enter --container after rm forgets that it was a VM sandbox', () => {
+    const result = runWith({ folders: ['x'], records: { x: 'vm' } }, [], 'enter', '--container', 'x');
+    // The fake podman can't make the container; what matters is that the record went first.
+    assert.ok(!existsSync(join(result.sandboxDir, '.state', 'x.json')), 'the record is gone');
+    assert.doesNotMatch(result.stderr, NO_KVM);
+});
+
+test('a record whose folder is gone counts as gone, and is removed', () => {
+    const dir = (r) => join(r.sandboxDir, '.state', 'x.json');
+    const stale = runWith({ records: { x: 'vm' } }, [], 'stop', 'x');
+    assert.match(stale.stderr, /x has no container or VM to stop/);
+    assert.ok(!existsSync(dir(stale)), 'removed');
+    // sandbox new of that name: a container sandbox, not the old VM sandbox.
+    const again = runWith({ records: { x: 'vm' } }, [], 'new', 'x', '--template', 'offline');
+    assert.equal(again.status, 0, again.stderr);
+    assert.ok(!existsSync(dir(again)), 'new removed the old record before making the folder');
+    assert.match(again.stdout, /^next: sandbox enter x$/m);
+});
+
+test('sandbox new --vm: refused, with nothing made, when the machine can\'t run a VM', () => {
+    const result = runWith({}, [], 'new', 'x', '--template', 'offline', '--vm');
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, NO_KVM);
+    assert.ok(!existsSync(join(result.sandboxDir, 'x')), 'no folder');
+    assert.ok(!existsSync(join(result.sandboxDir, '.state', 'x.json')), 'no record');
+});
+
+test('enter: --vm and --container together are refused', () => {
+    const result = run([], 'enter', '--vm', '--container', 'x');
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /--vm or --container, not both/);
 });
 
 test('enter --from-existing needs --vm', () => {
@@ -185,7 +263,7 @@ test('inspect and list show the VM next to its sandbox', () => {
     const inspect = run([sandbox('x', 'exited'), vmOf('x', 'exited')], 'inspect', 'x');
     assert.equal(inspect.status, 0, inspect.stderr);
     assert.match(inspect.stdout, /^# x is a sandbox/);
-    assert.match(inspect.stdout, /# x's VM: x-vm, exited, made .* to make it again: sandbox rm x, then sandbox enter --vm x\n$/);
+    assert.match(inspect.stdout, /# x's VM: x-vm, exited, made .* to make it again: sandbox rm x, then sandbox enter x\n$/);
 
     const local = (c, folder) => ({ ...c, Config: { ...c.Config, Labels: { ...c.Config.Labels, 'devcontainer.local_folder': folder } } });
     const list = run([local(sandbox('b', 'running'), '/s/b'), vmOf('a', 'running'), local(sandbox('a', 'exited'), '/s/a')], 'list');
