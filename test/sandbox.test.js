@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -96,7 +96,7 @@ function run(containers, ...args) {
         env: { ...process.env, PATH: `${FAKE}:${process.env.PATH}`, SANDBOX_DIR: join(dir, 'sandboxes'), FAKE_PODMAN_STATE: stateFile, FAKE_PODMAN_LOG: log },
     });
     const calls = readFileSync(log, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
-    return { ...result, calls, containers: JSON.parse(readFileSync(stateFile, 'utf8')).containers };
+    return { ...result, calls, containers: JSON.parse(readFileSync(stateFile, 'utf8')).containers, sandboxDir: join(dir, 'sandboxes') };
 }
 const names = (containers) => containers.map((c) => `${c.Name}:${c.State.Status}`).sort();
 const changes = (calls) => calls.filter(([cmd]) => ['stop', 'start', 'rm', 'run', 'attach'].includes(cmd));
@@ -193,4 +193,15 @@ test('inspect and list show the VM next to its sandbox', () => {
     const rows = list.stdout.trim().split('\n').map((line) => line.split(/\s{2,}/));
     assert.deepEqual(rows.map((row) => [row[0], row.at(-1)]),
         [['NAME', 'FOLDER'], ['a', '/s/a'], ['a-vm', 'VM of a'], ['b', '/s/b']]);
+});
+
+test('a command on a sandbox that doesn\'t exist leaves no lock file; one that exists keeps it', () => {
+    const typo = run([], 'stop', 'typo');
+    assert.equal(typo.status, 1);
+    assert.match(typo.stderr, /typo has no container or VM to stop/);
+    assert.ok(!existsSync(join(typo.sandboxDir, '.locks', 'typo')), 'no .locks/typo');
+
+    const real = run([sandbox('x', 'running')], 'stop', 'x');
+    assert.equal(real.status, 0, real.stderr);
+    assert.ok(existsSync(join(real.sandboxDir, '.locks', 'x')), 'the lock file stays for a sandbox that exists');
 });

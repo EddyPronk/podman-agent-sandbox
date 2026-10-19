@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -9,12 +9,16 @@ import { isInside } from '../src/workspace.js';
 
 const LOCK = new URL('../src/lock.js', import.meta.url).href;
 
-/** A child process that takes NAME's lock (in SANDBOX_DIR), says "held", and keeps it until killed. */
-function holder(dir, name) {
+/**
+ * A child process that takes NAME's lock (in SANDBOX_DIR), says "held", and keeps it until killed; with
+ * REMOVE_AFTER (ms), it releases it then, deleting the file, as a command that found nothing does.
+ */
+function holder(dir, name, { removeAfter = null } = {}) {
     const child = spawn(process.execPath, ['--input-type=module', '-e',
         `import { lockSandbox } from ${JSON.stringify(LOCK)};
-         lockSandbox(${JSON.stringify(name)});
+         const release = lockSandbox(${JSON.stringify(name)});
          console.log('held');
+         ${removeAfter === null ? '' : `setTimeout(() => release({ remove: true }), ${removeAfter});`}
          setInterval(() => {}, 1000);`],
     { env: { ...process.env, SANDBOX_DIR: dir }, stdio: ['ignore', 'pipe', 'inherit'] });
     const held = new Promise((resolve, reject) => {
@@ -58,6 +62,27 @@ test('the lock: free means no wait; another sandbox\'s lock doesn\'t count', asy
     // Released: taken again at once.
     lockSandbox('box', { env, waiting: (name) => waited.push(name) })();
     assert.deepEqual(waited, []);
+    child.kill('SIGKILL');
+    await exited(child);
+});
+
+test('the lock: release({ remove }) deletes the file; a command that waited locks the file at the path', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
+    const env = { SANDBOX_DIR: dir };
+    lockSandbox('gone', { env })({ remove: true });
+    assert.ok(!existsSync(lockPath('gone', env)), 'removed');
+
+    // The holder deletes the file while we wait on it: we must not end up holding the deleted file.
+    const { child, held } = holder(dir, 'box', { removeAfter: 500 });
+    await held;
+    const waited = [];
+    const release = lockSandbox('box', { env, waiting: (name) => waited.push(name) });
+    assert.deepEqual(waited, ['box'], 'said once that it waits');
+    assert.ok(existsSync(lockPath('box', env)), 'a new file at the path');
+    const other = spawnSync('flock', ['--nonblock', lockPath('box', env), 'true']);
+    assert.equal(other.status, 1, 'and it is that file that is locked: a third command can\'t take it');
+    release();
+    assert.equal(spawnSync('flock', ['--nonblock', lockPath('box', env), 'true']).status, 0);
     child.kill('SIGKILL');
     await exited(child);
 });

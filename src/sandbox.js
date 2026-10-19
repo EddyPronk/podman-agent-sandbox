@@ -30,11 +30,17 @@ const ALLOWED = { allowed: true };
  */
 export function loadSandbox(name, { lock = false } = {}) {
     checkName(name);
+    /** @type {import('./lock.js').Release} */
     const release = lock ? lockSandbox(name) : () => {};
+    /** @type {Sandbox | undefined} */
+    let sandbox;
+    // A command on a sandbox that doesn't exist (a typo) leaves no lock file behind.
+    const done = () => release({ remove: !sandbox?.known() });
     try {
-        return new Sandbox(name, release);
+        sandbox = new Sandbox(name, done);
+        return sandbox;
     } catch (err) {
-        release();
+        done();
         throw err;
     }
 }
@@ -137,6 +143,16 @@ export class Sandbox {
     /** Whether the sandbox has a container or a VM, running or not: made from an older config or image. */
     made() {
         return this.container.exists || this.vm !== null;
+    }
+
+    /** Whether there is such a sandbox: a container, a VM, or a config folder. */
+    known() {
+        if (this.made()) return true;
+        try {
+            return Boolean(this.dir);
+        } catch {
+            return false;   // folderOf: no config folder either
+        }
     }
 
     /**
