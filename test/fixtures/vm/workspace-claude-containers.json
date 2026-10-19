@@ -1,0 +1,118 @@
+{
+  "Id": "0016001600160016001600160016001600160016001600160016001600160016",
+  "Name": "fx-ws",
+  "Created": "2026-10-17T04:17:35.085669392Z",
+  "Image": "0017001700170017001700170017001700170017001700170017001700170017",
+  "ImageName": "localhost/vsc-fx-ws-0018001800180018001800180018001800180018001800180018001800180018:latest",
+  "State": {
+    "Status": "exited"
+  },
+  "Config": {
+    "CreateCommand": [
+      "podman",
+      "run",
+      "--sig-proxy=false",
+      "-a",
+      "STDOUT",
+      "-a",
+      "STDERR",
+      "--mount",
+      "source=/home/user/project,target=/home/user/project,type=bind",
+      "--mount",
+      "type=volume,source=fx-ws-home,target=/home/user,U=true",
+      "--mount",
+      "type=bind,source=/dev/null,target=/home/user/project/.env,readonly",
+      "--mount",
+      "type=tmpfs,target=/home/user/project/secrets,notmpcopyup",
+      "--mount",
+      "type=bind,source=/home/user/project/.git/config,target=/home/user/project/.git/config,readonly",
+      "--mount",
+      "type=bind,source=/home/user/project/.git/hooks,target=/home/user/project/.git/hooks,readonly",
+      "--mount",
+      "type=bind,source=/home/user/project/sub/.git/config,target=/home/user/project/sub/.git/config,readonly",
+      "--mount",
+      "type=bind,source=/home/user/project/sub/.git/hooks,target=/home/user/project/sub/.git/hooks,readonly",
+      "-l",
+      "devcontainer.local_folder=/home/user/sandboxes/fx-ws",
+      "-l",
+      "devcontainer.config_file=/home/user/sandboxes/fx-ws/.devcontainer/devcontainer.json",
+      "-e",
+      "DISABLE_AUTOUPDATER=1",
+      "-e",
+      "NVM_SYMLINK_CURRENT=false",
+      "-u",
+      "1000:1000",
+      "--security-opt",
+      "label=disable",
+      "--userns=keep-id",
+      "--name",
+      "fx-ws",
+      "--hostname",
+      "fx-ws",
+      "--label=podman-agent-sandbox=0.7.0",
+      "--userns=keep-id",
+      "--device=/dev/net/tun",
+      "--security-opt=unmask=/proc/*",
+      "--security-opt=seccomp=/home/user/sandboxes/fx-ws/.devcontainer/seccomp.json",
+      "--entrypoint",
+      "/bin/sh",
+      "vsc-fx-ws-0018001800180018001800180018001800180018001800180018001800180018",
+      "-c",
+      "echo Container started\ntrap \"exit 0\" 15\n\nexec \"$@\"\nwhile sleep 1 & wait $!; do :; done",
+      "-"
+    ],
+    "Labels": {
+      "devcontainer.config_file": "/home/user/sandboxes/fx-ws/.devcontainer/devcontainer.json",
+      "devcontainer.local_folder": "/home/user/sandboxes/fx-ws",
+      "podman-agent-sandbox": "0.7.0"
+    }
+  },
+  "Mounts": [
+    {
+      "Type": "volume",
+      "Name": "fx-ws-home",
+      "Source": "/home/user/.local/share/containers/storage/volumes/fx-ws-home/_data",
+      "Destination": "/home/user",
+      "RW": true
+    },
+    {
+      "Type": "bind",
+      "Source": "/home/user/project/.git/config",
+      "Destination": "/home/user/project/.git/config",
+      "RW": false
+    },
+    {
+      "Type": "bind",
+      "Source": "/home/user/project/.git/hooks",
+      "Destination": "/home/user/project/.git/hooks",
+      "RW": false
+    },
+    {
+      "Type": "bind",
+      "Source": "/home/user/project/sub/.git/config",
+      "Destination": "/home/user/project/sub/.git/config",
+      "RW": false
+    },
+    {
+      "Type": "bind",
+      "Source": "/home/user/project/sub/.git/hooks",
+      "Destination": "/home/user/project/sub/.git/hooks",
+      "RW": false
+    },
+    {
+      "Type": "bind",
+      "Source": "/home/user/project",
+      "Destination": "/home/user/project",
+      "RW": true
+    },
+    {
+      "Type": "bind",
+      "Source": "/dev/null",
+      "Destination": "/home/user/project/.env",
+      "RW": false
+    }
+  ],
+  "NetworkSettings": {
+    "Networks": {}
+  }
+}

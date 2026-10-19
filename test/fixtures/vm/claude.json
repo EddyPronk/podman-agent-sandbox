@@ -1,0 +1,83 @@
+{
+  "Id": "0004000400040004000400040004000400040004000400040004000400040004",
+  "Name": "fx-claude",
+  "Created": "2026-10-17T04:10:16.175806186Z",
+  "Image": "0005000500050005000500050005000500050005000500050005000500050005",
+  "ImageName": "localhost/vsc-fx-claude-0006000600060006000600060006000600060006000600060006000600060006:latest",
+  "State": {
+    "Status": "exited"
+  },
+  "Config": {
+    "CreateCommand": [
+      "podman",
+      "run",
+      "--sig-proxy=false",
+      "-a",
+      "STDOUT",
+      "-a",
+      "STDERR",
+      "--mount",
+      "source=/home/user/sandboxes/fx-claude,target=/workspace,type=bind",
+      "--mount",
+      "type=volume,source=fx-claude-home,target=/home/user,U=true",
+      "--mount",
+      "type=bind,source=/home/user/sandboxes/fx-claude/.devcontainer,target=/workspace/.devcontainer,readonly",
+      "-l",
+      "devcontainer.local_folder=/home/user/sandboxes/fx-claude",
+      "-l",
+      "devcontainer.config_file=/home/user/sandboxes/fx-claude/.devcontainer/devcontainer.json",
+      "-e",
+      "DISABLE_AUTOUPDATER=1",
+      "-e",
+      "NVM_SYMLINK_CURRENT=false",
+      "-u",
+      "1000:1000",
+      "--security-opt",
+      "label=disable",
+      "--userns=keep-id",
+      "--name",
+      "fx-claude",
+      "--hostname",
+      "fx-claude",
+      "--label=podman-agent-sandbox=0.7.0",
+      "--userns=keep-id",
+      "--cap-drop=all",
+      "--security-opt=no-new-privileges",
+      "--entrypoint",
+      "/bin/sh",
+      "vsc-fx-claude-0006000600060006000600060006000600060006000600060006000600060006",
+      "-c",
+      "echo Container started\ntrap \"exit 0\" 15\n\nexec \"$@\"\nwhile sleep 1 & wait $!; do :; done",
+      "-"
+    ],
+    "Labels": {
+      "devcontainer.config_file": "/home/user/sandboxes/fx-claude/.devcontainer/devcontainer.json",
+      "devcontainer.local_folder": "/home/user/sandboxes/fx-claude",
+      "podman-agent-sandbox": "0.7.0"
+    }
+  },
+  "Mounts": [
+    {
+      "Type": "volume",
+      "Name": "fx-claude-home",
+      "Source": "/home/user/.local/share/containers/storage/volumes/fx-claude-home/_data",
+      "Destination": "/home/user",
+      "RW": true
+    },
+    {
+      "Type": "bind",
+      "Source": "/home/user/sandboxes/fx-claude",
+      "Destination": "/workspace",
+      "RW": true
+    },
+    {
+      "Type": "bind",
+      "Source": "/home/user/sandboxes/fx-claude/.devcontainer",
+      "Destination": "/workspace/.devcontainer",
+      "RW": false
+    }
+  ],
+  "NetworkSettings": {
+    "Networks": {}
+  }
+}
