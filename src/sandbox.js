@@ -14,8 +14,9 @@ import {
 import { ask, configChange, short, writeEffective } from './inplace.js';
 import { configVolumes, formatBytes, removedRows, table } from './inspect.js';
 import { lockSandbox } from './lock.js';
+import { readRecord, removeRecord, writeRecord } from './state.js';
 import { checkMinVersion } from './templates.js';
-import { VM_FOLDER_LABEL, VM_OF_LABEL, Vm, checkHost, madeAt, vmName, vmPolicy } from './vm.js';
+import { VM_OF_LABEL, Vm, checkHost, madeAt, vmName, vmPolicy } from './vm.js';
 import { configFile, readConfig, readSettings, uncoveredInSandbox } from './workspace.js';
 
 /** @typedef {import('./vm.js').Answer} Answer */
@@ -46,15 +47,15 @@ export function loadSandbox(name, { lock = false } = {}) {
 }
 
 /**
- * What podman has of sandbox NAME: the container named NAME (and, when that's another sandbox's VM,
- * whose), and its VM, found by its label.
+ * What there is of sandbox NAME: the container named NAME (and, when that's another sandbox's VM,
+ * whose), its VM, found by its label, and its record (state.js).
  * @param {string} name
- * @returns {{ container: Container, vmOf: string, vm: Vm | null }}
+ * @returns {{ container: Container, vmOf: string, vm: Vm | null, record: import('./state.js').Record | null }}
  */
 function readState(name) {
     const container = Container.load(name);
     const vmOf = container.labels[VM_OF_LABEL] ?? '';
-    return { container, vmOf, vm: vmOf ? null : Vm.find(name) };
+    return { container, vmOf, vm: vmOf ? null : Vm.find(name), record: vmOf ? null : readRecord(name) };
 }
 
 /**
@@ -84,8 +85,8 @@ export function enterPlan(state, { vm = false, fromExisting = false, policy = AL
     const refuse = (why) => ({ action: 'refuse', why });
     if (!vm) {
         if (state.vm.exists) {
-            return refuse(`${name} is a VM: 'sandbox enter --vm ${name}' connects to it; 'sandbox rm ${name}' makes it a `
-                + 'container again');
+            return refuse(`${name} is a VM: to make it a container, 'sandbox rm ${name}' (volumes are kept), then `
+                + `'sandbox enter --container ${name}'`);
         }
         return { action: 'open', target: 'container' };
     }
@@ -125,6 +126,7 @@ export class Sandbox {
         /** The sandbox whose VM the container named NAME is, or ''. */
         this.vmOf = now.vmOf;
         this.vm = now.vm;
+        this.record = now.record;
     }
 
     /** Read the state again, after a step that changed it. */
@@ -133,11 +135,21 @@ export class Sandbox {
         this.container = now.container;
         this.vmOf = now.vmOf;
         this.vm = now.vm;
+        this.record = now.record;
     }
 
-    /** The sandbox's config folder: the container's label, the VM's, or $SANDBOX_DIR/NAME; refuses when there's none. */
+    /**
+     * What the sandbox is: 'vm' or 'container'. Its record says (sandbox new --vm, enter --vm, enter
+     * --container), and a VM sandbox stays one after sandbox rm. Without a record: a VM if it has one.
+     * @returns {import('./state.js').Kind}
+     */
+    get kind() {
+        return this.record?.kind ?? (this.vm ? 'vm' : 'container');
+    }
+
+    /** The sandbox's config folder: the container's label, the record's, or $SANDBOX_DIR/NAME; refuses when there's none. */
     get dir() {
-        return folderOf(this.name, { lookup: () => this.container.folder || this.vm?.folder || '' });
+        return folderOf(this.name, { lookup: () => this.container.folder || this.record?.folder || '' });
     }
 
     /** Whether the sandbox has a container or a VM, running or not: made from an older config or image. */
@@ -145,9 +157,9 @@ export class Sandbox {
         return this.container.exists || this.vm !== null;
     }
 
-    /** Whether there is such a sandbox: a container, a VM, or a config folder. */
+    /** Whether there is such a sandbox: a container, a VM, a record or a config folder. */
     known() {
-        if (this.made()) return true;
+        if (this.made() || this.record) return true;
         try {
             return Boolean(this.dir);
         } catch {
@@ -156,17 +168,19 @@ export class Sandbox {
     }
 
     /**
-     * sandbox enter [--vm [--from-existing]]: start or make what PLAN.md's rules say, then a shell in it;
-     * the shell's exit status.
-     * @param {{ vm?: boolean, fromExisting?: boolean }} [options]
+     * sandbox enter [--vm [--from-existing] | --container]: open the sandbox as what it is (its kind),
+     * or as KIND when given, starting or making it as PLAN.md's rules say; the shell's exit status.
+     * @param {{ kind?: import('./state.js').Kind | null, fromExisting?: boolean }} [options]
      */
-    enter({ vm = false, fromExisting = false } = {}) {
+    enter({ kind = null, fromExisting = false } = {}) {
         /** @type {Container | Vm} */
         let target;
         try {
             this.#checkNotAVm();
-            if (!vm) {
+            if ((kind ?? this.kind) === 'container') {
                 this.#refuseIf(enterPlan(this.#state(), {}));
+                // A VM sandbox removed with sandbox rm, made a container now (--container): forget it was one.
+                if (this.record) removeRecord(this.name);
                 this.#start();
                 target = this.container;
             } else {
@@ -179,17 +193,19 @@ export class Sandbox {
     }
 
     /**
-     * sandbox exec: start the container if needed, and run COMMAND; its exit status. Not for a VM: a
-     * command can't run next to its shell, and starting the container instead would run it elsewhere.
+     * sandbox exec: start the container if needed, and run COMMAND; its exit status. Not for a VM
+     * sandbox, also after sandbox rm: a command can't run next to a VM's shell, and starting the
+     * container instead would run it elsewhere.
      * @param {string[]} command
      */
     exec(command) {
         try {
             this.#checkNotAVm();
-            const target = this.vm ?? this.container;
-            if (!target.canExec) {
-                throw new SandboxError(`${this.name} is a VM; exec can't run commands in it. Use 'sandbox enter --vm `
-                    + `${this.name}', or 'sandbox rm ${this.name}' to make it a container again`);
+            const target = this.kind === 'vm' ? this.vm : this.container;
+            if (!target?.canExec) {
+                throw new SandboxError(`${this.name} is a VM sandbox; exec can't run commands in it. Use 'sandbox enter `
+                    + `${this.name}', or, to make it a container: 'sandbox rm ${this.name}', then 'sandbox enter --container `
+                    + `${this.name}'`);
             }
             this.#start();
         } finally {
@@ -212,7 +228,7 @@ export class Sandbox {
         if (result.status !== 0) return exitStatus(result);
         if (this.made()) {
             console.error(`sandbox: ${this.name} still runs the old image${this.vm ? ' (its VM too)' : ''}; use `
-                + `'sandbox rm ${this.name}' then 'sandbox enter${this.vm ? ' --vm' : ''} ${this.name}'`);
+                + `'sandbox rm ${this.name}' then 'sandbox enter ${this.name}'`);
         }
         return 0;
     }
@@ -276,6 +292,8 @@ export class Sandbox {
                 ...volumes.map((volume) => `kept volume ${volume}, with what's in it (e.g. the home, podman's images `
                     + `inside): podman volume rm ${volume} removes it`),
                 ...(settings ? [`${settings.workspace} is untouched: only ${what} removed`] : []),
+                ...(this.kind === 'vm' ? [`${name} stays a VM sandbox: 'sandbox enter ${name}' makes its VM again `
+                    + `('sandbox enter --container ${name}' makes it a container)`] : []),
             ].join('\n');
         } finally {
             this.release();
@@ -294,16 +312,18 @@ export class Sandbox {
             const { folder } = container;
             parts.push(container.describe({ untrusted: folder ? untrustedChange(folder) : null }));
         } else {
-            const folder = join(sandboxDir(), name);
+            const folder = this.record?.folder || join(sandboxDir(), name);
             if (hasConfig(folder)) {
                 // Removed with sandbox rm, or not created yet: what's left of it.
+                const what = this.kind === 'vm' ? 'its VM' : 'it';
                 parts.push(`# ${name} has no container (removed, or not created yet)${vm ? ', only its VM'
-                    : `; sandbox enter ${name} creates it from its config`}.\n${table(removedSandbox(folder).rows)}`);
+                    : `; sandbox enter ${name} creates ${what} from its config`}.\n${table(removedSandbox(folder).rows)}`);
             } else if (!vm) {
                 throw new SandboxError(`no container '${name}', and no sandbox config in ${folder}`);
             }
         }
         if (vm) parts.push(`# ${name}'s VM: ${vm.describe()}`);
+        else if (this.kind === 'vm') parts.push(`# ${name} is a VM sandbox: 'sandbox enter ${name}' makes its VM`);
         return parts.join('\n\n');
     }
 
@@ -333,8 +353,13 @@ export class Sandbox {
         const { name } = this;
         const dir = this.dir;
         checkTrusted(name, dir);
+        // Before reading the config: no krun or KVM is the cheapest refusal.
+        const host = checkHost();
+        if (!host.allowed) throw new SandboxError(host.reason);
         const config = readConfiguration(dir);
-        const plan = enterPlan(this.#state(), { vm: true, fromExisting, policy: vmPolicy(config.merged), host: checkHost() });
+        const plan = enterPlan(this.#state(), { vm: true, fromExisting, policy: vmPolicy(config.merged), host });
+        // A VM sandbox from here on, also if what follows fails: the next enter tries again as a VM.
+        if (plan.action !== 'refuse' && this.record?.kind !== 'vm') writeRecord(name, { kind: 'vm', folder: dir });
         switch (plan.action) {
         case 'refuse':
             throw new SandboxError(plan.why);
@@ -371,7 +396,7 @@ export class Sandbox {
                 checkWorkspace(name, dir, this.container.readonlyMounts());
             }
             this.#checkContainerInactive();
-            return Vm.makeFrom(this.container, { folder: dir, workdir: config.workdir, env: vmEnv(merged) });
+            return Vm.makeFrom(this.container, { workdir: config.workdir, env: vmEnv(merged) });
         }
         default:
             throw new Error(`unknown plan ${JSON.stringify(/** @type {never} */ (plan))}`);
@@ -489,18 +514,26 @@ export function listSandboxes() {
  * elsewhere can't be found once their container is gone.
  */
 export function listRemoved() {
-    const result = podman(['ps', '-a', '--format', `{{.Label "devcontainer.local_folder"}}\t{{.Label "${VM_FOLDER_LABEL}"}}`]);
+    const result = podman(['ps', '-a', '--format', `{{.Label "devcontainer.local_folder"}}\t{{.Label "${VM_OF_LABEL}"}}`]);
     if (result.status !== 0) throw new SandboxError(result.stderr.trim());
-    const used = new Set(result.stdout.split(/[\n\t]/).filter((folder) => folder && folder !== '<no value>'));
+    const used = new Set();
+    for (const line of result.stdout.split('\n').filter(Boolean)) {
+        const [folder, vmOf] = line.split('\t').map((s) => (s === '<no value>' ? '' : s));
+        if (folder) used.add(folder);
+        // A VM has no devcontainer.* labels: its sandbox's record says where its folder is.
+        const recorded = vmOf ? readRecord(vmOf)?.folder : '';
+        if (recorded) used.add(recorded);
+    }
     const dir = sandboxDir();
     const folders = existsSync(dir) ? readdirSync(dir, { withFileTypes: true })
         .filter((e) => e.isDirectory() && hasConfig(join(dir, e.name)) && !used.has(join(dir, e.name)))
         .map((e) => join(dir, e.name)).sort() : [];
-    const rows = [['NAME', 'WORKSPACE', 'KEPT VOLUMES']];
+    const rows = [['NAME', 'KIND', 'WORKSPACE', 'KEPT VOLUMES']];
     for (const folder of folders) {
         const { settings, volumes } = removedSandbox(folder);
         const kept = volumes.filter((v) => v.bytes !== null).map((v) => `${v.name} (${formatBytes(v.bytes)})`);
-        rows.push([basename(folder), settings?.workspace ?? folder, kept.join(', ') || 'none']);
+        const kind = readRecord(basename(folder))?.kind === 'vm' ? 'VM' : 'container';
+        rows.push([basename(folder), kind, settings?.workspace ?? folder, kept.join(', ') || 'none']);
     }
     return rows.length > 1 ? table(rows) : `no removed sandboxes in ${dir}`;
 }

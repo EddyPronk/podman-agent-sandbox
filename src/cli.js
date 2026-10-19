@@ -41,6 +41,9 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        you confirm it (--yes: without asking). sandbox keeps
                        the copy you trusted in $SANDBOX_DIR/NAME and runs only
                        that; PATH/.devcontainer is read-only inside
+  sandbox new ... --vm any of the above, as a VM sandbox: sandbox enter makes
+                       a VM (krun) instead of a container; refused when the
+                       machine or the config can't (see docs/microvm.md)
   sandbox trust NAME [--yes]
                        show how an --inplace sandbox's project config changed,
                        and use it; until then, enter, exec and build refuse
@@ -52,18 +55,22 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
   sandbox build NAME [--no-cache]
                        build NAME's image, showing the full log
   sandbox enter NAME   start NAME if needed and open a shell as $USER; with
-                       --workspace, first check every git repo is protected
+                       --workspace, first check every git repo is protected.
+                       A VM sandbox: start its VM if needed, attach to its shell
   sandbox enter --vm [--from-existing] NAME
-                       run NAME in a small KVM virtual machine (krun) with its
-                       own kernel, and attach to its shell (Ctrl-]
-                       detaches); made from NAME's container (--from-existing:
-                       from the one that exists already). NAME stays a VM until
-                       sandbox rm; see docs/microvm.md
+                       make NAME a VM sandbox: run it in a small KVM virtual
+                       machine (krun) with its own kernel, and attach to its
+                       shell (Ctrl-] detaches); made from NAME's container
+                       (--from-existing: from the one that exists already).
+                       NAME stays a VM sandbox, also after sandbox rm; see
+                       docs/microvm.md
+  sandbox enter --container NAME
+                       make a VM sandbox, after sandbox rm, a container again
   sandbox exec NAME [--] COMMAND [ARG ...]
                        start NAME if needed and run COMMAND in it, like
                        'ssh host COMMAND': as $USER, in the workspace folder,
                        with a terminal only if you're at one; its exit status
-                       (not for a VM)
+                       (not for a VM sandbox)
   sandbox help [NAME]  this text; with NAME, what that sandbox offers (from its
                        template), e.g. sandbox help mitm-proxy
   sandbox inspect NAME the podman command that created NAME's container, as a
@@ -162,12 +169,15 @@ function cmdBuild(args) {
 
 function cmdEnter(args) {
     const { values, positionals } = parseArgs({
-        args, allowPositionals: true, options: { vm: { type: 'boolean' }, 'from-existing': { type: 'boolean' } },
+        args, allowPositionals: true,
+        options: { vm: { type: 'boolean' }, container: { type: 'boolean' }, 'from-existing': { type: 'boolean' } },
     });
-    const usage = 'sandbox enter [--vm [--from-existing]] NAME';
+    const usage = 'sandbox enter [--vm [--from-existing] | --container] NAME';
     const name = oneName(positionals, usage);
+    if (values.vm && values.container) throw new SandboxError(`--vm or --container, not both; usage: ${usage}`);
     if (values['from-existing'] && !values.vm) throw new SandboxError(`--from-existing goes with --vm; usage: ${usage}`);
-    return loadSandbox(name, { lock: true }).enter({ vm: Boolean(values.vm), fromExisting: Boolean(values['from-existing']) });
+    const kind = values.vm ? 'vm' : values.container ? 'container' : null;
+    return loadSandbox(name, { lock: true }).enter({ kind, fromExisting: Boolean(values['from-existing']) });
 }
 
 /**

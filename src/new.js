@@ -9,6 +9,7 @@ import {
 } from './inplace.js';
 import { table } from './inspect.js';
 import { SECCOMP_RUN_ARG } from './seccomp.js';
+import { removeRecord, writeRecord } from './state.js';
 import {
     applyTemplate, experimentalImage, parseOptionArgs, seccompAllow, TESTED_IMAGES, withImage,
 } from './templates.js';
@@ -16,6 +17,7 @@ import {
     applyWorkspace, configFile, defaultName, findGitDirs, findSecretFiles, isInside, readConfig, readSettings, realConfigDir,
     resolveWorkspace, workspaceMounts, workspacePath, writeSettings,
 } from './workspace.js';
+import { checkHost, vmPolicy } from './vm.js';
 
 export function cmdNew(args) {
     const { values, positionals } = parseArgs({
@@ -30,11 +32,12 @@ export function cmdNew(args) {
             readonly: { type: 'string', multiple: true },
             inplace: { type: 'boolean' },
             yes: { type: 'boolean', short: 'y' },
+            vm: { type: 'boolean' },
         },
     });
-    const usage = 'sandbox new NAME --template TEMPLATE [--image IMAGE] [--option KEY=VALUE ...]\n'
-        + '       sandbox new [NAME] --template TEMPLATE --workspace PATH [--image IMAGE] [--hide PATH ...] [--readonly PATH ...]\n'
-        + '       sandbox new [NAME] --workspace PATH --inplace [--template TEMPLATE] [--yes] [--hide PATH ...] [--readonly PATH ...]';
+    const usage = 'sandbox new NAME --template TEMPLATE [--image IMAGE] [--option KEY=VALUE ...] [--vm]\n'
+        + '       sandbox new [NAME] --template TEMPLATE --workspace PATH [--image IMAGE] [--hide PATH ...] [--readonly PATH ...] [--vm]\n'
+        + '       sandbox new [NAME] --workspace PATH --inplace [--template TEMPLATE] [--yes] [--hide PATH ...] [--readonly PATH ...] [--vm]';
     const workspace = values.workspace === undefined ? null : resolveWorkspace(values.workspace);
     if ((values.hide || values.readonly) && !workspace) throw new SandboxError('--hide and --readonly need --workspace');
     if (values.inplace && !workspace) throw new SandboxError('--inplace needs --workspace: the project whose .devcontainer to use');
@@ -52,18 +55,26 @@ export function cmdNew(args) {
         throw projectAsConfigFolder(realConfigDir(dest), name, workspace, positionals[0]);
     }
     if (existsSync(dest)) throw alreadyExists(dest, name);
+    if (values.vm) {
+        const host = checkHost();
+        if (!host.allowed) throw new SandboxError(host.reason);
+    }
+    // A record left by a sandbox of this name whose folder was deleted would match the new folder.
+    removeRecord(name);
     if (values.inplace) return newInplace(name, dest, workspace, values);
     // Check everything about the workspace before creating anything.
     const plan = workspace && planWorkspace(workspace, values, realConfigDir(dest));
     const given = withImage(parseOptionArgs(values.option ?? []), values.image);
     const template = applyTemplate(values.template, dest, given);
+    try {
+        if (plan) applyWorkspace(dest, plan);
+        if (values.vm) checkVm(name, readConfig(configFile(dest)), dest);
+    } catch (err) {
+        rmSync(dest, { recursive: true, force: true });
+        throw err;
+    }
+    if (values.vm) writeRecord(name, { kind: 'vm', folder: dest });
     if (plan) {
-        try {
-            applyWorkspace(dest, plan);
-        } catch (err) {
-            rmSync(dest, { recursive: true, force: true });
-            throw err;
-        }
         console.log(`created ${dest} from template '${values.template}', around ${workspace}`);
         const repos = plan.gitDirs.length;
         console.log(`read-only inside: ${repos} git repo${repos === 1 ? "'s" : "s'"} hooks and config`
@@ -71,9 +82,24 @@ export function cmdNew(args) {
     } else {
         console.log(`created ${dest} from template '${values.template}'`);
     }
-    console.log(`next: sandbox enter ${name}`);
+    console.log(nextStep(name, values.vm));
     warnImage(name, template, given);
     if (plan) warnSecrets(name, dest, plan);
+}
+
+/** What to run after sandbox new: enter, which makes the container or, with --vm, the VM. */
+function nextStep(name, vm) {
+    return vm ? `a VM sandbox. next: sandbox enter ${name} (makes its VM; see docs/microvm.md)` : `next: sandbox enter ${name}`;
+}
+
+/**
+ * sandbox new --vm: refuse CONFIG (of NAME, to be made in DEST) when it can't run as a VM (vmPolicy:
+ * the no-vm policy, a postStartCommand or postAttachCommand). Features may add such commands too;
+ * enter checks again once the image exists.
+ */
+function checkVm(name, config, dest) {
+    const policy = vmPolicy(config);
+    if (!policy.allowed) throw new SandboxError(`${name} can't run as a VM: ${policy.reason}; ${dest} wasn't made`);
 }
 
 /** Warn about an experimental --image (GIVEN.image) for TEMPLATE. */
@@ -151,7 +177,9 @@ function newInplace(name, dest, workspace, values) {
     let staged;
     try {
         staged = stageConfig(workspace);
+        if (values.vm) checkVm(name, staged.config, dest);
     } catch (err) {
+        if (staged) rmSync(staged.root, { recursive: true, force: true });
         if (template) rmSync(config, { recursive: true, force: true });
         throw err;
     }
@@ -174,6 +202,7 @@ function newInplace(name, dest, workspace, values) {
     } finally {
         rmSync(staged.root, { recursive: true, force: true });
     }
+    if (values.vm) writeRecord(name, { kind: 'vm', folder: dest });
     if (template) {
         console.log(`wrote ${config} from template '${values.template}': review it, and commit it with the project`);
     }
@@ -181,7 +210,7 @@ function newInplace(name, dest, workspace, values) {
     const repos = plan.gitDirs.length;
     console.log(`read-only inside: .devcontainer, ${repos} git repo${repos === 1 ? "'s" : "s'"} hooks and config`
         + `${plan.readonly.length ? `, ${plan.readonly.join(', ')}` : ''}; hidden: ${plan.hide.join(', ') || 'nothing'}`);
-    console.log(`next: sandbox enter ${name}`);
+    console.log(nextStep(name, values.vm));
     if (template) warnImage(name, template, given);
     warnSecrets(name, dest, plan);
 }

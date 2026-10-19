@@ -12,14 +12,15 @@
 #        guest kernel, your uid, /workspace; a file written there is yours; exit stops the VM
 #   V2   a stopped VM is started; Ctrl-] detaches and the VM keeps running; the next enter --vm
 #        attaches to the same shell
-#   V3   plain enter and exec refuse for a VM sandbox, running and stopped, without starting anything
+#   V3   a VM sandbox, running and stopped: plain enter attaches to or starts its VM; exec and enter
+#        --container refuse, without starting the container
 #   V4   stop kills the VM at once; stop again says nothing is running
 #   V5   x and x-vm side by side: enter --vm x refuses the foreign x-vm; rm x leaves it alone; x's VM
 #        isn't a sandbox x-vm (rm --force refuses)
 #   V6   enter --vm refuses an existing container (running and stopped); --from-existing makes the VM
 #        from it; after rm, enter --vm makes both afresh
 #   V7   two enter --vm at once on a new sandbox: one waits for the other (the lock); one VM
-#   V8   mitm-proxy refused, nothing made
+#   V8   mitm-proxy refused by enter --vm and new --vm, nothing made
 #   V9   a --workspace sandbox (a git repo, --hide of a file and a folder) in a VM: .git/hooks and
 #        .git/config read-only, hidden paths empty, as the user and as guest root if the image has sudo;
 #        a repo added after the VM was made: enter --vm refuses
@@ -27,6 +28,8 @@
 #   V11  claude-containers (custom seccomp profile on the VM's host process): the VM starts, or the
 #        failure removes it (R5); NOTE says which
 #   V12  rm removes the VM and the container, the kept volume listed once
+#   V13  new --vm: plain enter makes the VM; after rm it stays a VM sandbox (list --removed says so,
+#        exec refuses, plain enter makes the VM again); after rm, enter --container makes it a container
 # Removes what it made at the end. Each test's output is in LOG_DIR (default ./vm-test-logs).
 # Exit status: the number of failed tests.
 set -uo pipefail
@@ -43,7 +46,7 @@ LOG=${1:-$PWD/vm-test-logs}
 mkdir -p "$LOG" "$SANDBOX_DIR"
 export LOG=$(cd "$LOG" && pwd -P)
 export HOST_KERNEL=$(uname -r)
-NAMES=(v1 v6 v7 vp vw vc vcc vx vx-vm)
+NAMES=(v1 v6 v7 vp vp2 vw vc vcc vx vx-vm v13)
 failed=0
 
 run() {   # NAME COMMAND: run COMMAND, report
@@ -59,6 +62,8 @@ run() {   # NAME COMMAND: run COMMAND, report
 
 # vm NAME INPUT [OPTIONS]: sandbox enter --vm [OPTIONS] NAME in a pseudo-terminal, fed INPUT (printf %b).
 vm() { local name=$1 input=$2; shift 2; printf "%b" "$input" | timeout 600 script -qefc "$SB enter --vm $* $name" /dev/null; }
+# plain NAME INPUT [OPTIONS]: the same with sandbox enter [OPTIONS] NAME (no --vm).
+plain() { local name=$1 input=$2; shift 2; printf "%b" "$input" | timeout 600 script -qefc "$SB enter $* $name" /dev/null; }
 # vmd NAME INPUT: the same, then detach (Ctrl-], sandbox's detach key) once attached, as a person
 # would: not with INPUT, since what is typed before podman attach puts the terminal in raw mode goes
 # through the terminal's line discipline. The input stays open a little after, until the session ended.
@@ -71,7 +76,7 @@ vmd() {
 }
 # state NAME: podman's state of container NAME, or "absent".
 state() { podman container inspect --format '{{.State.Status}}' "$1" 2> /dev/null || echo absent; }
-export -f vm vmd state
+export -f vm plain vmd state
 
 cleanup() {
     for n in "${NAMES[@]}"; do
@@ -106,13 +111,16 @@ run "V2 a stopped VM is started; Ctrl-] detaches; the next enter attaches to the
     echo "$out"
     echo "$out" | grep -q "MARK=kept" || { echo "not the same shell"; exit 1; }'
 
-run "V3 plain enter and exec refuse for a VM sandbox, running and stopped" '
+run "V3 a VM sandbox: plain enter attaches to or starts its VM; exec and enter --container refuse" '
+    set -e
     for s in running stopped; do
-        [ $s = stopped ] && $SB stop v1
-        out=$($SB enter v1 < /dev/null 2>&1) && { echo "enter ran ($s)"; exit 1; }
-        echo "$out" | grep -q "v1 is a VM" || { echo "$out"; exit 1; }
+        if [ $s = running ]; then vmd v1 "" > "$LOG/V3-start.log"; else $SB stop v1; fi
+        out=$(plain v1 "echo K=\$(uname -r)\nexit\n"); echo "$out"
+        echo "$out" | grep -q "K=[0-9]" && ! echo "$out" | grep -q "K=$HOST_KERNEL" || { echo "not in the VM ($s)"; exit 1; }
         out=$($SB exec v1 true 2>&1) && { echo "exec ran ($s)"; exit 1; }
-        echo "$out" | grep -q "exec can.t run commands in it" || { echo "$out"; exit 1; }
+        echo "$out" | grep -q "exec can.t run commands in it"
+        out=$($SB enter --container v1 < /dev/null 2>&1) && { echo "--container ran ($s)"; exit 1; }
+        echo "$out" | grep -q "sandbox rm v1"
         [ "$(state v1)" = exited ] || { echo "the container was started"; exit 1; }
     done'
 
@@ -168,11 +176,14 @@ run "V7 two enter --vm at once: one waits for the other; one VM" '
     [ "$(podman ps -a --filter label=podman-agent-sandbox.vm-of=v7 --format "{{.ID}}" | wc -l)" = 1 ]
     $SB stop v7'
 
-run "V8 mitm-proxy refused, nothing made" '
+run "V8 mitm-proxy refused by enter --vm and new --vm, nothing made" '
     $SB new vp --template mitm-proxy || exit 1
     out=$(vm vp "exit\n" 2>&1) && { echo "ran: $out"; exit 1; }
     echo "$out" | grep -q "vp can.t run as a VM" || { echo "$out"; exit 1; }
-    [ "$(state vp)" = absent ] && [ "$(state vp-vm)" = absent ]'
+    [ "$(state vp)" = absent ] && [ "$(state vp-vm)" = absent ] || exit 1
+    out=$($SB new vp2 --template mitm-proxy --vm 2>&1) && { echo "new --vm made it: $out"; exit 1; }
+    echo "$out" | grep -q "vp2 can.t run as a VM" || { echo "$out"; exit 1; }
+    [ ! -e "$SANDBOX_DIR/vp2" ] && [ ! -e "$SANDBOX_DIR/.state/vp2.json" ]'
 
 run "V9 a --workspace sandbox in a VM: .git read-only, hidden paths empty; a repo added later refused" '
     set -e
@@ -223,6 +234,25 @@ run "V12 rm removes the VM and the container, the kept volume listed once" '
     echo "$out" | grep -q "removed v1.s VM"; echo "$out" | grep -q "^removed v1$"
     [ "$(echo "$out" | grep -c "kept volume v1-home")" = 1 ]
     [ "$(state v1)" = absent ] && [ "$(state v1-vm)" = absent ]'
+
+run "V13 new --vm: plain enter makes the VM; a VM sandbox after rm; --container makes it a container" '
+    set -e
+    $SB new v13 --template offline --vm
+    out=$(plain v13 "echo K=\$(uname -r)\nexit\n"); echo "$out"
+    echo "$out" | grep -q "K=[0-9]" && ! echo "$out" | grep -q "K=$HOST_KERNEL" || { echo "not in a VM"; exit 1; }
+    [ "$(state v13-vm)" = exited ]
+    $SB rm v13 | grep -q "v13 stays a VM sandbox"
+    $SB list --removed | grep -qE "^v13 +VM "
+    out=$($SB exec v13 true 2>&1) && { echo "exec ran after rm"; exit 1; }
+    echo "$out" | grep -q "v13 is a VM sandbox"
+    plain v13 "exit\n" > "$LOG/V13-again.log"
+    [ "$(state v13-vm)" = exited ] || { echo "plain enter after rm made no VM"; exit 1; }
+    $SB rm v13 > /dev/null
+    out=$(plain v13 "echo K=\$(uname -r)\nexit\n" --container); echo "$out"
+    echo "$out" | grep -q "K=$HOST_KERNEL" || { echo "not a container"; exit 1; }
+    [ "$(state v13)" = running ] && [ "$(state v13-vm)" = absent ]
+    $SB exec v13 true
+    [ ! -e "$SANDBOX_DIR/.state/v13.json" ]'
 
 cleanup
 echo "$failed failed"
