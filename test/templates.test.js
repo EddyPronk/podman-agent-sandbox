@@ -5,12 +5,12 @@ import { mkdirSync, mkdtempSync, readFileSync, existsSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { SandboxError } from '../src/devcontainer.js';
-import { CONFIG_MOUNT } from '../src/workspace.js';
+import { SandboxError } from '../dist/devcontainer.js';
+import { CONFIG_MOUNT } from '../dist/workspace.js';
 import {
     applyTemplate, checkMinVersion, experimentalImage, listTemplates, parseOptionArgs, resolveOptions, substitute,
     versionAtLeast, withImage,
-} from '../src/templates.js';
+} from '../dist/templates.js';
 
 /** A template root with one template "demo" that has a network option. */
 function demoRoot() {

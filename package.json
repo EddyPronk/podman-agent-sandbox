@@ -9,15 +9,18 @@
   },
   "files": [
     "bin",
-    "src",
+    "dist",
     "templates"
   ],
   "engines": {
     "node": ">=20.12"
   },
   "scripts": {
+    "build": "rm -rf dist && tsc",
+    "typecheck": "tsc --noEmit",
+    "pretest": "npm run build",
     "test": "node --test",
-    "typecheck": "tsc"
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@devcontainers/cli": "0.89.0"

@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import {
     PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, configVolumes, formatBytes, formatCommand, optionValues, parsePodmanStorage,
     parseStatus, parseVscodeProbe, podmanStorageRows, removedRows, shellQuote, splitCommand,
-} from '../src/inspect.js';
+} from '../dist/inspect.js';
 
 // PODMAN_STORAGE_PROBE's output in agent-mitm-proxy's sandbox, with a proxy and a client inside (2026-10-14).
 const STORAGE_OUTPUT = `root /home/u/.local/share/containers/storage

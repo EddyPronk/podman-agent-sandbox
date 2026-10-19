@@ -22,6 +22,9 @@ sandbox-dev new try --template claude
 ```
 
 - **It runs whatever branch is checked out,** with the repo's own `node_modules`.
+- **It runs the build in `dist/`, not `src/`.** Run `npm run build` after each change, or keep
+  `npx tsc --watch` running in another terminal. `--watch` doesn't remove the output of a file
+  deleted from `src/`; `npm run build` does.
 - **It uses the same `SANDBOX_DIR` as the installed `sandbox`.** Give test sandboxes a folder of their
   own: `SANDBOX_DIR=~/sandboxes-dev sandbox-dev new …`.
 - **It reports the version in `package.json`,** which is the release it was branched from. Use the

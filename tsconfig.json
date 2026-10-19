@@ -1,7 +1,11 @@
 {
-  "//": "Type-checks the files marked // @ts-check (JSDoc types, no build step): npm run typecheck",
+  "//": "Builds src/ into dist/ (npm run build) and type-checks the files marked // @ts-check (npm run typecheck)",
   "compilerOptions": {
-    "noEmit": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true,
+    "sourceMap": true,
+    "inlineSources": true,
     "allowJs": true,
     "strict": true,
     "noImplicitAny": false,
@@ -11,5 +15,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "files": ["src/sandbox.js", "src/container.js", "src/vm.js", "src/lock.js", "src/state.js"]
+  "include": ["src"]
 }
