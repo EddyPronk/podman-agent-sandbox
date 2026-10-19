@@ -1,10 +1,16 @@
 # A sandbox in a microVM
 
-`sandbox enter --vm NAME` runs a sandbox in a small KVM virtual machine instead of a plain container,
-so the agent no longer shares your kernel ([How a sandbox is isolated](security-model.md#what-it-doesnt-protect)).
-It uses krun: crun built with libkrun, which runs a container's processes in a microVM with their own
-Linux kernel (libkrunfw). The rest stays as it is: `sandbox new`, the template, the image build, the
-lifecycle commands, the mounts.
+A VM sandbox runs in a small KVM virtual machine instead of a plain container, so the agent no longer
+shares your kernel ([How a sandbox is isolated](security-model.md#what-it-doesnt-protect)). It uses
+krun: crun built with libkrun, which runs a container's processes in a microVM with their own Linux
+kernel (libkrunfw). The rest stays as it is: the template, the image build, the lifecycle commands, the
+mounts.
+
+```sh
+sandbox new work --template claude --vm     # a VM sandbox from the start
+sandbox enter work                          # makes its VM, and attaches to its shell
+sandbox enter --vm other                    # makes an existing sandbox a VM sandbox
+```
 
 ## Requirements
 
@@ -15,7 +21,7 @@ lifecycle commands, the mounts.
 - **util-linux `flock`**, which every `sandbox enter`, `exec`, `stop` and `rm` now uses to keep two
   commands on one sandbox apart.
 
-Without them, `sandbox enter --vm` refuses and says what's missing.
+Without them, `sandbox new --vm` and `sandbox enter` of a VM sandbox refuse and say what's missing.
 
 ## How it works
 
@@ -35,17 +41,18 @@ There's no `podman exec` into a krun VM: its processes run in the guest's kernel
 nothing to join. So the VM's main process is a login shell, and `sandbox enter --vm` attaches to it
 (`podman attach`).
 
-`sandbox enter --vm NAME`, in this order:
+`sandbox enter NAME` of a VM sandbox, or `sandbox enter --vm NAME`, in this order:
 
 1. **The VM runs:** attach to its shell.
 2. **The normal container runs:** refuse; `sandbox stop NAME` first. `--vm` never opens the normal
    container.
 3. **The VM exists, stopped:** start it, attach.
-4. **No VM, but the normal container exists:** refuse, saying when it was made. A VM would copy its image,
-   mounts and settings as they were then. For a fresh sandbox, `sandbox rm NAME` (volumes are kept), then
-   `sandbox enter --vm NAME`. To make the VM from that container anyway: `sandbox enter --vm
-   --from-existing NAME`.
-5. **Nothing exists:** make the normal container, stop it, make the VM, attach.
+4. **No VM, but the normal container exists** (a container sandbox, made a VM sandbox with `--vm`):
+   refuse, saying when it was made. A VM would copy its image, mounts and settings as they were then. For
+   a fresh sandbox, `sandbox rm NAME` (volumes are kept), then `sandbox enter --vm NAME`. To make the VM
+   from that container anyway: `sandbox enter --vm --from-existing NAME`.
+5. **Nothing exists** (new, or after `sandbox rm`): make the normal container, stop it, make the VM,
+   attach.
 
 On every path it runs the same checks as `sandbox enter`: an `--inplace` project's config must be the one
 you trusted, and with `--workspace`, every git repository's hooks and config must be read-only. That is
@@ -56,7 +63,9 @@ Refused first, before any of these: no usable krun or `/dev/kvm`; a config with 
 ([A project's own sandbox config](project-config.md)); a config with a `postStartCommand` or
 `postAttachCommand`, since the VM runs neither (they run in a container at each start and each attach).
 The `mitm-proxy` template is refused for both reasons (below). These are read from the config as the
-Dev Containers CLI merges it, Features included, again once the image exists.
+Dev Containers CLI merges it, Features included, again once the image exists. `sandbox new --vm` makes
+the same checks on the config before it makes anything (Features can still add a command; `enter`
+checks again).
 
 ### Why the proxy can't run as a VM
 
@@ -70,33 +79,42 @@ them:
 - **The clients would lose the proxy.** `sandbox enter --vm` needs the normal container stopped, and that
   container is the running proxy. Every client sandbox would lose its way out, for as long as the VM ran.
 
-So the template says so with the `no-vm` policy, and `sandbox enter --vm` refuses it, as it would any
-config with a `postStartCommand`. The policy keeps it refused if the proxy's start ever moves out of
+So the template says so with the `no-vm` policy, and `sandbox new --vm` and `sandbox enter --vm` refuse
+it, as they would any config with a `postStartCommand`. The policy keeps it refused if the proxy's start ever moves out of
 `postStartCommand`. Client sandboxes can run as VMs: a `proxy-client` VM stays behind the proxy (below).
 
 ## A VM sandbox
 
-Once its VM exists, a sandbox is a VM sandbox, running or not, until `sandbox rm NAME`.
+A sandbox becomes a VM sandbox with `sandbox new --vm` or `sandbox enter --vm`, and stays one, also
+after `sandbox rm`. `sandbox` records that in `$SANDBOX_DIR/.state/NAME.json`, outside every mount: a
+sandbox's own folder can be its workspace, writable inside, and an agent that could change the record
+could have the next `enter` run it as a plain container. A record whose folder you deleted counts as
+gone.
 
-- `sandbox enter NAME` (without `--vm`) and `sandbox exec NAME` refuse. A VM has one terminal and no
-  exec, and starting the normal container instead would run things somewhere else than the VM.
-  `sandbox rm NAME` makes it a container sandbox again.
+- `sandbox enter NAME` attaches to its VM, starts it, or makes it (again, after `sandbox rm`).
+- `sandbox exec NAME` refuses. A VM has one terminal and no exec, and starting the normal container
+  instead would run things somewhere else than the VM.
+- To make it a container sandbox again: `sandbox rm NAME` (volumes are kept), then `sandbox enter
+  --container NAME`. `--container` refuses while the VM exists, so a VM and a container never both exist
+  from different setups.
 - `sandbox stop NAME` stops the VM at once (`podman stop --time 0`). Signals reach the VM's host process,
   not the guest, and it ignores SIGTERM, so a gentler stop would only wait and then kill it. What the guest
   had written is already on the host (its files are shared through virtio-fs), so the kill loses what it
   loses in a plain container. `exit` in the VM's shell is cleaner: the VM stops when its shell ends.
-- `sandbox rm NAME` removes the VM and the normal container, and keeps the volumes, as before.
-- `sandbox list` shows the VM next to its sandbox, as `VM of NAME`. `sandbox inspect NAME` adds a line
-  for the VM: its state, when it was made, and how to make it again. Its measurements inside (capabilities,
-  seccomp) are of the normal container, when it runs: they can't be taken in a VM.
+- `sandbox rm NAME` removes the VM and the normal container, and keeps the volumes, as before; the sandbox
+  stays a VM sandbox.
+- `sandbox list` shows the VM next to its sandbox, as `VM of NAME`; `sandbox list --removed` shows each
+  removed sandbox's kind. `sandbox inspect NAME` adds a line for the VM: its state, when it was made, and
+  how to make it again. Its measurements inside (capabilities, seccomp) are of the normal container, when
+  it runs: they can't be taken in a VM.
 - `sandbox build NAME` doesn't change the VM: it keeps the image it was made from. Make it again with
-  `sandbox rm NAME`, then `sandbox enter --vm NAME`.
+  `sandbox rm NAME`, then `sandbox enter NAME`.
 
 ## Attaching
 
-`sandbox enter --vm` attaches your terminal to the VM's shell. Press Enter for a prompt: the shell
+`sandbox enter` attaches your terminal to the VM's shell. Press Enter for a prompt: the shell
 printed its first one before you attached. **Ctrl-] detaches** (as in telnet), leaving the VM and what
-runs in it (a long agent session) running; the next `sandbox enter --vm NAME` attaches to the same
+runs in it (a long agent session) running; the next `sandbox enter NAME` attaches to the same
 shell. `sandbox` sets that key for its attach: Podman's default, Ctrl-P Ctrl-Q, would take Ctrl-P,
 bash's previous-command key, while you're attached. A plain `podman attach NAME-vm` still uses Podman's
 keys. Two terminals attached at once share the one shell, like `screen -x`; they aren't two shells.
