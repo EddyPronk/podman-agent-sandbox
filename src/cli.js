@@ -55,7 +55,7 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        --workspace, first check every git repo is protected
   sandbox enter --vm [--from-existing] NAME
                        run NAME in a small KVM virtual machine (krun) with its
-                       own kernel, and attach to its shell (Ctrl-P Ctrl-Q
+                       own kernel, and attach to its shell (Ctrl-]
                        detaches); made from NAME's container (--from-existing:
                        from the one that exists already). NAME stays a VM until
                        sandbox rm; see docs/microvm.md
