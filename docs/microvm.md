@@ -55,8 +55,24 @@ was made is caught.
 Refused first, before any of these: no usable krun or `/dev/kvm`; a config with the `no-vm` policy
 ([A project's own sandbox config](project-config.md)); a config with a `postStartCommand` or
 `postAttachCommand`, since the VM runs neither (they run in a container at each start and each attach).
-The `mitm-proxy` template is refused for both reasons: its proxy starts in `postStartCommand`. These are
-read from the config as the Dev Containers CLI merges it, Features included, again once the image exists.
+The `mitm-proxy` template is refused for both reasons (below). These are read from the config as the
+Dev Containers CLI merges it, Features included, again once the image exists.
+
+### Why the proxy can't run as a VM
+
+The `mitm-proxy` sandbox runs the egress proxy that every `proxy-client` sandbox on the machine goes
+through: on their internal network it's their only way out. A VM of it wouldn't work, and would break
+them:
+
+- **The proxy wouldn't start.** It starts in the template's `postStartCommand`, at each start of the
+  container. A VM runs a login shell as its main process, and runs no lifecycle command: it would be a
+  shell with no proxy in it.
+- **The clients would lose the proxy.** `sandbox enter --vm` needs the normal container stopped, and that
+  container is the running proxy. Every client sandbox would lose its way out, for as long as the VM ran.
+
+So the template says so with the `no-vm` policy, and `sandbox enter --vm` refuses it, as it would any
+config with a `postStartCommand`. The policy keeps it refused if the proxy's start ever moves out of
+`postStartCommand`. Client sandboxes can run as VMs: a `proxy-client` VM stays behind the proxy (below).
 
 ## A VM sandbox
 
@@ -79,11 +95,11 @@ Once its VM exists, a sandbox is a VM sandbox, running or not, until `sandbox rm
 ## Attaching
 
 `sandbox enter --vm` attaches your terminal to the VM's shell. Press Enter for a prompt: the shell
-printed its first one before you attached. **Ctrl-P Ctrl-Q detaches**, leaving the VM and what runs in it
-(a long agent session) running; the next `sandbox enter --vm NAME` attaches to the same shell. Podman's
-detach keys take Ctrl-P, bash's previous-command key, while you're attached: change them with
-`detach_keys` in `containers.conf`. Two terminals attached at once share the one shell, like `screen -x`;
-they aren't two shells.
+printed its first one before you attached. **Ctrl-] detaches** (as in telnet), leaving the VM and what
+runs in it (a long agent session) running; the next `sandbox enter --vm NAME` attaches to the same
+shell. `sandbox` sets that key for its attach: Podman's default, Ctrl-P Ctrl-Q, would take Ctrl-P,
+bash's previous-command key, while you're attached. A plain `podman attach NAME-vm` still uses Podman's
+keys. Two terminals attached at once share the one shell, like `screen -x`; they aren't two shells.
 
 ## The environment
 
@@ -107,26 +123,30 @@ detaching and reattaching, two `enter --vm` at once, a `--workspace` sandbox, th
 - **Read-only mounts hold against root in the guest:** they're enforced on the host side. Remounting one
   read-write in the guest "succeeds", but writes are still refused and the host file is unchanged.
 - **A `--workspace` sandbox keeps its protection in the VM:** its git repositories' `.git/hooks` and
-  `.git/config` are read-only and `--hide` paths read empty, for the user. (Not tried as root in the guest:
-  the image tested has no `sudo`.)
+  `.git/config` are read-only and `--hide` paths read empty, for the user. (Root in the guest wasn't
+  reached to try them: `sudo` doesn't work in the VM, next point.)
 - **A custom seccomp profile works:** `claude-containers`' VM starts with its profile (`seccompAllow`) on
   the VM's host process.
 - **It runs as your UID only with `--userns=keep-id` and a user** (`containerUser` in the config, as in
-  every template but `mitm-proxy`): uid 1000 in the guest, files owned by you on the host. Any `sudo` or
-  setuid binary in the image makes the guest's user root in the guest. Read-only mounts still hold then.
+  every template but `mitm-proxy`): uid 1000 in the guest, files owned by you on the host.
+- **Root in the guest gets no more of your files than you have.** The guest's files, its root filesystem
+  included, are shared through virtio-fs: the VM's host process opens them, as you, without capabilities.
+  So a setuid program in the image doesn't help much: in an image with `sudo` for the user (no password),
+  `sudo` fails with "unable to open /etc/sudoers: Permission denied", a file owned by root with mode 0440.
+  The setuid `newuidmap` fails too, and with it Podman inside the VM (below); whether for the same reason
+  isn't known.
+- **Memory:** a VM gets 1 GiB by default. Both `"runArgs": ["--annotation", "krun.ram_mib=4096"]` and
+  `"runArgs": ["--memory", "4g"]` in the config set the guest's RAM (2 GiB and 3 GiB measured).
 - **Networking stays as it was:** krun's default networking (TSI) connects from Podman's network namespace.
   A `proxy-client` sandbox's VM stays behind its proxy: allowlisted hosts through it, no DNS and no route
   out by IP around it. Claude Code ran in such a VM, signed in from the home volume.
 - **Start-up** takes about 0.8 s, against about 0.2 s for a plain container.
 
-Not tested yet:
+Doesn't work:
 
-- **Memory:** a VM gets 1 GiB by default. libkrun reads `krun.ram_mib` from the container's annotations
-  (`"runArgs": ["--annotation", "krun.ram_mib=4096"]` in the config); whether `--memory` changes the
-  guest's RAM isn't known.
-- **Podman inside the VM** (`claude-containers`): the VM starts, but running containers in it hasn't been
-  tried.
-- **Guest root against a `--workspace` sandbox's read-only `.git`** (an image with `sudo`).
+- **Podman inside the VM** (`claude-containers`): the VM starts, but an inner container doesn't. Rootless
+  Podman needs `newuidmap` to set up its user namespace, and in the VM it fails ("write to uid_map
+  failed: Operation not permitted"). Use `claude-containers` as a container.
 
 ## Limits
 
