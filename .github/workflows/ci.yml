@@ -45,6 +45,7 @@ jobs:
           grep -qx 'package/dist/cli.js' files.txt
           ! grep -q '^package/src/' files.txt
           ! grep -q '^package/test/' files.txt
+          ! grep -q '^package/test-build/' files.txt
       - name: Install the tarball and run sandbox
         run: |
           npm install -g ./podman-agent-sandbox-*.tgz
