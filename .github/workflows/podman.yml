@@ -3,7 +3,8 @@
 # mitm-proxy + proxy-client pair of its own (nested, test/integration/nested.sh).
 # Not a required check. Runs by hand, and on PRs that change this file, the integration tests, the
 # templates (claude-containers, claude, proxy-client, mitm-proxy, offline), the code that writes the
-# seccomp profile, or the code behind new, enter and exec (cli.js, devcontainer.js).
+# seccomp profile (seccomp.ts, templates.ts, and json.ts, which checks what they read), or the code
+# behind new, enter and exec (cli.ts, devcontainer.ts).
 name: podman
 
 on:
@@ -19,6 +20,7 @@ on:
       - 'templates/offline/**'
       - 'src/seccomp.ts'
       - 'src/templates.ts'
+      - 'src/json.ts'
       - 'src/cli.ts'
       - 'src/devcontainer.ts'
 
