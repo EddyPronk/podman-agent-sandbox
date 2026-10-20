@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
     KNOWN_POLICIES, MARKER_VERSION, checkMarker, checkSelfContained, configTree, hasMarker, resolveLocalEnv, riskSummary,
+    stageConfig,
 } from '../dist/inplace.js';
 import { listTemplates } from '../dist/templates.js';
 
@@ -321,3 +322,19 @@ test('new --inplace refuses --hide of the project\'s .devcontainer; new without 
         assert.match(sandbox(['new', 'x', '--inplace'], dir).stderr, /--inplace needs --workspace/);
         assert.match(sandbox(['trust', 'nothing-here-xyz'], dir).stderr, /no container or dev container config/);
     });
+
+test('stageConfig refuses fields of the wrong type that riskSummary would crash on, with a message', { skip: noGit }, () => {
+    const marker = (fields) => ({ 'podman-agent-sandbox': { version: 1, ...fields } });
+    for (const [config, key] of [[{ capAdd: 5 }, 'capAdd'], [{ securityOpt: 'label=disable' }, 'securityOpt'],
+        [{ runArgs: '--privileged' }, 'runArgs'], [{ runArgs: [1] }, 'runArgs'], [{ image: 5 }, 'image'],
+        [{ mounts: [null] }, 'mounts'], [{ features: ['ghcr.io/x/y:1'] }, 'features'],
+        [{ customizations: marker({ seccompAllow: 'chroot' }) }, 'seccompAllow']]) {
+        const root = project(config);
+        assert.throws(() => stageConfig(root), (err) => err.name === 'Error' && err.message.includes(`"${key}" must be`),
+            JSON.stringify(config));
+    }
+    const ok = project({ capAdd: ['NET_ADMIN'], runArgs: ['--cap-drop=all'], mounts: ['type=volume,source=x,target=/y',
+        { type: 'bind', source: '/a', target: '/a' }], customizations: marker({ seccompAllow: ['chroot'] }) });
+    const staged = stageConfig(ok);
+    rmSync(staged.root, { recursive: true, force: true });
+});

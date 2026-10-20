@@ -8,8 +8,9 @@ import { cpSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, 
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { SandboxError } from './devcontainer.js';
+import { isObject, isStringList } from './json.js';
 import { SECCOMP_RUN_ARG, writeSeccompProfile } from './seccomp.js';
-import { MARKER, checkMinVersion, seccompAllow } from './templates.js';
+import { MARKER, checkMinVersion, markerOf, seccompAllow } from './templates.js';
 import {
     aroundWorkspace, configFile, findGitDirs, hiddenPaths, isInside, readConfig, workspaceMounts,
 } from './workspace.js';
@@ -100,6 +101,25 @@ export function checkMarker(config, file) {
         throw new SandboxError(`${file} requires ${unknown.length === 1 ? 'a policy' : 'policies'} this sandbox `
             + `can't check: ${unknown.join(', ')} (known: ${KNOWN_POLICIES.join(', ') || 'none yet'}). Update sandbox`);
     }
+}
+
+/**
+ * Refuse CONFIG (from FILE) when a field riskSummary or writeEffective reads has the wrong type. The
+ * project's config is untrusted: a field the Dev Containers CLI would refuse must not crash sandbox
+ * before it shows what the config asks for.
+ */
+export function checkFields(config, file) {
+    const wrong = (key, what) => new SandboxError(`${file}: "${key}" must be ${what}`);
+    for (const key of ['capAdd', 'securityOpt', 'runArgs']) {
+        if (config[key] !== undefined && !isStringList(config[key])) throw wrong(key, 'a list of strings');
+    }
+    if (config.image !== undefined && typeof config.image !== 'string') throw wrong('image', 'a string');
+    if (config.features !== undefined && !isObject(config.features)) throw wrong('features', 'an object (id: options)');
+    if (!(config.mounts ?? []).every((m) => typeof m === 'string' || isObject(m))) {
+        throw wrong('mounts', 'a list of strings and objects');
+    }
+    const allow = markerOf(config)?.seccompAllow;
+    if (allow !== undefined && !isStringList(allow)) throw wrong('seccompAllow', 'a list of system call names');
 }
 
 /**
@@ -226,6 +246,7 @@ export function stageConfig(project) {
         if (!existsSync(file)) throw new SandboxError(`${configFile(project)} doesn't exist`);
         const config = readConfig(file);
         checkMarker(config, configFile(project));
+        checkFields(config, configFile(project));
         checkSelfContained(config, join(root, '.devcontainer'), project);
         return { root, id: configTree(root), config };
     } catch (err) {
@@ -252,6 +273,7 @@ export function writeEffective(dest, settings, hooks = {}) {
     cpSync(join(dest, TRUSTED), out, { recursive: true, verbatimSymlinks: true });
     const file = configFile(dest);
     let config = readConfig(file);
+    checkFields(config, file);
     const allow = seccompAllow(dest);
     if (allow?.length) {
         writeSeccompProfile(dest, allow, hooks);
