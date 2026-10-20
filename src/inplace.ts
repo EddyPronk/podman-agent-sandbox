@@ -9,11 +9,14 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { SandboxError } from './devcontainer.js';
 import { isObject, isStringList } from './json.js';
+import type { JsonObject } from './json.js';
 import { SECCOMP_RUN_ARG, writeSeccompProfile } from './seccomp.js';
+import type { SeccompOptions } from './seccomp.js';
 import { MARKER, checkMinVersion, markerOf, seccompAllow } from './templates.js';
 import {
     aroundWorkspace, configFile, findGitDirs, hiddenPaths, isInside, readConfig, workspaceMounts,
 } from './workspace.js';
+import type { DevcontainerConfig, Settings } from './workspace.js';
 
 /**
  * The marker format this sandbox understands, and the policies it can check. no-vm: the config can't
@@ -25,14 +28,41 @@ export const KNOWN_POLICIES = ['no-vm'];
 /** In $SANDBOX_DIR/NAME: the trusted copy of the project's .devcontainer. */
 export const TRUSTED = 'trusted';
 
+/** A project's devcontainer.json, with the fields riskSummary and writeEffective read checked (checkFields). */
+export interface ProjectConfig extends DevcontainerConfig {
+    capAdd?: string[];
+    securityOpt?: string[];
+    runArgs?: string[];
+    image?: string;
+    mounts?: (string | JsonObject)[];
+    features?: JsonObject;
+}
+
+/** A line of riskSummary: what the config asks for, and the value it gives. */
+export type RiskLine = [what: string, value: string];
+
+/** stageConfig's result: ROOT/.devcontainer is the checked copy, ID its tree id. */
+export interface StagedConfig {
+    root: string;
+    id: string;
+    config: ProjectConfig;
+}
+
+/** What the tree id check found for an --inplace sandbox: see configChange. */
+export interface ConfigChange {
+    trusted: string | undefined;
+    now: string;
+    diff: string[];
+}
+
 /** git, with nothing from the environment that points it at another repository or config. */
-function git(args, env, cwd) {
+function git(args: string[], env: NodeJS.ProcessEnv = {}, cwd?: string): string {
     const clean = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
     const result = spawnSync('git', args, {
         cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...clean, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', ...env },
     });
-    if (result.error?.code === 'ENOENT') {
+    if (result.error && 'code' in result.error && result.error.code === 'ENOENT') {
         throw new SandboxError('git not found on PATH: --inplace sandboxes need it to check the project\'s '
             + 'config (a prerequisite since 0.7.0)');
     }
@@ -47,7 +77,7 @@ function git(args, env, cwd) {
  * throwaway one does the work, so DIR's own git config and objects aren't read, nor the user's.
  * '' when DIR has no .devcontainer folder.
  */
-export function configTree(dir) {
+export function configTree(dir: string): string {
     const folder = join(dir, '.devcontainer');
     if (!isFolder(folder)) return '';
     const tmp = mkdtempSync(join(tmpdir(), 'sandbox-tree-'));
@@ -61,7 +91,7 @@ export function configTree(dir) {
     }
 }
 
-function isFolder(path) {
+function isFolder(path: string): boolean {
     try {
         return lstatSync(path).isDirectory();
     } catch {
@@ -70,33 +100,34 @@ function isFolder(path) {
 }
 
 /** Does PROJECT's devcontainer.json carry our marker? For hints only: false when it can't be read. */
-export function hasMarker(project) {
+export function hasMarker(project: string): boolean {
     try {
-        return Boolean(JSON.parse(readFileSync(configFile(project), 'utf8')).customizations?.[MARKER]);
+        return Boolean(markerOf(JSON.parse(readFileSync(configFile(project), 'utf8'))));
     } catch {
         return false;
     }
 }
 
 /** Refuse CONFIG (from FILE) unless it carries a marker this sandbox understands. */
-export function checkMarker(config, file) {
-    const marker = config.customizations?.[MARKER];
-    if (!marker || typeof marker !== 'object') {
+export function checkMarker(config: DevcontainerConfig, file: string): void {
+    const marker = markerOf(config);
+    if (!marker) {
         throw new SandboxError(`${file} isn't a sandbox config (no "customizations": {"${MARKER}": …}); `
             + 'sandbox ignores it.\nMake a sandbox from a template around the project:  '
             + 'sandbox new --workspace PATH --template claude');
     }
-    if (!Number.isInteger(marker.version) || marker.version < 1) {
+    const { version } = marker;
+    if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
         throw new SandboxError(`${file}: "${MARKER}" needs a "version" (1)`);
     }
-    if (marker.version > MARKER_VERSION) {
-        throw new SandboxError(`${file} is for a newer sandbox (its "${MARKER}" version is ${marker.version}; `
+    if (version > MARKER_VERSION) {
+        throw new SandboxError(`${file} is for a newer sandbox (its "${MARKER}" version is ${version}; `
             + `this sandbox knows ${MARKER_VERSION}): update sandbox`);
     }
     checkMinVersion(config, file);
     const policies = marker.policies ?? [];
     if (!Array.isArray(policies)) throw new SandboxError(`${file}: "${MARKER}".policies must be a list`);
-    const unknown = policies.filter((p) => !KNOWN_POLICIES.includes(p));
+    const unknown = policies.filter((p: unknown) => typeof p !== 'string' || !KNOWN_POLICIES.includes(p));
     if (unknown.length) {
         throw new SandboxError(`${file} requires ${unknown.length === 1 ? 'a policy' : 'policies'} this sandbox `
             + `can't check: ${unknown.join(', ')} (known: ${KNOWN_POLICIES.join(', ') || 'none yet'}). Update sandbox`);
@@ -108,8 +139,8 @@ export function checkMarker(config, file) {
  * project's config is untrusted: a field the Dev Containers CLI would refuse must not crash sandbox
  * before it shows what the config asks for.
  */
-export function checkFields(config, file) {
-    const wrong = (key, what) => new SandboxError(`${file}: "${key}" must be ${what}`);
+export function checkFields(config: DevcontainerConfig, file: string): asserts config is ProjectConfig {
+    const wrong = (key: string, what: string) => new SandboxError(`${file}: "${key}" must be ${what}`);
     for (const key of ['capAdd', 'securityOpt', 'runArgs']) {
         if (config[key] !== undefined && !isStringList(config[key])) throw wrong(key, 'a list of strings');
     }
@@ -127,9 +158,9 @@ export function checkFields(config, file) {
  * runs can only hold what's in the folder, and the tree id only covers that. PROJECT is the project's
  * folder. Symlinks are refused: the id covers a link, not what it points to.
  */
-export function checkSelfContained(config, configDir, project) {
-    const where = (what) => `${join(project, '.devcontainer')}: ${what}`;
-    const walk = (dir) => {
+export function checkSelfContained(config: DevcontainerConfig, configDir: string, project: string): void {
+    const where = (what: string) => `${join(project, '.devcontainer')}: ${what}`;
+    const walk = (dir: string) => {
         for (const entry of readdirSync(dir, { withFileTypes: true })) {
             const path = join(dir, entry.name);
             if (entry.isSymbolicLink()) throw new SandboxError(where(`${relative(configDir, path)} is a symlink`));
@@ -137,16 +168,17 @@ export function checkSelfContained(config, configDir, project) {
         }
     };
     walk(configDir);
-    const inside = (path) => isInside(resolve(configDir, path), configDir);
-    const build = config.build ?? {};
-    for (const [key, value] of [['build.context', build.context], ['build.dockerfile', build.dockerfile],
-        ['dockerFile', config.dockerFile], ['context', config.context]]) {
+    const inside = (path: string) => isInside(resolve(configDir, path), configDir);
+    const build = isObject(config.build) ? config.build : {};
+    const paths: [string, unknown][] = [['build.context', build.context], ['build.dockerfile', build.dockerfile],
+        ['dockerFile', config.dockerFile], ['context', config.context]];
+    for (const [key, value] of paths) {
         if (typeof value === 'string' && !inside(value)) {
             throw new SandboxError(where(`${key} ${value} is outside .devcontainer`));
         }
     }
     if (config.dockerComposeFile) throw new SandboxError(where('dockerComposeFile isn\'t supported'));
-    for (const id of Object.keys(config.features ?? {})) {
+    for (const id of Object.keys(isObject(config.features) ? config.features : {})) {
         if ((id.startsWith('./') || id.startsWith('../')) && !inside(id)) {
             throw new SandboxError(where(`the local Feature ${id} is outside .devcontainer`));
         }
@@ -160,7 +192,7 @@ export function checkSelfContained(config, configDir, project) {
 }
 
 /** The words of a lifecycle command: a string, an array, or an object of either. */
-function commandWords(command) {
+function commandWords(command: unknown): string[] {
     if (!command) return [];
     if (typeof command === 'string') return command.split(/[\s;&|()<>"'`=]+/).filter(Boolean);
     if (Array.isArray(command)) return command.flatMap(commandWords);
@@ -169,9 +201,10 @@ function commandWords(command) {
 }
 
 /** A lifecycle command as one line. */
-export function commandText(command) {
+export function commandText(command: unknown): string {
     if (typeof command === 'string') return command;
     if (Array.isArray(command)) return command.join(' ');
+    if (!isObject(command)) return '';
     return Object.entries(command).map(([key, value]) => `${key}: ${commandText(value)}`).join('; ');
 }
 
@@ -182,14 +215,15 @@ const RISKY_ARGS = /^--(privileged|cap-add|device|security-opt|network|net|pid|i
 const PROTECTIVE_ARGS = new Set(['--userns=keep-id', '--security-opt=no-new-privileges']);
 
 /** A read-only bind mount of a path in the project (e.g. its own .devcontainer): protects, grants nothing. */
-function readonlyProjectMount(text) {
+function readonlyProjectMount(text: string): boolean {
     const parts = text.split(',');
     return parts.includes('readonly') && parts.some((part) => part.startsWith('source=${localWorkspaceFolder}'));
 }
 
 /** TEXT with ${localEnv:NAME} and ${localEnv:NAME:DEFAULT} filled in from ENV, as the Dev Containers CLI does. */
-export function resolveLocalEnv(text, env) {
-    return text.replace(/\$\{localEnv:([^}:]+)(?::([^}]*))?\}/g, (_, name, fallback) => env[name] ?? fallback ?? '');
+export function resolveLocalEnv(text: string, env: NodeJS.ProcessEnv): string {
+    return text.replace(/\$\{localEnv:([^}:]+)(?::([^}]*))?\}/g,
+        (_, name: string, fallback: string | undefined) => env[name] ?? fallback ?? '');
 }
 
 /**
@@ -197,19 +231,19 @@ export function resolveLocalEnv(text, env) {
  * host, then the container's rights, mounts, network, Features and commands inside. With ENV (the
  * environment sandbox runs the Dev Containers CLI with), ${localEnv:…} is shown as it will be.
  */
-export function riskSummary(config, env = null) {
+export function riskSummary(config: ProjectConfig, env: NodeJS.ProcessEnv | null = null): RiskLine[] {
     const lines = riskLines(config);
     return env ? lines.map(([what, value]) => [what, resolveLocalEnv(value, env)]) : lines;
 }
 
-function riskLines(config) {
-    const lines = [];
+function riskLines(config: ProjectConfig): RiskLine[] {
+    const lines: RiskLine[] = [];
     if (config.initializeCommand) lines.push(['runs on your machine', commandText(config.initializeCommand)]);
     if (config.privileged) lines.push(['privileged', 'every capability and device']);
     for (const cap of config.capAdd ?? []) lines.push(['capability', cap]);
     for (const opt of config.securityOpt ?? []) lines.push(['security option', opt]);
-    const allow = config.customizations?.[MARKER]?.seccompAllow;
-    if (allow?.length) lines.push(['seccomp allows', allow.join(', ')]);
+    const allow = markerOf(config)?.seccompAllow;
+    if (isStringList(allow) && allow.length) lines.push(['seccomp allows', allow.join(', ')]);
     const args = config.runArgs ?? [];
     args.forEach((arg, i) => {
         if (!RISKY_ARGS.test(arg) || PROTECTIVE_ARGS.has(arg)) return;
@@ -236,7 +270,7 @@ function riskLines(config) {
  * self-contained) and return { root, id, config }: ROOT/.devcontainer is the copy, ID its tree id.
  * The caller removes ROOT. Checking the copy means what was checked is what gets trusted.
  */
-export function stageConfig(project) {
+export function stageConfig(project: string): StagedConfig {
     const source = join(project, '.devcontainer');
     if (!isFolder(source)) throw new SandboxError(`${source} doesn't exist (or isn't a folder)`);
     const root = mkdtempSync(join(tmpdir(), 'sandbox-stage-'));
@@ -256,7 +290,7 @@ export function stageConfig(project) {
 }
 
 /** Make DEST/trusted the copy in STAGED/.devcontainer. */
-export function keepTrusted(dest, staged) {
+export function keepTrusted(dest: string, staged: string): void {
     rmSync(join(dest, TRUSTED), { recursive: true, force: true });
     cpSync(join(staged, '.devcontainer'), join(dest, TRUSTED), { recursive: true, verbatimSymlinks: true });
 }
@@ -267,12 +301,12 @@ export function keepTrusted(dest, staged) {
  * config, --hide/--readonly and the project's .devcontainer read-only, and the seccomp profile.
  * Made at every container creation, so a newer sandbox or host profile applies without a new trust.
  */
-export function writeEffective(dest, settings, hooks = {}) {
+export function writeEffective(dest: string, settings: Settings, hooks: SeccompOptions = {}): void {
     const out = join(dest, '.devcontainer');
     rmSync(out, { recursive: true, force: true });
     cpSync(join(dest, TRUSTED), out, { recursive: true, verbatimSymlinks: true });
     const file = configFile(dest);
-    let config = readConfig(file);
+    const config = readConfig(file);
     checkFields(config, file);
     const allow = seccompAllow(dest);
     if (allow?.length) {
@@ -286,19 +320,18 @@ export function writeEffective(dest, settings, hooks = {}) {
     const readonly = [...new Set([join(workspace, '.devcontainer'),
         ...(settings.readonly ?? []).map((path) => join(workspace, path))])];
     const mounts = workspaceMounts({ workspace, hide, readonly, configDir: dest, gitDirs: findGitDirs(workspace, hide) });
-    config = aroundWorkspace(config, workspace, mounts);
-    writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
+    writeFileSync(file, `${JSON.stringify(aroundWorkspace(config, workspace, mounts), null, 2)}\n`);
 }
 
 /** Refuse --hide of the project's .devcontainer (or a folder holding it): it must stay readable. */
-export function checkNotHidden(workspace, hidden) {
+export function checkNotHidden(workspace: string, hidden: string[]): void {
     const config = join(workspace, '.devcontainer');
     const bad = hidden.find((path) => isInside(config, path));
     if (bad) throw new SandboxError(`--inplace uses ${config}, so --hide ${relative(workspace, bad) || bad} can't hide it`);
 }
 
 /** What the tree id check found for an --inplace sandbox: null when the project's config is unchanged. */
-export function configChange(dest, settings) {
+export function configChange(dest: string, settings: Settings): ConfigChange | null {
     const now = configTree(settings.workspace);
     if (now === settings.configTree) return null;
     // -N: a new file (a Feature's install.sh, say) is shown in full, not as "Only in ...".
@@ -306,22 +339,22 @@ export function configChange(dest, settings) {
 }
 
 /** A short id for messages. */
-export function short(id) {
+export function short(id: string | undefined): string {
     return id ? id.slice(0, 7) : 'none';
 }
 
 /** Ask QUESTION at a terminal; null when not at one (stdin or stderr isn't a terminal). */
-export function ask(question, { tty = process.stdin.isTTY && process.stderr.isTTY } = {}) {
+export function ask(question: string, { tty = process.stdin.isTTY && process.stderr.isTTY }: { tty?: boolean } = {}): string | null {
     if (!tty) return null;
     process.stderr.write(question);
     const buf = Buffer.alloc(1);
     let line = '';
     for (;;) {
-        let n;
+        let n: number;
         try {
             n = readSync(0, buf, 0, 1, null);
         } catch (err) {
-            if (err.code === 'EAGAIN') continue;
+            if (err instanceof Error && 'code' in err && err.code === 'EAGAIN') continue;
             throw err;
         }
         if (n === 0 || buf[0] === 10) break;
@@ -331,6 +364,6 @@ export function ask(question, { tty = process.stdin.isTTY && process.stderr.isTT
 }
 
 /** Yes, from an answer to a [y/N] question. */
-export function yes(answer) {
+export function yes(answer: string | null): boolean {
     return answer === 'y' || answer === 'yes';
 }
