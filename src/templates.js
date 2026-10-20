@@ -5,6 +5,7 @@ import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } 
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PACKAGE_VERSION, SandboxError } from './devcontainer.js';
+import { isObject, isStringList } from './json.js';
 import { writeSeccompProfile } from './seccomp.js';
 
 export const TEMPLATES_DIR = fileURLToPath(new URL('../templates/', import.meta.url));
@@ -12,6 +13,13 @@ const METADATA = 'devcontainer-template.json';
 
 /** Our namespace in devcontainer.json's "customizations": marks a config written for sandbox. */
 export const MARKER = 'podman-agent-sandbox';
+
+/** CONFIG's (parsed devcontainer.json) "customizations": { MARKER: {...} }, if it has one. */
+export function markerOf(config) {
+    const customizations = isObject(config) ? config.customizations : undefined;
+    const marker = isObject(customizations) ? customizations[MARKER] : undefined;
+    return isObject(marker) ? marker : undefined;
+}
 
 /** Is version HAVE (X.Y.Z) at least NEED? A prerelease or build suffix is ignored. */
 export function versionAtLeast(have, need) {
@@ -29,7 +37,7 @@ export function versionAtLeast(have, need) {
  * Releases before 0.8.0 ignore the field.
  */
 export function checkMinVersion(config, file, version = PACKAGE_VERSION) {
-    const min = config?.customizations?.[MARKER]?.minVersion;
+    const min = markerOf(config)?.minVersion;
     if (min === undefined) return;
     if (typeof min !== 'string' || !/^\d+\.\d+\.\d+$/.test(min)) {
         throw new SandboxError(`${file}: "${MARKER}".minVersion must be a version like "0.8.0", not ${JSON.stringify(min)}`);
@@ -44,8 +52,32 @@ export function checkMinVersion(config, file, version = PACKAGE_VERSION) {
 export function listTemplates(root = TEMPLATES_DIR) {
     return readdirSync(root, { withFileTypes: true })
         .filter((entry) => entry.isDirectory() && existsSync(join(root, entry.name, METADATA)))
-        .map((entry) => JSON.parse(readFileSync(join(root, entry.name, METADATA), 'utf8')))
+        .map((entry) => readMetadata(join(root, entry.name, METADATA)))
         .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** A template's METADATA file, with what sandbox reads from it checked. */
+function readMetadata(file) {
+    const template = JSON.parse(readFileSync(file, 'utf8'));
+    if (!isTemplate(template)) {
+        throw new SandboxError(`${file} isn't a template's metadata: it needs an "id", and "options" (if there) `
+            + 'as https://containers.dev/implementors/templates/ describes them');
+    }
+    return template;
+}
+
+const optionalString = (value) => value === undefined || typeof value === 'string';
+const optionalList = (value) => value === undefined || isStringList(value);
+
+function isOption(value) {
+    return isObject(value) && optionalString(value.type) && optionalString(value.description)
+        && optionalList(value.proposals) && optionalList(value.enum)
+        && (optionalString(value.default) || typeof value.default === 'boolean');
+}
+
+function isTemplate(value) {
+    return isObject(value) && typeof value.id === 'string' && optionalString(value.description)
+        && (value.options === undefined || (isObject(value.options) && Object.values(value.options).every(isOption)));
 }
 
 /** ['KEY=VALUE', ...] → { KEY: 'VALUE', ... } */
@@ -133,7 +165,7 @@ export function findTemplate(spec, root = TEMPLATES_DIR) {
         if (!existsSync(join(src, METADATA))) {
             throw new SandboxError(`no template at ${src} (it has no ${METADATA})`);
         }
-        return { template: JSON.parse(readFileSync(join(src, METADATA), 'utf8')), src };
+        return { template: readMetadata(join(src, METADATA)), src };
     }
     const template = listTemplates(root).find((t) => t.id === spec);
     if (!template) {
@@ -156,7 +188,12 @@ export function seccompAllow(dir, template = {}) {
     } catch {
         // no config, or JSONC: only the metadata can say
     }
-    return config.customizations?.[MARKER]?.seccompAllow ?? template['x-sandbox']?.seccompAllow;
+    const legacy = isObject(template['x-sandbox']) ? template['x-sandbox'].seccompAllow : undefined;
+    const allow = markerOf(config)?.seccompAllow ?? legacy;
+    if (allow !== undefined && !isStringList(allow)) {
+        throw new SandboxError(`${dir}: seccompAllow must be a list of system call names, not ${JSON.stringify(allow)}`);
+    }
+    return allow;
 }
 
 /**
@@ -186,14 +223,12 @@ export function applyTemplate(spec, dest, given = {}, root = TEMPLATES_DIR, hook
         const replaced = substitute(text, values);
         if (replaced !== text) writeFileSync(path, replaced);
     }
-    const allow = seccompAllow(dest, template);
-    if (allow?.length && hooks.seccomp !== false) {
-        try {
-            writeSeccompProfile(dest, allow, hooks);
-        } catch (err) {
-            rmSync(dest, { recursive: true, force: true });
-            throw err;
-        }
+    try {
+        const allow = seccompAllow(dest, template);
+        if (allow?.length && hooks.seccomp !== false) writeSeccompProfile(dest, allow, hooks);
+    } catch (err) {
+        rmSync(dest, { recursive: true, force: true });
+        throw err;
     }
     return template;
 }

@@ -328,3 +328,27 @@ test('mitm-proxy: approve on PATH, and a HELP that names it and the allowlist', 
     assert.match(help, /sandbox exec \$\{localWorkspaceFolderBasename\} approve/);
     assert.match(help, /\$\{localWorkspaceFolder\}\/allowlist\.txt/);
 });
+
+test('template metadata without an id, or with malformed options, is refused with a message', () => {
+    for (const metadata of [{}, { id: 7 }, { id: 'bad', options: [] }, { id: 'bad', options: { o: { enum: 'a|b' } } },
+        { id: 'bad', options: { o: { default: 1 } } }]) {
+        const root = demoRoot();
+        const file = join(root, 'demo', 'devcontainer-template.json');
+        writeFileSync(file, JSON.stringify(metadata));
+        const isRefusal = (err) => err instanceof SandboxError && err.message.includes(`${file} isn't a template's metadata`);
+        assert.throws(() => listTemplates(root), isRefusal, JSON.stringify(metadata));
+        assert.throws(() => applyTemplate(join(root, 'demo'), join(root, 'out'), {}, root), isRefusal);
+        assert.ok(!existsSync(join(root, 'out')));
+    }
+});
+
+test('a seccompAllow that is not a list of names is refused, and nothing is left behind', () => {
+    const root = demoRoot();
+    const config = join(root, 'demo', '.devcontainer', 'devcontainer.json');
+    for (const allow of ['"sethostname"', '[1]', '{}']) {
+        writeFileSync(config, `{"customizations": {"podman-agent-sandbox": {"seccompAllow": ${allow}}}}`);
+        assert.throws(() => applyTemplate('demo', join(root, 'out'), {}, root, { seccompSource: () => assert.fail('not asked') }),
+            (err) => err instanceof SandboxError && /seccompAllow must be a list of system call names/.test(err.message), allow);
+        assert.ok(!existsSync(join(root, 'out')));
+    }
+});

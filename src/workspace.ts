@@ -4,6 +4,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSyn
 import type { Dirent, Stats } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { SandboxError } from './devcontainer.js';
+import { isObject } from './json.js';
 
 /** Where `sandbox new --workspace` records its choices, in the sandbox's config folder. */
 export const SETTINGS = 'sandbox.json';
@@ -211,11 +212,6 @@ export function readConfig(file: string): DevcontainerConfig {
         throw new SandboxError(`${file} isn't a devcontainer.json: not an object, or its "mounts" isn't a list`);
     }
     return config;
-}
-
-/** A JSON object: not null, not a list. */
-function isObject(value: unknown): value is { [field: string]: unknown } {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isConfig(value: unknown): value is DevcontainerConfig {
