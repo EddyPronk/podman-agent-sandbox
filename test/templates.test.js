@@ -352,3 +352,21 @@ test('a seccompAllow that is not a list of names is refused, and nothing is left
         assert.ok(!existsSync(join(root, 'out')));
     }
 });
+
+test('null in template metadata and in seccompAllow reads as unset', () => {
+    const root = demoRoot();
+    writeFileSync(join(root, 'demo', 'devcontainer-template.json'), JSON.stringify({
+        id: 'demo', description: null,
+        options: { network: { type: 'string', enum: null, proposals: null, description: null, default: 'offline' } },
+        'x-sandbox': { seccompAllow: null },
+    }));
+    writeFileSync(join(root, 'demo', '.devcontainer', 'devcontainer.json'),
+        '{"customizations": {"podman-agent-sandbox": {"seccompAllow": null}}}');
+    assert.deepEqual(listTemplates(root).map((t) => t.id), ['demo']);
+    applyTemplate('demo', join(root, 'out'), {}, root, { seccompSource: () => assert.fail('not asked') });
+    assert.ok(!existsSync(join(root, 'out', '.devcontainer', 'seccomp.json')));
+    const options = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
+    mkdirSync(join(options, 'demo', '.devcontainer'), { recursive: true });
+    writeFileSync(join(options, 'demo', 'devcontainer-template.json'), JSON.stringify({ id: 'demo', options: null }));
+    assert.deepEqual(listTemplates(options)[0].options, null);
+});

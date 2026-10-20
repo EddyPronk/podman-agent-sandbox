@@ -4,14 +4,17 @@ import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSyn
 import type { Dirent, Stats } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { SandboxError } from './devcontainer.js';
-import { isBoolean, isObject, isString, isStringList, optional } from './json.js';
+import { isBoolean, isObject, isString, isStringList, nullable, optional } from './json.js';
 
 /** Where `sandbox new --workspace` records its choices, in the sandbox's config folder. */
 export const SETTINGS = 'sandbox.json';
 
-/** A devcontainer.json, as far as readConfig checks it; its other fields are kept as they are. */
+/**
+ * A devcontainer.json, as far as readConfig checks it; its other fields are kept as they are. Null
+ * is unset, as the Dev Containers CLI reads it.
+ */
 export interface DevcontainerConfig {
-    mounts?: unknown[];
+    mounts?: unknown[] | null;
     [field: string]: unknown;
 }
 
@@ -215,7 +218,7 @@ export function readConfig(file: string): DevcontainerConfig {
 }
 
 function isConfig(value: unknown): value is DevcontainerConfig {
-    return isObject(value) && (value.mounts === undefined || Array.isArray(value.mounts));
+    return isObject(value) && nullable(value.mounts, Array.isArray);
 }
 
 /**
@@ -267,8 +270,8 @@ function isSettings(value: unknown): value is Settings {
 }
 
 /** Targets of the read-only mounts in a devcontainer.json "mounts" list (strings only). */
-export function readonlyTargets(mounts: unknown[] = []): string[] {
-    return mounts.filter((m): m is string => typeof m === 'string' && m.split(',').includes('readonly'))
+export function readonlyTargets(mounts: unknown[] | null = []): string[] {
+    return (mounts ?? []).filter((m): m is string => typeof m === 'string' && m.split(',').includes('readonly'))
         .map((m) => m.split(',').find((part) => part.startsWith('target='))?.slice('target='.length))
         .filter((target): target is string => Boolean(target));
 }

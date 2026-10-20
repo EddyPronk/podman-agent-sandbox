@@ -356,3 +356,17 @@ test('new --inplace --template PATH: a template whose runArgs is no list is refu
         assert.ok(!existsSync(join(root, '.devcontainer')), 'the template is taken out of the project again');
         assert.ok(!existsSync(join(dir, 't')));
     });
+
+test('null for an optional field reads as unset, as the Dev Containers CLI reads it', { skip: noGit }, () => {
+    const dir = tempDir();
+    const root = project({ capAdd: null, securityOpt: null, runArgs: null, image: null, mounts: null, features: null,
+        build: { dockerfile: 'Containerfile' },
+        customizations: { 'podman-agent-sandbox': { version: 1, policies: null, seccompAllow: null } } });
+    const staged = stageConfig(root);
+    assert.deepEqual(riskSummary(staged.config), []);
+    rmSync(staged.root, { recursive: true, force: true });
+    const made = sandbox(['new', 'n', '--workspace', root, '--inplace', '--yes'], dir);
+    assert.equal(made.status, 0, made.stderr);
+    const running = JSON.parse(readFileSync(join(dir, 'n', '.devcontainer', 'devcontainer.json'), 'utf8'));
+    assert.ok(running.mounts.length, 'the workspace mounts are added to a null list');
+});

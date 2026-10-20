@@ -5,7 +5,7 @@ import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } 
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PACKAGE_VERSION, SandboxError } from './devcontainer.js';
-import { isBoolean, isObject, isString, isStringList, optional } from './json.js';
+import { isBoolean, isObject, isString, isStringList, nullable } from './json.js';
 import type { JsonObject } from './json.js';
 import { writeSeccompProfile } from './seccomp.js';
 import type { SeccompOptions } from './seccomp.js';
@@ -16,20 +16,20 @@ const METADATA = 'devcontainer-template.json';
 /** Our namespace in devcontainer.json's "customizations": marks a config written for sandbox. */
 export const MARKER = 'podman-agent-sandbox';
 
-/** A template's devcontainer-template.json, as far as readMetadata checks it. */
+/** A template's devcontainer-template.json, as far as readMetadata checks it. Null is unset. */
 export interface Template {
     id: string;
-    description?: string;
-    options?: { [key: string]: TemplateOption };
+    description?: string | null;
+    options?: { [key: string]: TemplateOption } | null;
     [field: string]: unknown;
 }
 
 export interface TemplateOption {
-    type?: string;
-    description?: string;
-    proposals?: string[];
-    enum?: string[];
-    default?: string | boolean;
+    type?: string | null;
+    description?: string | null;
+    proposals?: string[] | null;
+    enum?: string[] | null;
+    default?: string | boolean | null;
 }
 
 /** Template option values by key: from --option, and as a template is applied with them. */
@@ -88,14 +88,14 @@ function readMetadata(file: string): Template {
 }
 
 function isOption(value: unknown): value is TemplateOption {
-    return isObject(value) && optional(value.type, isString) && optional(value.description, isString)
-        && optional(value.proposals, isStringList) && optional(value.enum, isStringList)
-        && optional(value.default, (d) => isString(d) || isBoolean(d));
+    return isObject(value) && nullable(value.type, isString) && nullable(value.description, isString)
+        && nullable(value.proposals, isStringList) && nullable(value.enum, isStringList)
+        && nullable(value.default, (d) => isString(d) || isBoolean(d));
 }
 
 function isTemplate(value: unknown): value is Template {
-    return isObject(value) && isString(value.id) && optional(value.description, isString)
-        && optional(value.options, (options) => isObject(options) && Object.values(options).every(isOption));
+    return isObject(value) && isString(value.id) && nullable(value.description, isString)
+        && nullable(value.options, (options) => isObject(options) && Object.values(options).every(isOption));
 }
 
 /** ['KEY=VALUE', ...] → { KEY: 'VALUE', ... } */
@@ -208,7 +208,8 @@ export function seccompAllow(dir: string, template: JsonObject = {}): string[] |
     }
     const legacy = isObject(template['x-sandbox']) ? template['x-sandbox'].seccompAllow : undefined;
     const allow = markerOf(config)?.seccompAllow ?? legacy;
-    if (allow !== undefined && !isStringList(allow)) {
+    if (allow === undefined || allow === null) return undefined;
+    if (!isStringList(allow)) {
         throw new SandboxError(`${dir}: seccompAllow must be a list of system call names, not ${JSON.stringify(allow)}`);
     }
     return allow;

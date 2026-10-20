@@ -373,3 +373,10 @@ test('readSettings refuses a sandbox.json without the fields sandbox reads', () 
     writeFileSync(file, JSON.stringify(settings));
     assert.deepEqual(readSettings(dir), settings);
 });
+
+test('readConfig and readonlyTargets take null mounts as none, as the Dev Containers CLI does', () => {
+    const file = join(tempDir(), 'devcontainer.json');
+    writeFileSync(file, '{"image": "x", "mounts": null}');
+    assert.deepEqual(readConfig(file), { image: 'x', mounts: null });
+    assert.deepEqual(readonlyTargets(null), []);
+});

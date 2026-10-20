@@ -8,7 +8,7 @@ import { cpSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, 
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { SandboxError } from './devcontainer.js';
-import { isObject, isStringList } from './json.js';
+import { isObject, isString, isStringList, nullable } from './json.js';
 import type { JsonObject } from './json.js';
 import { SECCOMP_RUN_ARG, writeSeccompProfile } from './seccomp.js';
 import type { SeccompOptions } from './seccomp.js';
@@ -28,14 +28,17 @@ export const KNOWN_POLICIES = ['no-vm'];
 /** In $SANDBOX_DIR/NAME: the trusted copy of the project's .devcontainer. */
 export const TRUSTED = 'trusted';
 
-/** A project's devcontainer.json, with the fields riskSummary and writeEffective read checked (checkFields). */
+/**
+ * A project's devcontainer.json, with the fields riskSummary and writeEffective read checked
+ * (checkFields). Null is unset, as the Dev Containers CLI reads it.
+ */
 export interface ProjectConfig extends DevcontainerConfig {
-    capAdd?: string[];
-    securityOpt?: string[];
-    runArgs?: string[];
-    image?: string;
-    mounts?: (string | JsonObject)[];
-    features?: JsonObject;
+    capAdd?: string[] | null;
+    securityOpt?: string[] | null;
+    runArgs?: string[] | null;
+    image?: string | null;
+    mounts?: (string | JsonObject)[] | null;
+    features?: JsonObject | null;
 }
 
 /** A line of riskSummary: what the config asks for, and the value it gives. */
@@ -142,15 +145,14 @@ export function checkMarker(config: DevcontainerConfig, file: string): void {
 export function checkFields(config: DevcontainerConfig, file: string): asserts config is ProjectConfig {
     const wrong = (key: string, what: string) => new SandboxError(`${file}: "${key}" must be ${what}`);
     for (const key of ['capAdd', 'securityOpt', 'runArgs']) {
-        if (config[key] !== undefined && !isStringList(config[key])) throw wrong(key, 'a list of strings');
+        if (!nullable(config[key], isStringList)) throw wrong(key, 'a list of strings');
     }
-    if (config.image !== undefined && typeof config.image !== 'string') throw wrong('image', 'a string');
-    if (config.features !== undefined && !isObject(config.features)) throw wrong('features', 'an object (id: options)');
+    if (!nullable(config.image, isString)) throw wrong('image', 'a string');
+    if (!nullable(config.features, isObject)) throw wrong('features', 'an object (id: options)');
     if (!(config.mounts ?? []).every((m) => typeof m === 'string' || isObject(m))) {
         throw wrong('mounts', 'a list of strings and objects');
     }
-    const allow = markerOf(config)?.seccompAllow;
-    if (allow !== undefined && !isStringList(allow)) throw wrong('seccompAllow', 'a list of system call names');
+    if (!nullable(markerOf(config)?.seccompAllow, isStringList)) throw wrong('seccompAllow', 'a list of system call names');
 }
 
 /**
