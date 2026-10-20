@@ -338,3 +338,21 @@ test('stageConfig refuses fields of the wrong type that riskSummary would crash 
     const staged = stageConfig(ok);
     rmSync(staged.root, { recursive: true, force: true });
 });
+
+test('new --inplace --template PATH: a template whose runArgs is no list is refused with a message, and taken out again',
+    { skip: noGit }, () => {
+        const dir = tempDir();
+        const root = tempDir();
+        const template = join(tempDir(), 'tpl');
+        mkdirSync(join(template, '.devcontainer'), { recursive: true });
+        writeFileSync(join(template, 'devcontainer-template.json'), JSON.stringify({ id: 'tpl' }));
+        writeFileSync(join(template, '.devcontainer', 'devcontainer.json'), JSON.stringify({
+            image: 'docker.io/library/debian:trixie-slim', runArgs: '--cap-drop=all',
+            customizations: { 'podman-agent-sandbox': { version: 1, seccompAllow: ['sethostname'] } },
+        }));
+        const result = sandbox(['new', 't', '--workspace', root, '--inplace', '--template', template], dir);
+        assert.notEqual(result.status, 0);
+        assert.match(result.stderr, /^sandbox: [^:]*devcontainer\.json: "runArgs" must be a list of strings\n$/);
+        assert.ok(!existsSync(join(root, '.devcontainer')), 'the template is taken out of the project again');
+        assert.ok(!existsSync(join(dir, 't')));
+    });

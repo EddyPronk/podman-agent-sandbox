@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
 import { SandboxError, checkName, childEnv, hasConfig, sandboxDir } from './devcontainer.js';
+import { isStringList } from './json.js';
 import {
     ask, checkNotHidden, hasMarker, keepTrusted, riskSummary, short, stageConfig, writeEffective, yes,
 } from './inplace.js';
@@ -228,7 +229,9 @@ function writeTemplateInto(spec, workspace, given) {
         const generated = seccompAllow(copy, template)?.length ? join(copy, '.devcontainer', 'seccomp.json') : null;
         if (generated) {
             const config = readConfig(configFile(copy));
-            config.runArgs = (config.runArgs ?? []).filter((arg) => arg !== SECCOMP_RUN_ARG);
+            // runArgs that aren't a list stay as they are, for stageConfig to refuse (checkFields).
+            const runArgs = config.runArgs ?? [];
+            if (isStringList(runArgs)) config.runArgs = runArgs.filter((arg) => arg !== SECCOMP_RUN_ARG);
             writeFileSync(configFile(copy), `${JSON.stringify(config, null, 2)}\n`);
         }
         try {
