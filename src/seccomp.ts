@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SandboxError } from './devcontainer.js';
+import { isObject, isStringList } from './json.js';
 
 /** A seccomp profile, as far as allowSyscalls reads it; its other fields are copied as they are. */
 export interface SeccompProfile {
@@ -55,9 +56,8 @@ export function allowSyscalls(profile: SeccompProfile, names: string[]): Seccomp
 
 /** Whether VALUE (parsed JSON) has what allowSyscalls needs: syscalls, each with a list of names. */
 function isProfile(value: unknown): value is SeccompProfile {
-    return typeof value === 'object' && value !== null && 'syscalls' in value && Array.isArray(value.syscalls)
-        && value.syscalls.every((rule: unknown) => typeof rule === 'object' && rule !== null && 'names' in rule
-            && Array.isArray(rule.names) && rule.names.every((n: unknown) => typeof n === 'string'));
+    return isObject(value) && Array.isArray(value.syscalls)
+        && value.syscalls.every((rule: unknown) => isObject(rule) && isStringList(rule.names));
 }
 
 /** The host podman's default seccomp profile (it follows containers.conf), or null if it has no file. */

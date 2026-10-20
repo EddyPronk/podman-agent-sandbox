@@ -5,7 +5,7 @@ import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } 
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PACKAGE_VERSION, SandboxError } from './devcontainer.js';
-import { isObject, isStringList } from './json.js';
+import { isBoolean, isObject, isString, isStringList, optional } from './json.js';
 import type { JsonObject } from './json.js';
 import { writeSeccompProfile } from './seccomp.js';
 import type { SeccompOptions } from './seccomp.js';
@@ -87,18 +87,15 @@ function readMetadata(file: string): Template {
     return template;
 }
 
-const optionalString = (value: unknown) => value === undefined || typeof value === 'string';
-const optionalList = (value: unknown) => value === undefined || isStringList(value);
-
 function isOption(value: unknown): value is TemplateOption {
-    return isObject(value) && optionalString(value.type) && optionalString(value.description)
-        && optionalList(value.proposals) && optionalList(value.enum)
-        && (optionalString(value.default) || typeof value.default === 'boolean');
+    return isObject(value) && optional(value.type, isString) && optional(value.description, isString)
+        && optional(value.proposals, isStringList) && optional(value.enum, isStringList)
+        && optional(value.default, (d) => isString(d) || isBoolean(d));
 }
 
 function isTemplate(value: unknown): value is Template {
-    return isObject(value) && typeof value.id === 'string' && optionalString(value.description)
-        && (value.options === undefined || (isObject(value.options) && Object.values(value.options).every(isOption)));
+    return isObject(value) && isString(value.id) && optional(value.description, isString)
+        && optional(value.options, (options) => isObject(options) && Object.values(options).every(isOption));
 }
 
 /** ['KEY=VALUE', ...] → { KEY: 'VALUE', ... } */

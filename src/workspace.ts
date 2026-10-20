@@ -4,7 +4,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSyn
 import type { Dirent, Stats } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { SandboxError } from './devcontainer.js';
-import { isObject } from './json.js';
+import { isBoolean, isObject, isString, isStringList, optional } from './json.js';
 
 /** Where `sandbox new --workspace` records its choices, in the sandbox's config folder. */
 export const SETTINGS = 'sandbox.json';
@@ -262,10 +262,8 @@ export function readSettings(configDir: string): Settings | null {
 }
 
 function isSettings(value: unknown): value is Settings {
-    const paths = (v: unknown) => v === undefined || (Array.isArray(v) && v.every((p) => typeof p === 'string'));
-    return isObject(value) && typeof value.workspace === 'string' && paths(value.hide) && paths(value.readonly)
-        && (value.inplace === undefined || typeof value.inplace === 'boolean')
-        && (value.configTree === undefined || typeof value.configTree === 'string');
+    return isObject(value) && isString(value.workspace) && optional(value.hide, isStringList)
+        && optional(value.readonly, isStringList) && optional(value.inplace, isBoolean) && optional(value.configTree, isString);
 }
 
 /** Targets of the read-only mounts in a devcontainer.json "mounts" list (strings only). */

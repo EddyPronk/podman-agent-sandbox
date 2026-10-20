@@ -3,7 +3,8 @@
 import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { resolveLocalEnv } from './inplace.js';
-import { isObject, isStringList } from './json.js';
+import { isBoolean, isNumber, isObject, isString, isStringList, nullable, optional } from './json.js';
+import type { Check } from './json.js';
 import { SETTINGS } from './workspace.js';
 import type { DevcontainerConfig, Settings } from './workspace.js';
 
@@ -48,14 +49,7 @@ export interface PodmanMount {
     RW: boolean;
 }
 
-const isString = (value: unknown): value is string => typeof value === 'string';
-const isNumber = (value: unknown): value is number => typeof value === 'number';
-const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean';
-/** Missing, or what CHECK accepts. */
-const optional = (value: unknown, check: (value: unknown) => boolean) => value === undefined || check(value);
-/** Missing, null (an empty list or map, from Go), or what CHECK accepts. */
-const nullable = (value: unknown, check: (value: unknown) => boolean) => value === undefined || value === null || check(value);
-const listOf = (check: (value: unknown) => boolean) => (value: unknown) => Array.isArray(value) && value.every(check);
+const listOf = (check: Check) => (value: unknown) => Array.isArray(value) && value.every(check);
 
 function isMount(value: unknown): value is PodmanMount {
     return isObject(value) && isString(value.Type) && isString(value.Source) && isString(value.Destination)

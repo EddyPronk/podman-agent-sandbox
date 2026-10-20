@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { constants, homedir, userInfo } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { isObject, isString } from './json.js';
 
 /** An error meant for the user: printed as "sandbox: <message>", no stack trace. */
 export class SandboxError extends Error {}
@@ -33,9 +34,7 @@ export function cliPath(): string {
 /** The version in the package.json FILE. */
 export function packageVersion(file: string | URL): string {
     const pkg: unknown = JSON.parse(readFileSync(file, 'utf8'));
-    if (typeof pkg === 'object' && pkg !== null && 'version' in pkg && typeof pkg.version === 'string') {
-        return pkg.version;
-    }
+    if (isObject(pkg) && isString(pkg.version)) return pkg.version;
     throw new Error(`${file} has no version`);
 }
 

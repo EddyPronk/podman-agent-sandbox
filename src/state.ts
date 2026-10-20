@@ -5,6 +5,7 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { hasConfig, sandboxDir } from './devcontainer.js';
+import { isObject, isString } from './json.js';
 
 export type Kind = 'vm' | 'container';
 
@@ -15,9 +16,7 @@ export interface StateRecord {
 }
 
 function isRecord(value: unknown): value is StateRecord {
-    return typeof value === 'object' && value !== null
-        && 'kind' in value && (value.kind === 'vm' || value.kind === 'container')
-        && 'folder' in value && typeof value.folder === 'string';
+    return isObject(value) && (value.kind === 'vm' || value.kind === 'container') && isString(value.folder);
 }
 
 /** Where NAME's record is. (.state can't be a sandbox's name: checkName.) */
