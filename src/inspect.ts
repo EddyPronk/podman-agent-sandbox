@@ -1,5 +1,5 @@
 // sandbox inspect: the podman command that created a sandbox, and what it runs with.
-// Pure functions over `podman container inspect` output; container.js does the podman calls.
+// Pure functions over `podman container inspect` output; container.ts does the podman calls.
 import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { resolveLocalEnv } from './inplace.js';

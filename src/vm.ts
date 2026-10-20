@@ -14,7 +14,7 @@ import { isObject } from './json.js';
 import type { JsonObject } from './json.js';
 import { MARKER } from './templates.js';
 
-/** The label that makes a container sandbox NAME's VM. (Its config folder is in its record: state.js.) */
+/** The label that makes a container sandbox NAME's VM. (Its config folder is in its record: state.ts.) */
 export const VM_OF_LABEL = 'podman-agent-sandbox.vm-of';
 
 /** The policy a config uses to say it can't run as a VM. */

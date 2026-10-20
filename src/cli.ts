@@ -287,7 +287,7 @@ function cmdTrust(args: string[]): number {
 
 /**
  * sandbox export NAME: write NAME's config (made with --workspace) into its project as .devcontainer,
- * without this machine's settings (export.js), check it as --inplace would, and make NAME use it.
+ * without this machine's settings (export.ts), check it as --inplace would, and make NAME use it.
  */
 function cmdExport(args: string[]): void {
     const name = oneName(args, 'sandbox export NAME');

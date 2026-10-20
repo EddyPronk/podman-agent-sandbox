@@ -219,7 +219,7 @@ export function seccompAllow(dir: string, template: JsonObject = {}): string[] |
 
 /**
  * Create DEST from template SPEC (see findTemplate). DEST must not exist yet. A template whose
- * config has seccompAllow (above) also gets its seccomp profile (seccomp.js), unless HOOKS.seccomp is
+ * config has seccompAllow (above) also gets its seccomp profile (seccomp.ts), unless HOOKS.seccomp is
  * false (--inplace makes it later); HOOKS are passed on to it (tests). Returns the template's metadata.
  */
 export function applyTemplate(
