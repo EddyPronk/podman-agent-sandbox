@@ -4,7 +4,7 @@
 // change the kind there could have the next enter run it as a plain container.
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { hasConfig, sandboxDir } from './devcontainer.js';
+import { errnoCode, hasConfig, sandboxDir } from './devcontainer.js';
 import { isObject, isString } from './json.js';
 
 export type Kind = 'vm' | 'container';
@@ -34,7 +34,7 @@ export function readRecord(name: string, { env = process.env }: { env?: NodeJS.P
     try {
         record = JSON.parse(readFileSync(path, 'utf8'));
     } catch (err) {
-        if (err instanceof Error && 'code' in err && err.code === 'ENOENT') return null;
+        if (errnoCode(err) === 'ENOENT') return null;
         rmSync(path, { force: true });
         return null;
     }

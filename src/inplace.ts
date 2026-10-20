@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { SandboxError } from './devcontainer.js';
+import { SandboxError, errnoCode } from './devcontainer.js';
 import { isObject, isString, isStringList, nullable } from './json.js';
 import type { JsonObject } from './json.js';
 import { SECCOMP_RUN_ARG, writeSeccompProfile } from './seccomp.js';
@@ -65,7 +65,7 @@ function git(args: string[], env: NodeJS.ProcessEnv = {}, cwd?: string): string 
         cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...clean, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', ...env },
     });
-    if (result.error && 'code' in result.error && result.error.code === 'ENOENT') {
+    if (errnoCode(result.error) === 'ENOENT') {
         throw new SandboxError('git not found on PATH: --inplace sandboxes need it to check the project\'s '
             + 'config (a prerequisite since 0.7.0)');
     }
@@ -356,7 +356,7 @@ export function ask(question: string, { tty = process.stdin.isTTY && process.std
         try {
             n = readSync(0, buf, 0, 1, null);
         } catch (err) {
-            if (err instanceof Error && 'code' in err && err.code === 'EAGAIN') continue;
+            if (errnoCode(err) === 'EAGAIN') continue;
             throw err;
         }
         if (n === 0 || buf[0] === 10) break;

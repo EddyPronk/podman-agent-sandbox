@@ -4,7 +4,7 @@
 import { spawnSync } from 'node:child_process';
 import { closeSync, fstatSync, mkdirSync, openSync, rmSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { SandboxError, sandboxDir } from './devcontainer.js';
+import { SandboxError, errnoCode, sandboxDir } from './devcontainer.js';
 
 // What flock exits with when the lock is taken (--nonblock); its other errors use other codes.
 const CONFLICT = 75;
@@ -45,7 +45,7 @@ export function lockSandbox(name: string, {
         const flock = (args: string[]) => spawnSync('flock', [...args, '3'], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe', fd] });
         try {
             let result = flock(['--exclusive', '--nonblock', '--conflict-exit-code', String(CONFLICT)]);
-            if (result.error && 'code' in result.error && result.error.code === 'ENOENT') {
+            if (errnoCode(result.error) === 'ENOENT') {
                 throw new SandboxError('flock not found on PATH: sandbox needs it (from util-linux) to keep two commands '
                     + 'on one sandbox apart');
             }

@@ -3,7 +3,7 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import type { Dirent, Stats } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { SandboxError } from './devcontainer.js';
+import { SandboxError, errnoCode } from './devcontainer.js';
 import { isBoolean, isObject, isString, isStringList, nullable, optional } from './json.js';
 
 /** Where `sandbox new --workspace` records its choices, in the sandbox's config folder. */
@@ -85,7 +85,8 @@ function entries(dir: string): Dirent[] {
     try {
         return readdirSync(dir, { withFileTypes: true });
     } catch (err) {
-        if (err instanceof Error && 'code' in err && (err.code === 'EACCES' || err.code === 'EPERM')) return [];
+        const code = errnoCode(err);
+        if (code === 'EACCES' || code === 'EPERM') return [];
         throw err;
     }
 }

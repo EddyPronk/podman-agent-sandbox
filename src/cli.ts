@@ -4,7 +4,9 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { PACKAGE_VERSION, SandboxError, checkName, childEnv, cliPath, folderOf, packageVersion } from './devcontainer.js';
+import {
+    PACKAGE_VERSION, SandboxError, checkName, childEnv, cliPath, errnoCode, folderOf, packageVersion,
+} from './devcontainer.js';
 import {
     TRUSTED, ask, keepTrusted, riskSummary, short, stageConfig, writeEffective, yes,
 } from './inplace.js';
@@ -144,7 +146,7 @@ export function main(argv: string[]): number {
 
 /** An error parseArgs throws for a bad command line (an unknown option, say). */
 function isParseArgsError(err: unknown): err is Error {
-    return err instanceof Error && 'code' in err && typeof err.code === 'string' && err.code.startsWith('ERR_PARSE_ARGS');
+    return err instanceof Error && Boolean(errnoCode(err)?.startsWith('ERR_PARSE_ARGS'));
 }
 
 /** "sandbox X.Y.Z (@devcontainers/cli A.B.C)", from the installed package.json files. */
@@ -219,7 +221,7 @@ export function helpText(name: string, dir: string): string {
     try {
         text = readFileSync(join(dir, '.devcontainer', 'HELP'), 'utf8');
     } catch (err) {
-        if (!(err instanceof Error && 'code' in err && err.code === 'ENOENT')) throw err;
+        if (errnoCode(err) !== 'ENOENT') throw err;
         return `${name}: its template has no help of its own. Every sandbox has:\n`
             + table([
                 [`  sandbox enter ${name}`, 'a shell, as you, in the workspace'],

@@ -10,6 +10,11 @@ import { isObject, isString } from './json.js';
 /** An error meant for the user: printed as "sandbox: <message>", no stack trace. */
 export class SandboxError extends Error {}
 
+/** The code of a Node.js error (ENOENT, EACCES, ERR_PARSE_ARGS_…), or undefined for anything else. */
+export function errnoCode(err: unknown): string | undefined {
+    return err instanceof Error && 'code' in err && typeof err.code === 'string' ? err.code : undefined;
+}
+
 /** Where sandboxes live: $SANDBOX_DIR, or ~/sandboxes. */
 export function sandboxDir(env: NodeJS.ProcessEnv = process.env): string {
     return env.SANDBOX_DIR || join(homedir(), 'sandboxes');
@@ -84,7 +89,7 @@ export function dc(sub: string, args: string[], options: SpawnSyncOptions = {}):
  */
 export function podman(args: string[], options: Omit<SpawnSyncOptions, 'encoding'> = {}): SpawnSyncReturns<string> {
     const result = spawnSync('podman', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...options });
-    if (result.error && 'code' in result.error && result.error.code === 'ENOENT') {
+    if (errnoCode(result.error) === 'ENOENT') {
         throw new SandboxError('podman not found on PATH');
     }
     if (result.error) throw result.error;
