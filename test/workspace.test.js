@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
-    CONFIG_MOUNT, applyWorkspace, findGitDirs, findSecretFiles, readonlyTargets, readSettings, realConfigDir, resolveWorkspace,
-    uncoveredGitPaths, uncoveredInSandbox, workspaceMounts, workspacePath,
+    CONFIG_MOUNT, applyWorkspace, findGitDirs, findSecretFiles, readConfig, readonlyTargets, readSettings, realConfigDir,
+    resolveWorkspace, uncoveredGitPaths, uncoveredInSandbox, workspaceMounts, workspacePath,
 } from '../dist/workspace.js';
 
 const SANDBOX = fileURLToPath(new URL('../bin/sandbox.js', import.meta.url));
@@ -348,4 +348,28 @@ test('every bundled template works with --workspace (plain JSON config)', () => 
     for (const id of ['claude', 'mitm-proxy', 'offline', 'proxy-client']) {
         JSON.parse(readFileSync(join(templates, id, '.devcontainer', 'devcontainer.json'), 'utf8'));
     }
+});
+
+test('readConfig refuses JSON that is no devcontainer.json, with a message, not a TypeError', () => {
+    const dir = tempDir();
+    const file = join(dir, 'devcontainer.json');
+    for (const json of ['null', '[]', '"x"', '{"mounts": "type=bind,source=/a,target=/a"}']) {
+        writeFileSync(file, json);
+        assert.throws(() => readConfig(file), (err) => err.name === 'Error' && /isn't a devcontainer.json/.test(err.message), json);
+    }
+    writeFileSync(file, '{"mounts": [], "image": "x"}');
+    assert.deepEqual(readConfig(file), { mounts: [], image: 'x' });
+});
+
+test('readSettings refuses a sandbox.json without the fields sandbox reads', () => {
+    const dir = tempDir();
+    const file = join(dir, 'sandbox.json');
+    for (const json of ['null', '{}', '{"workspace": 1}', '{"workspace": "/p", "hide": ".env"}',
+        '{"workspace": "/p", "readonly": [1]}', '{"workspace": "/p", "inplace": "yes"}', '{"workspace": "/p", "configTree": 7}']) {
+        writeFileSync(file, json);
+        assert.throws(() => readSettings(dir), (err) => err.name === 'Error' && /isn't a sandbox.json/.test(err.message), json);
+    }
+    const settings = { workspace: '/p', hide: ['.env'], readonly: [], inplace: true, configTree: 'abc' };
+    writeFileSync(file, JSON.stringify(settings));
+    assert.deepEqual(readSettings(dir), settings);
 });

@@ -175,12 +175,22 @@ export function configFile(configDir) {
 /** Parse a devcontainer.json; it must be plain JSON, since rewriting it would drop JSONC comments. */
 export function readConfig(file) {
     const text = readFileSync(file, 'utf8');
+    let config;
     try {
-        return JSON.parse(text);
+        config = JSON.parse(text);
     } catch {
         throw new SandboxError(`${file} isn't plain JSON (comments or trailing commas?); `
             + 'sandbox rewrites it and would lose them, so remove them first');
     }
+    if (!isObject(config) || !(config.mounts === undefined || Array.isArray(config.mounts))) {
+        throw new SandboxError(`${file} isn't a devcontainer.json: not an object, or its "mounts" isn't a list`);
+    }
+    return config;
+}
+
+/** A JSON object: not null, not a list. */
+function isObject(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -212,7 +222,20 @@ export function writeSettings(configDir, settings) {
 /** The recorded --workspace choices of the sandbox in CONFIG_DIR, or null if it has none. */
 export function readSettings(configDir) {
     const file = join(configDir, SETTINGS);
-    return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
+    if (!existsSync(file)) return null;
+    const settings = JSON.parse(readFileSync(file, 'utf8'));
+    if (!isSettings(settings)) {
+        throw new SandboxError(`${file} isn't a sandbox.json: it needs a "workspace", and "hide", "readonly", `
+            + '"inplace" and "configTree" (if there) as sandbox new writes them');
+    }
+    return settings;
+}
+
+function isSettings(value) {
+    const paths = (v) => v === undefined || (Array.isArray(v) && v.every((p) => typeof p === 'string'));
+    return isObject(value) && typeof value.workspace === 'string' && paths(value.hide) && paths(value.readonly)
+        && (value.inplace === undefined || typeof value.inplace === 'boolean')
+        && (value.configTree === undefined || typeof value.configTree === 'string');
 }
 
 /** Targets of the read-only mounts in a devcontainer.json "mounts" list (strings only). */
