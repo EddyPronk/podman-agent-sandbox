@@ -18,8 +18,8 @@
   "scripts": {
     "build": "rm -rf dist && tsc",
     "typecheck": "tsc --noEmit",
-    "pretest": "npm run build",
-    "test": "node --test",
+    "pretest": "npm run build && rm -rf test-build && tsc -p test",
+    "test": "node --test test/*.test.js test-build/*.test.js",
     "prepack": "npm run build"
   },
   "dependencies": {

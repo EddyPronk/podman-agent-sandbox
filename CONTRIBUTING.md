@@ -35,6 +35,12 @@ sandbox-dev new try --template claude
 ## Tests
 
 - **Unit tests:** `npm test` (Node's test runner). They build no images and start no containers.
+- **TypeScript tests** (`test/*.test.ts`, new ones may be written so): `npm test` builds them first
+  (`tsc -p test`, into `test-build/`), against `dist/` and its `.d.ts` files. They import
+  `../dist/x.js`, like the JavaScript tests. They run from `test-build/`, so a file in
+  `test/fixtures/` or `test/fake-podman/` is `new URL('../test/fixtures/…', import.meta.url)`. A type
+  a test relies on is checked when it builds: `test/json.test.ts` doesn't build if a check stops
+  narrowing.
 - **Integration tests** in `test/integration/` need rootless Podman. They build images, so they take
   minutes:
   - `nested.sh TARBALL [LOG_DIR]` makes a `claude-containers` sandbox, installs the `npm pack` tarball
