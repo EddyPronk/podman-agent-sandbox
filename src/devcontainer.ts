@@ -30,15 +30,16 @@ export function cliPath(): string {
     return join(dirname(require.resolve('@devcontainers/cli/package.json')), 'devcontainer.js');
 }
 
-function packageVersion(): string {
-    const pkg: unknown = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+/** The version in the package.json FILE. */
+export function packageVersion(file: string | URL): string {
+    const pkg: unknown = JSON.parse(readFileSync(file, 'utf8'));
     if (typeof pkg === 'object' && pkg !== null && 'version' in pkg && typeof pkg.version === 'string') {
         return pkg.version;
     }
-    throw new Error('package.json has no version');
+    throw new Error(`${file} has no version`);
 }
 
-export const PACKAGE_VERSION = packageVersion();
+export const PACKAGE_VERSION = packageVersion(new URL('../package.json', import.meta.url));
 
 /**
  * The Dev Containers CLI's environment. Templates read it through ${localEnv:…}:

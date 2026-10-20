@@ -19,7 +19,7 @@ on:
       - 'templates/offline/**'
       - 'src/seccomp.ts'
       - 'src/templates.ts'
-      - 'src/cli.js'
+      - 'src/cli.ts'
       - 'src/devcontainer.ts'
 
 permissions:
