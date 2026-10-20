@@ -531,7 +531,7 @@ export function listRemoved() {
     const rows = [['NAME', 'KIND', 'WORKSPACE', 'KEPT VOLUMES']];
     for (const folder of folders) {
         const { settings, volumes } = removedSandbox(folder);
-        const kept = volumes.filter((v) => v.bytes !== null).map((v) => `${v.name} (${formatBytes(v.bytes)})`);
+        const kept = volumes.flatMap((v) => (v.bytes === null ? [] : [`${v.name} (${formatBytes(v.bytes)})`]));
         const kind = readRecord(basename(folder))?.kind === 'vm' ? 'VM' : 'container';
         rows.push([basename(folder), kind, settings?.workspace ?? folder, kept.join(', ') || 'none']);
     }

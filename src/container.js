@@ -12,24 +12,8 @@ import {
 import { uncoveredInSandbox } from './workspace.js';
 
 /**
- * What sandbox reads of `podman container inspect` (one element of its JSON list).
- * @typedef {object} PodmanMount
- * @property {string} Type        'bind', 'volume', 'tmpfs'
- * @property {string} [Name]      a volume's name
- * @property {string} Source
- * @property {string} Destination
- * @property {boolean} RW
- *
- * @typedef {object} PodmanInfo
- * @property {string} Id
- * @property {string} [Name]      the container's name
- * @property {string} Created     RFC 3339
- * @property {string} Image       the image's ID
- * @property {string} [ImageName] the image's name as given to podman run
- * @property {{ Status: string }} State
- * @property {{ CreateCommand?: string[], Labels?: Record<string, string> }} Config
- * @property {PodmanMount[]} [Mounts]
- * @property {{ Networks?: Record<string, unknown> }} [NetworkSettings]
+ * What sandbox reads of `podman container inspect` (inspect.ts).
+ * @typedef {import('./inspect.js').PodmanInfo} PodmanInfo
  */
 
 /**
