@@ -34,6 +34,13 @@ export function allowSyscalls(profile, names) {
     return out;
 }
 
+/** Whether VALUE (parsed JSON) has what allowSyscalls needs: syscalls, each with a list of names. */
+function isProfile(value) {
+    return typeof value === 'object' && value !== null && Array.isArray(value.syscalls)
+        && value.syscalls.every((rule) => typeof rule === 'object' && rule !== null && Array.isArray(rule.names)
+            && rule.names.every((n) => typeof n === 'string'));
+}
+
 /** The host podman's default seccomp profile (it follows containers.conf), or null if it has no file. */
 export function hostSeccompProfile() {
     const result = spawnSync('podman', ['info', '--format', '{{.Host.Security.SECCOMPProfilePath}}'],
@@ -63,6 +70,7 @@ export function writeSeccompProfile(dest, names, { seccompSource = hostSeccompPr
     } catch (err) {
         throw new SandboxError(`cannot read the seccomp profile ${source}: ${err.message}`);
     }
+    if (!isProfile(profile)) throw new SandboxError(`${source} is not a seccomp profile (no list of syscalls with names)`);
     writeFileSync(out, JSON.stringify(allowSyscalls(profile, names), null, 2) + '\n');
     log(`sandbox: seccomp profile from ${source}, with ${names.join(', ')} allowed`);
 }

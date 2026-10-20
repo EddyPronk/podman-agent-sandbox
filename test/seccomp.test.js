@@ -104,3 +104,15 @@ test('a failed profile leaves no half-made sandbox behind', () => {
         /cannot read the seccomp profile/);
     assert.ok(!existsSync(dest));
 });
+
+test('JSON that is no seccomp profile is refused with a message, not a TypeError', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
+    mkdirSync(join(dir, '.devcontainer'));
+    for (const json of ['{}', 'null', '{"syscalls": [{"action": "SCMP_ACT_ALLOW"}]}']) {
+        const source = join(dir, 'profile.json');
+        writeFileSync(source, json);
+        assert.throws(() => writeSeccompProfile(dir, ['sethostname'], { seccompSource: () => source, log: () => {} }),
+            (err) => err.name === 'Error' && /is not a seccomp profile/.test(err.message), json);
+    }
+    assert.ok(!existsSync(join(dir, '.devcontainer', 'seccomp.json')));
+});
