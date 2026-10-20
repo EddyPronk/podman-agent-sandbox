@@ -1,4 +1,3 @@
-// @ts-check
 // A sandbox as the commands see it: its config folder and what podman has of it, a normal container,
 // a VM, or both. The middle layer between the commands (cli.js) and the containers (container.js,
 // vm.js): the commands call one method of a Sandbox, and the Sandbox decides what that means for its
@@ -15,27 +14,27 @@ import { ask, configChange, short, writeEffective } from './inplace.js';
 import { configVolumes, formatBytes, removedRows, table } from './inspect.js';
 import { lockSandbox } from './lock.js';
 import { isObject } from './json.js';
+import type { JsonObject } from './json.js';
+import type { Release } from './lock.js';
 import { readRecord, removeRecord, writeRecord } from './state.js';
+import type { Kind, StateRecord } from './state.js';
 import { checkMinVersion } from './templates.js';
 import { VM_OF_LABEL, Vm, checkHost, madeAt, vmName, vmPolicy } from './vm.js';
+import type { Answer } from './vm.js';
 import { configFile, readConfig, readSettings, uncoveredInSandbox } from './workspace.js';
+import type { Settings } from './workspace.js';
+import type { Row, VolumeSize } from './inspect.js';
 
-/** @typedef {import('./vm.js').Answer} Answer */
-/** @type {Answer} */
-const ALLOWED = { allowed: true };
+const ALLOWED: Answer = { allowed: true };
 
 /**
  * Sandbox NAME as it is now. With LOCK, take its lock first (sandbox enter, exec, stop and rm: the
  * commands that change it), then read the state, so the state read is the one the command acts on.
- * @param {string} name
- * @param {{ lock?: boolean }} [options]
  */
-export function loadSandbox(name, { lock = false } = {}) {
+export function loadSandbox(name: string, { lock = false }: { lock?: boolean } = {}): Sandbox {
     checkName(name);
-    /** @type {import('./lock.js').Release} */
-    const release = lock ? lockSandbox(name) : () => {};
-    /** @type {Sandbox | undefined} */
-    let sandbox;
+    const release: Release = lock ? lockSandbox(name) : () => {};
+    let sandbox: Sandbox | undefined;
     // A command on a sandbox that doesn't exist (a typo) leaves no lock file behind.
     const done = () => release({ remove: !sandbox?.known() });
     try {
@@ -50,40 +49,45 @@ export function loadSandbox(name, { lock = false } = {}) {
 /**
  * What there is of sandbox NAME: the container named NAME (and, when that's another sandbox's VM,
  * whose), its VM, found by its label, and its record (state.js).
- * @param {string} name
- * @returns {{ container: Container, vmOf: string, vm: Vm | null, record: import('./state.js').StateRecord | null }}
  */
-function readState(name) {
+function readState(name: string): { container: Container; vmOf: string; vm: Vm | null; record: StateRecord | null } {
     const container = Container.load(name);
     const vmOf = container.labels[VM_OF_LABEL] ?? '';
     return { container, vmOf, vm: vmOf ? null : Vm.find(name), record: vmOf ? null : readRecord(name) };
 }
 
+/** What enterPlan decides from. */
+export interface EnterState {
+    name: string;
+    /** The normal container. */
+    container: { exists: boolean; active: boolean; created: string };
+    vm: { exists: boolean; active: boolean };
+    /** A container named NAME-vm exists that isn't NAME's VM. */
+    nameTaken: boolean;
+}
+
 /**
- * What enterPlan decides from.
- * @typedef {object} EnterState
- * @property {string} name
- * @property {{ exists: boolean, active: boolean, created: string }} container  the normal container
- * @property {{ exists: boolean, active: boolean }} vm
- * @property {boolean} nameTaken  a container named NAME-vm exists that isn't NAME's VM
- *
  * What sandbox enter does: open (start if needed, then a shell in) the container or the VM, start the
  * VM, make the VM (CREATE_FIRST: the normal container first), or refuse.
- * @typedef {{ action: 'open', target: 'container' | 'vm' } | { action: 'start' }
- *     | { action: 'makeVm', createFirst: boolean } | { action: 'refuse', why: string }} EnterAction
  */
+export type EnterAction = { action: 'open'; target: 'container' | 'vm' } | { action: 'start' }
+    | { action: 'makeVm'; createFirst: boolean } | { action: 'refuse'; why: string };
+
+/** The config as the Dev Containers CLI reads it: see readConfiguration. */
+export interface Configuration {
+    merged: JsonObject;
+    workdir: string;
+}
 
 /**
  * sandbox enter's decision (PLAN.md, Behaviour), from the state alone. VM: --vm; FROM_EXISTING:
  * --from-existing; POLICY: vmPolicy's answer for the config; HOST: checkHost's.
- * @param {EnterState} state
- * @param {{ vm?: boolean, fromExisting?: boolean, policy?: Answer, host?: Answer }} [options]
- * @returns {EnterAction}
  */
-export function enterPlan(state, { vm = false, fromExisting = false, policy = ALLOWED, host = ALLOWED } = {}) {
+export function enterPlan(state: EnterState, { vm = false, fromExisting = false, policy = ALLOWED, host = ALLOWED }: {
+    vm?: boolean; fromExisting?: boolean; policy?: Answer; host?: Answer;
+} = {}): EnterAction {
     const { name } = state;
-    /** @param {string} why @returns {EnterAction} */
-    const refuse = (why) => ({ action: 'refuse', why });
+    const refuse = (why: string): EnterAction => ({ action: 'refuse', why });
     if (!vm) {
         if (state.vm.exists) {
             return refuse(`${name} is a VM: to make it a container, 'sandbox rm ${name}' (volumes are kept), then `
@@ -114,24 +118,28 @@ export function enterPlan(state, { vm = false, fromExisting = false, policy = AL
 }
 
 export class Sandbox {
-    /**
-     * @param {string} name
-     * @param {() => void} release  releases the lock, if taken
-     */
-    constructor(name, release) {
+    name: string;
+    /** Releases the lock, if taken. */
+    release: () => void;
+    /** The container named NAME, unless it's another sandbox's VM (vmOf). */
+    container: Container;
+    /** The sandbox whose VM the container named NAME is, or ''. */
+    vmOf: string;
+    vm: Vm | null;
+    record: StateRecord | null;
+
+    constructor(name: string, release: () => void) {
         this.name = name;
         this.release = release;
         const now = readState(name);
-        /** The container named NAME, unless it's another sandbox's VM (vmOf). */
         this.container = now.container;
-        /** The sandbox whose VM the container named NAME is, or ''. */
         this.vmOf = now.vmOf;
         this.vm = now.vm;
         this.record = now.record;
     }
 
     /** Read the state again, after a step that changed it. */
-    reload() {
+    reload(): void {
         const now = readState(this.name);
         this.container = now.container;
         this.vmOf = now.vmOf;
@@ -142,24 +150,23 @@ export class Sandbox {
     /**
      * What the sandbox is: 'vm' or 'container'. Its record says (sandbox new --vm, enter --vm, enter
      * --container), and a VM sandbox stays one after sandbox rm. Without a record: a VM if it has one.
-     * @returns {import('./state.js').Kind}
      */
-    get kind() {
+    get kind(): Kind {
         return this.record?.kind ?? (this.vm ? 'vm' : 'container');
     }
 
     /** The sandbox's config folder: the container's label, the record's, or $SANDBOX_DIR/NAME; refuses when there's none. */
-    get dir() {
+    get dir(): string {
         return folderOf(this.name, { lookup: () => this.container.folder || this.record?.folder || '' });
     }
 
     /** Whether the sandbox has a container or a VM, running or not: made from an older config or image. */
-    made() {
+    made(): boolean {
         return this.container.exists || this.vm !== null;
     }
 
     /** Whether there is such a sandbox: a container, a VM, a record or a config folder. */
-    known() {
+    known(): boolean {
         if (this.made() || this.record) return true;
         try {
             return Boolean(this.dir);
@@ -171,11 +178,9 @@ export class Sandbox {
     /**
      * sandbox enter [--vm [--from-existing] | --container]: open the sandbox as what it is (its kind),
      * or as KIND when given, starting or making it as PLAN.md's rules say; the shell's exit status.
-     * @param {{ kind?: import('./state.js').Kind | null, fromExisting?: boolean }} [options]
      */
-    enter({ kind = null, fromExisting = false } = {}) {
-        /** @type {Container | Vm} */
-        let target;
+    enter({ kind = null, fromExisting = false }: { kind?: Kind | null; fromExisting?: boolean } = {}): number {
+        let target: Container | Vm;
         try {
             this.#checkNotAVm();
             if ((kind ?? this.kind) === 'container') {
@@ -197,9 +202,8 @@ export class Sandbox {
      * sandbox exec: start the container if needed, and run COMMAND; its exit status. Not for a VM
      * sandbox, also after sandbox rm: a command can't run next to a VM's shell, and starting the
      * container instead would run it elsewhere.
-     * @param {string[]} command
      */
-    exec(command) {
+    exec(command: string[]): number {
         try {
             this.#checkNotAVm();
             const target = this.kind === 'vm' ? this.vm : this.container;
@@ -217,9 +221,9 @@ export class Sandbox {
 
     /**
      * sandbox build: build the image, after the checks a container creation makes; the exit status.
-     * @param {string[]} args  passed on to devcontainer build (--no-cache)
+     * ARGS are passed on to devcontainer build (--no-cache).
      */
-    build(args) {
+    build(args: string[]): number {
         this.#checkNotAVm();
         const dir = this.dir;
         const inplace = checkTrusted(this.name, dir);
@@ -237,14 +241,13 @@ export class Sandbox {
     /**
      * sandbox stop: stop what is active, the VM at once; what to print. FORCE: also a container
      * sandbox didn't make.
-     * @param {{ force?: boolean }} [options]
      */
-    stop({ force = false } = {}) {
+    stop({ force = false }: { force?: boolean } = {}): string {
         try {
             this.#checkNotAVm();
             const { name, container, vm } = this;
             if (!container.exists && !vm) throw new SandboxError(`${name} has no container or VM to stop`);
-            const done = [];
+            const done: string[] = [];
             if (vm?.active) {
                 vm.stop();
                 done.push(`stopped ${name}'s VM`);
@@ -263,22 +266,21 @@ export class Sandbox {
     /**
      * sandbox rm: remove the container and the VM, keep their volumes and folders; what to print. FORCE
      * as for stop.
-     * @param {{ force?: boolean }} [options]
      */
-    remove({ force = false } = {}) {
+    remove({ force = false }: { force?: boolean } = {}): string {
         try {
             this.#checkNotAVm();
             const { name, container, vm } = this;
             if (!container.exists && !vm) throw new SandboxError(`${name} has no container or VM to remove`);
             if (container.exists) this.#checkOurs('rm', force);
-            let settings = null;
+            let settings: Settings | null = null;
             try {
                 settings = readSettings(this.dir);
             } catch {
                 // no config folder left: nothing more to say
             }
             const volumes = [...new Set([...container.volumes(), ...(vm?.volumes() ?? [])])];
-            const done = [];
+            const done: string[] = [];
             if (vm) {
                 vm.remove();
                 done.push(`removed ${name}'s VM`);
@@ -302,13 +304,13 @@ export class Sandbox {
     }
 
     /** sandbox inspect: how it runs, or, without a container, what's left of it; and its VM. */
-    describe() {
+    describe(): string {
         const { name, container, vm } = this;
         if (this.vmOf) {
             return `# ${name} is the VM of ${this.vmOf} (podman exec, and so the measurements inside, can't reach a VM): `
                 + `see sandbox inspect ${this.vmOf}\n\n${container.describe()}`;
         }
-        const parts = [];
+        const parts: string[] = [];
         if (container.exists) {
             const { folder } = container;
             parts.push(container.describe({ untrusted: folder ? untrustedChange(folder) : null }));
@@ -328,8 +330,8 @@ export class Sandbox {
         return parts.join('\n\n');
     }
 
-    /** What enterPlan needs to know. @returns {EnterState} */
-    #state() {
+    /** What enterPlan needs to know. */
+    #state(): EnterState {
         const { name, container, vm } = this;
         const taken = vm ? null : inspectContainer(vmName(name));
         return {
@@ -340,17 +342,15 @@ export class Sandbox {
         };
     }
 
-    /** @param {EnterAction} plan */
-    #refuseIf(plan) {
+    #refuseIf(plan: EnterAction): void {
         if (plan.action === 'refuse') throw new SandboxError(plan.why);
     }
 
     /**
      * sandbox enter --vm, up to the shell: the checks of sandbox enter (R2), enterPlan, and what it says.
      * Returns the VM to attach to.
-     * @param {boolean} fromExisting
      */
-    #enterVm(fromExisting) {
+    #enterVm(fromExisting: boolean): Vm {
         const { name } = this;
         const dir = this.dir;
         checkTrusted(name, dir);
@@ -366,7 +366,8 @@ export class Sandbox {
             throw new SandboxError(plan.why);
         case 'open':
         case 'start': {
-            const vm = /** @type {Vm} */ (this.vm);
+            const { vm } = this;
+            if (!vm) throw new Error(`enterPlan said ${plan.action} without a VM`);   // a bug in sandbox
             // A repo added to the workspace after the VM was made would be writable inside it.
             checkWorkspace(name, dir, vm.readonlyMounts());
             if (plan.action === 'start') {
@@ -383,7 +384,7 @@ export class Sandbox {
                     this.container.stop();
                 } catch (err) {
                     throw new SandboxError(`${name}'s container was made, but stopping it (to make the VM) failed: `
-                        + `${/** @type {Error} */ (err).message}\nIt's running: 'sandbox stop ${name}', then try again`);
+                        + `${err instanceof Error ? err.message : err}\nIt's running: 'sandbox stop ${name}', then try again`);
                 }
                 this.reload();
                 // Now with the image: Features and image metadata can add lifecycle commands.
@@ -400,7 +401,7 @@ export class Sandbox {
             return Vm.makeFrom(this.container, { workdir: config.workdir, env: vmEnv(merged) });
         }
         default:
-            throw new Error(`unknown plan ${JSON.stringify(/** @type {never} */ (plan))}`);
+            throw new Error(`unknown plan ${JSON.stringify(plan satisfies never)}`);
         }
     }
 
@@ -408,7 +409,7 @@ export class Sandbox {
      * Just before starting or making the VM: the normal container must not be active. The lock keeps
      * sandbox commands apart; VS Code and plain podman start don't take it.
      */
-    #checkContainerInactive() {
+    #checkContainerInactive(): void {
         const now = Container.load(this.name);
         if (now.active) throw new SandboxError(`${this.name} runs as a normal container now: 'sandbox stop ${this.name}' first`);
     }
@@ -419,7 +420,7 @@ export class Sandbox {
      * sandbox's settings apply without a new trust), the config's minVersion, and the git protection
      * of a --workspace sandbox, against the mounts of the container when it exists.
      */
-    #start() {
+    #start(): void {
         const { name, container } = this;
         const dir = this.dir;
         const inplace = checkTrusted(name, dir);
@@ -431,7 +432,7 @@ export class Sandbox {
     }
 
     /** The container named NAME is another sandbox's VM: refuse to treat it as sandbox NAME, also with --force. */
-    #checkNotAVm() {
+    #checkNotAVm(): void {
         if (this.vmOf) {
             throw new SandboxError(`${this.name} is the VM of ${this.vmOf}, not a sandbox: use sandbox stop, rm or `
                 + `enter --vm on ${this.vmOf}`);
@@ -440,10 +441,8 @@ export class Sandbox {
 
     /**
      * Refuse to SUB (stop, rm) a container without the sandbox label, unless FORCE.
-     * @param {string} sub
-     * @param {boolean} force
      */
-    #checkOurs(sub, force) {
+    #checkOurs(sub: string, force: boolean): void {
         const { name, container } = this;
         if (force || !container.exists) return;
         const found = container.sandbox;
@@ -462,9 +461,8 @@ export class Sandbox {
 /**
  * The config in DIR as the Dev Containers CLI reads it, merged with what Features and the image add:
  * { merged, workdir }. WORKDIR: the folder the shell starts in, the config's workspaceFolder.
- * @param {string} dir
  */
-function readConfiguration(dir) {
+function readConfiguration(dir: string): Configuration {
     const result = dc('read-configuration', ['--workspace-folder', dir, '--include-merged-configuration'],
         { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
     if (result.status !== 0) {
@@ -476,12 +474,9 @@ function readConfiguration(dir) {
 /**
  * devcontainer read-configuration's output (TEXT) for the config in DIR: { merged, workdir } as
  * readConfiguration gives them. Refuses output without a configuration: vmPolicy and vmEnv read it.
- * @param {string} text
- * @param {string} dir
  */
-export function parseConfiguration(text, dir) {
-    /** @type {unknown} */
-    const out = JSON.parse(text);
+export function parseConfiguration(text: string, dir: string): Configuration {
+    const out: unknown = JSON.parse(text);
     const merged = isObject(out) ? out.mergedConfiguration ?? out.configuration : undefined;
     if (!isObject(out) || !isObject(merged)) {
         throw new SandboxError(`devcontainer read-configuration gave output sandbox doesn't expect for ${dir}: no configuration`);
@@ -495,22 +490,20 @@ export function parseConfiguration(text, dir) {
  * VM has no exec, so it's set when the VM is made). A value that names the container's environment
  * (${containerEnv:…}) can't be known before it runs, and is left out. Without a remoteEnv: TERM, USER
  * and LOGNAME (from the user database when unset).
- * @param {Record<string, any>} config
- * @param {NodeJS.ProcessEnv} [env]
- * @returns {Record<string, string>}
  */
-export function vmEnv(config, env = childEnv()) {
+export function vmEnv(config: JsonObject, env: NodeJS.ProcessEnv = childEnv()): { [key: string]: string } {
     const remote = config.remoteEnv;
-    if (remote && typeof remote === 'object') {
-        return Object.fromEntries(Object.entries(remote).filter(([, value]) => typeof value === 'string' && !value.includes('${')));
+    if (isObject(remote)) {
+        return Object.fromEntries(Object.entries(remote)
+            .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && !entry[1].includes('${')));
     }
     const user = env.USER ?? '';
     return { TERM: env.TERM || 'xterm-256color', ...(user ? { USER: user, LOGNAME: user } : {}) };
 }
 
 /** sandbox list: the dev containers and the sandboxes' VMs, by sandbox name, as a table. */
-export function listSandboxes() {
-    const ps = (/** @type {string} */ filter, /** @type {string} */ last) => {
+export function listSandboxes(): string {
+    const ps = (filter: string, last: string) => {
         const result = podman(['ps', '-a', '--filter', `label=${filter}`, '--format',
             `{{.Names}}\t{{.State}}\t{{.Networks}}\t{{.Label "${last}"}}`]);
         if (result.status !== 0) throw new SandboxError(result.stderr.trim());
@@ -530,10 +523,10 @@ export function listSandboxes() {
  * sandbox rm, or never entered), with the volumes they keep. Sandboxes whose config folder is
  * elsewhere can't be found once their container is gone.
  */
-export function listRemoved() {
+export function listRemoved(): string {
     const result = podman(['ps', '-a', '--format', `{{.Label "devcontainer.local_folder"}}\t{{.Label "${VM_OF_LABEL}"}}`]);
     if (result.status !== 0) throw new SandboxError(result.stderr.trim());
-    const used = new Set();
+    const used = new Set<string>();
     for (const line of result.stdout.split('\n').filter(Boolean)) {
         const [folder, vmOf] = line.split('\t').map((s) => (s === '<no value>' ? '' : s));
         if (folder) used.add(folder);
@@ -557,16 +550,14 @@ export function listRemoved() {
 
 /**
  * What's left of the sandbox in config folder FOLDER without its container: { settings, volumes, rows }.
- * @param {string} folder
  */
-function removedSandbox(folder) {
-    let settings = null;
-    /** @type {{ name: string, bytes: number | null }[]} */
-    let volumes = [];
+function removedSandbox(folder: string): { settings: Settings | null; volumes: VolumeSize[]; rows: Row[] } {
+    let settings: Settings | null = null;
+    let volumes: VolumeSize[] = [];
     try {
         settings = readSettings(folder);
         volumes = configVolumes(readConfig(configFile(folder)), folder, childEnv())
-            .map((/** @type {string} */ name) => ({ name, bytes: volumeBytes(name) }));
+            .map((name) => ({ name, bytes: volumeBytes(name) }));
     } catch {
         // an unreadable sandbox.json or config: show what there is
     }
@@ -577,9 +568,8 @@ function removedSandbox(folder) {
 /**
  * Bytes on disk in volume NAME, or null when it doesn't exist. `podman unshare du`: in a sandbox's
  * home volume, files of containers inside are owned by subordinate IDs that a plain du can't read.
- * @param {string} name
  */
-function volumeBytes(name) {
+function volumeBytes(name: string): number | null {
     const mountpoint = podman(['volume', 'inspect', '--format', '{{.Mountpoint}}', name]);
     if (mountpoint.status !== 0) return null;
     const du = podman(['unshare', 'du', '-sk', mountpoint.stdout.trim()]);
@@ -591,12 +581,11 @@ function volumeBytes(name) {
  * Before creating NAME's container or image from the config in DIR: refuse when its marker asks for
  * a newer sandbox (minVersion), e.g. after installing an older release. A container that exists was
  * made already, and keeps running.
- * @param {string} dir
  */
-function checkConfigVersion(dir) {
+function checkConfigVersion(dir: string): void {
     const file = configFile(dir);
     if (!existsSync(file)) return;
-    let config = null;
+    let config: unknown = null;
     try {
         config = JSON.parse(readFileSync(file, 'utf8'));
     } catch {
@@ -610,18 +599,15 @@ function checkConfigVersion(dir) {
  * writable hooks or config inside. Repos get added or moved after the sandbox was made. A container
  * (or VM) keeps the mounts it was created with, so check those (READONLY, its read-only mounts) when
  * it exists, else (null) the config.
- * @param {string} name
- * @param {string} dir
- * @param {string[] | null} readonly
  */
-function checkWorkspace(name, dir, readonly) {
+function checkWorkspace(name: string, dir: string, readonly: string[] | null): void {
     const settings = readSettings(dir);
     if (!settings) return;
     const missing = uncoveredInSandbox(dir, readonly);
     if (missing.length === 0) return;
     const redo = readonly ? `sandbox rm ${name}; ` : '';
     throw new SandboxError(`these would be writable inside ${name}, and git on the host runs what they name:\n`
-        + missing.map((/** @type {string} */ path) => `  ${path}\n`).join('')
+        + missing.map((path) => `  ${path}\n`).join('')
         + `Make the sandbox again (the options are in ${join(dir, 'sandbox.json')}):\n`
         + `  ${redo}rm -r ${dir}; sandbox new ${name} --template ... --workspace ${settings.workspace} ...`);
 }
@@ -629,10 +615,8 @@ function checkWorkspace(name, dir, readonly) {
 /**
  * For an --inplace sandbox (in DIR): refuse when the project's config isn't the one the user trusted,
  * offering the diff. Returns its settings, or null for other sandboxes.
- * @param {string} name
- * @param {string} dir
  */
-function checkTrusted(name, dir) {
+function checkTrusted(name: string, dir: string): Settings | null {
     const settings = readSettings(dir);
     if (!settings?.inplace) return null;
     const change = configChange(dir, settings);
@@ -656,10 +640,9 @@ function checkTrusted(name, dir) {
 
 /**
  * For an --inplace sandbox in FOLDER: how its project's config differs from the trusted one, or null.
- * @param {string} folder
  */
-function untrustedChange(folder) {
-    let settings;
+function untrustedChange(folder: string): string | null {
+    let settings: Settings | null;
     try {
         settings = readSettings(folder);
     } catch {
