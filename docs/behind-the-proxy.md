@@ -21,6 +21,15 @@ network name `proxy`. It runs as a container, never as a VM: `sandbox enter --vm
 a VM wouldn't start the proxy, and its clients would lose their way out
 ([why](microvm.md#why-the-proxy-cant-run-as-a-vm)). The clients can run as VMs.
 
+The decrypted-traffic log keeps request and response bodies, never headers. The credentials and
+identity that Claude Code's own endpoints carry in their bodies (OAuth tokens, account and
+organisation ids, the email address) are logged as `[REDACTED]`; agent-mitm-proxy's README lists
+each one. What the agent sends as content, such as a key pasted into a prompt, is logged as it is,
+so the log is still sensitive. A proxy made before 0.8.1 builds agent-mitm-proxy 1.1.0, without the
+redaction. To bring it up to date and keep its CA (in `proxy-home`), make it anew under the same
+name: `sandbox rm proxy`, move `~/sandboxes/proxy` aside (copy its `allowlist.txt` back if you
+changed it), `sandbox new proxy --template mitm-proxy`.
+
 ## 2. Your project behind it
 
 ```sh
