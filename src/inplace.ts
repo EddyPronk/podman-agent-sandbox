@@ -30,7 +30,7 @@ export const TRUSTED = 'trusted';
 
 /**
  * A project's devcontainer.json, with the fields riskSummary and writeEffective read checked
- * (checkFields). Null is unset, as the Dev Containers CLI reads it.
+ * (checkFields). Null is unset: see checkFields.
  */
 export interface ProjectConfig extends DevcontainerConfig {
     capAdd?: string[] | null;
@@ -143,6 +143,10 @@ export function checkMarker(config: DevcontainerConfig, file: string): void {
  * before it shows what the config asks for.
  */
 export function checkFields(config: DevcontainerConfig, file: string): asserts config is ProjectConfig {
+    // Null passes, as unset: in these fields it can't grant anything (no options, capabilities,
+    // mounts, Features or seccomp allowance), and sandbox read it so before these checks. The Dev
+    // Containers CLI 0.89.0's read-configuration accepts null in runArgs, capAdd, features and mounts;
+    // devcontainer up wasn't tried.
     const wrong = (key: string, what: string) => new SandboxError(`${file}: "${key}" must be ${what}`);
     for (const key of ['capAdd', 'securityOpt', 'runArgs']) {
         if (!nullable(config[key], isStringList)) throw wrong(key, 'a list of strings');

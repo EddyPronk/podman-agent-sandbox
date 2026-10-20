@@ -11,7 +11,7 @@ export const SETTINGS = 'sandbox.json';
 
 /**
  * A devcontainer.json, as far as readConfig checks it; its other fields are kept as they are. Null
- * is unset, as the Dev Containers CLI reads it.
+ * mounts are none (isConfig).
  */
 export interface DevcontainerConfig {
     mounts?: unknown[] | null;
@@ -218,8 +218,10 @@ export function readConfig(file: string): DevcontainerConfig {
     return config;
 }
 
+// Null mounts pass, as none: they can't mount anything, and sandbox read them so before this check
+// (inplace.ts's checkFields has the same reasons).
 function isConfig(value: unknown): value is DevcontainerConfig {
-    return isObject(value) && nullable(value.mounts, Array.isArray);
+    return isObject(value) && nullable(value.mounts, (m): m is unknown[] => Array.isArray(m));
 }
 
 /**
@@ -265,6 +267,7 @@ export function readSettings(configDir: string): Settings | null {
     return settings;
 }
 
+// Strict (optional, not nullable): sandbox writes sandbox.json itself, and never null.
 function isSettings(value: unknown): value is Settings {
     return isObject(value) && isString(value.workspace) && optional(value.hide, isStringList)
         && optional(value.readonly, isStringList) && optional(value.inplace, isBoolean) && optional(value.configTree, isString);

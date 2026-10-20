@@ -16,7 +16,7 @@ const METADATA = 'devcontainer-template.json';
 /** Our namespace in devcontainer.json's "customizations": marks a config written for sandbox. */
 export const MARKER = 'podman-agent-sandbox';
 
-/** A template's devcontainer-template.json, as far as readMetadata checks it. Null is unset. */
+/** A template's devcontainer-template.json, as far as readMetadata checks it. Null is unset (isTemplate). */
 export interface Template {
     id: string;
     description?: string | null;
@@ -87,15 +87,18 @@ function readMetadata(file: string): Template {
     return template;
 }
 
+// Null passes, as unset, as sandbox read these fields before these checks (with ??). The bundled
+// templates have none; a template given by path is trusted whole anyway, since all of it is copied.
 function isOption(value: unknown): value is TemplateOption {
     return isObject(value) && nullable(value.type, isString) && nullable(value.description, isString)
         && nullable(value.proposals, isStringList) && nullable(value.enum, isStringList)
-        && nullable(value.default, (d) => isString(d) || isBoolean(d));
+        && nullable(value.default, (d): d is string | boolean => isString(d) || isBoolean(d));
 }
 
 function isTemplate(value: unknown): value is Template {
     return isObject(value) && isString(value.id) && nullable(value.description, isString)
-        && nullable(value.options, (options) => isObject(options) && Object.values(options).every(isOption));
+        && nullable(value.options, (options): options is { [key: string]: TemplateOption } => isObject(options)
+            && Object.values(options).every(isOption));
 }
 
 /** ['KEY=VALUE', ...] → { KEY: 'VALUE', ... } */
@@ -208,11 +211,10 @@ export function seccompAllow(dir: string, template: JsonObject = {}): string[] |
     }
     const legacy = isObject(template['x-sandbox']) ? template['x-sandbox'].seccompAllow : undefined;
     const allow = markerOf(config)?.seccompAllow ?? legacy;
-    if (allow === undefined || allow === null) return undefined;
-    if (!isStringList(allow)) {
+    if (!nullable(allow, isStringList)) {
         throw new SandboxError(`${dir}: seccompAllow must be a list of system call names, not ${JSON.stringify(allow)}`);
     }
-    return allow;
+    return allow ?? undefined;
 }
 
 /**

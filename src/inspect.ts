@@ -4,13 +4,13 @@ import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { resolveLocalEnv } from './inplace.js';
 import { isBoolean, isNumber, isObject, isString, isStringList, nullable, optional } from './json.js';
-import type { Check } from './json.js';
+import type { Check, JsonObject } from './json.js';
 import { SETTINGS } from './workspace.js';
 import type { DevcontainerConfig, Settings } from './workspace.js';
 
 /**
  * What sandbox reads of `podman container inspect` (one element of its JSON list); isPodmanInfo
- * checks it. A list or map can be null: Go writes an empty one so (BoundingCaps after --cap-drop=all).
+ * checks it. Its lists and maps may be null: see isPodmanInfo.
  */
 export interface PodmanInfo {
     Id: string;
@@ -49,7 +49,7 @@ export interface PodmanMount {
     RW: boolean;
 }
 
-const listOf = (check: Check) => (value: unknown) => Array.isArray(value) && value.every(check);
+const listOf = <T>(check: Check<T>) => (value: unknown): value is T[] => Array.isArray(value) && value.every(check);
 
 function isMount(value: unknown): value is PodmanMount {
     return isObject(value) && isString(value.Type) && isString(value.Source) && isString(value.Destination)
@@ -58,21 +58,29 @@ function isMount(value: unknown): value is PodmanMount {
 
 function isHostConfig(value: unknown): value is PodmanHostConfig {
     return isObject(value) && optional(value.Privileged, isBoolean) && nullable(value.SecurityOpt, isStringList)
-        && nullable(value.Devices, listOf((d) => isObject(d) && isString(d.PathOnHost)))
+        && nullable(value.Devices, listOf((d): d is { PathOnHost: string } => isObject(d) && isString(d.PathOnHost)))
         && optional(value.NetworkMode, isString) && optional(value.PidsLimit, isNumber) && optional(value.Memory, isNumber);
 }
 
-/** Whether VALUE (one element of `podman container inspect`'s JSON) has what PodmanInfo says, as far as sandbox reads it. */
+/**
+ * Whether VALUE (one element of `podman container inspect`'s JSON) has what PodmanInfo says, as far
+ * as sandbox reads it. Id, Created, Image, State.Status and Config must be there. The lists and maps
+ * may be null: BoundingCaps is null after --cap-drop=all (seen with podman 5.4.2); for the others it
+ * is assumed, not seen (Go writes a nil slice or map as null). Every reader takes null as empty, as
+ * sandbox did before these checks, and where that matters it fails safe: no read-only Mounts means
+ * the git paths count as unprotected, and enter refuses.
+ */
 export function isPodmanInfo(value: unknown): value is PodmanInfo {
     if (!isObject(value) || !isObject(value.State) || !isObject(value.Config)) return false;
     const { State: state, Config: config } = value;
     return isString(value.Id) && isString(value.Created) && isString(value.Image)
         && optional(value.Name, isString) && optional(value.ImageName, isString) && isString(state.Status)
         && nullable(config.CreateCommand, isStringList) && optional(config.User, isString)
-        && nullable(config.Labels, (labels) => isObject(labels) && Object.values(labels).every(isString))
+        && nullable(config.Labels, (labels): labels is { [label: string]: string } => isObject(labels)
+            && Object.values(labels).every(isString))
         && nullable(value.BoundingCaps, isStringList) && nullable(value.HostConfig, isHostConfig)
         && nullable(value.Mounts, listOf(isMount))
-        && nullable(value.NetworkSettings, (n) => isObject(n) && nullable(n.Networks, isObject));
+        && nullable(value.NetworkSettings, (n): n is JsonObject => isObject(n) && nullable(n.Networks, isObject));
 }
 
 /** A row of `sandbox inspect`: label and text. */
