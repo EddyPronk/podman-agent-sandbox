@@ -5,6 +5,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SandboxError } from './devcontainer.js';
+import { checkFields } from './inplace.js';
 import { SECCOMP_RUN_ARG } from './seccomp.js';
 import { MARKER } from './templates.js';
 import { CONFIG_MOUNT, configFile, isInside, readConfig } from './workspace.js';
@@ -44,6 +45,8 @@ export function generatedSeccomp(configDir) {
 export function exportedConfig(dest, settings, home = process.env.HOME) {
     const { workspace } = settings;
     const config = readConfig(configFile(dest));
+    // What --inplace refuses (stageConfig, after the config is written), refused before anything is.
+    checkFields(config, configFile(dest));
     const removed = [];
     const out = { ...config };
     // The workspace at its own path: back to the templates' /workspace, with the read-only mount of
