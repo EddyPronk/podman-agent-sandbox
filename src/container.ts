@@ -1,47 +1,31 @@
-// @ts-check
 // A sandbox's normal container: the one the Dev Containers CLI makes and starts (devcontainer up), and
 // runs commands in (devcontainer exec). The bottom layer under sandbox.js: it does what it's told,
 // without knowing about the sandbox's other states; the checks before a start are sandbox.js's.
 import {
     SANDBOX_LABEL, SandboxError, dc, exitStatus, folderOf, podman, sandboxReason, unlabelledHint,
 } from './devcontainer.js';
+import type { SandboxSigns } from './devcontainer.js';
 import {
-    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, formatCommand, parsePodmanStorage, parseStatus, parseVscodeProbe,
-    podmanStorageRows, table, writableConfig,
+    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, formatCommand, isPodmanInfo, parsePodmanStorage, parseStatus,
+    parseVscodeProbe, podmanStorageRows, table, writableConfig,
 } from './inspect.js';
+import type { PodmanInfo, PodmanStorage, ProcStatus, Row, VscodeProbe } from './inspect.js';
 import { uncoveredInSandbox } from './workspace.js';
 
-/**
- * What sandbox reads of `podman container inspect` (one element of its JSON list).
- * @typedef {object} PodmanMount
- * @property {string} Type        'bind', 'volume', 'tmpfs'
- * @property {string} [Name]      a volume's name
- * @property {string} Source
- * @property {string} Destination
- * @property {boolean} RW
- *
- * @typedef {object} PodmanInfo
- * @property {string} Id
- * @property {string} [Name]      the container's name
- * @property {string} Created     RFC 3339
- * @property {string} Image       the image's ID
- * @property {string} [ImageName] the image's name as given to podman run
- * @property {{ Status: string }} State
- * @property {{ CreateCommand?: string[], Labels?: Record<string, string> }} Config
- * @property {PodmanMount[]} [Mounts]
- * @property {{ Networks?: Record<string, unknown> }} [NetworkSettings]
- */
+export type { PodmanInfo } from './inspect.js';
 
-/**
- * `podman container inspect` of NAME, or null when there's no such container.
- * @param {string} name
- * @returns {PodmanInfo | null}
- */
-export function inspectContainer(name) {
+/** `podman container inspect` of NAME, or null when there's no such container. */
+export function inspectContainer(name: string): PodmanInfo | null {
     const result = podman(['container', 'inspect', name]);
     if (result.status !== 0) return null;
-    const [info] = JSON.parse(result.stdout);
-    return info ?? null;
+    const parsed: unknown = JSON.parse(result.stdout);
+    const unexpected = () => new SandboxError(`podman container inspect ${name} gave output sandbox doesn't expect `
+        + '(a podman version it hasn\'t been tried with?): please report it, with podman --version');
+    if (!Array.isArray(parsed)) throw unexpected();
+    const [info] = parsed;
+    if (info === undefined) return null;
+    if (!isPodmanInfo(info)) throw unexpected();
+    return info;
 }
 
 // The states in which a container does nothing: it doesn't exist (''), or it isn't running.
@@ -50,9 +34,8 @@ const INACTIVE = new Set(['', 'exited', 'created', 'stopped', 'configured']);
 /**
  * Whether a container in STATE is active: running, paused, stopping... anything but INACTIVE. The one
  * definition of "active" (PLAN.md, Definitions).
- * @param {string} state
  */
-export function isActive(state) {
+export function isActive(state: string): boolean {
     return !INACTIVE.has(state);
 }
 
@@ -60,61 +43,59 @@ export class Container {
     /** A command can run in it next to the shell (devcontainer exec). */
     canExec = true;
 
-    /**
-     * @param {string} name
-     * @param {PodmanInfo | null} info  null: the container doesn't exist (yet)
-     */
-    constructor(name, info) {
+    name: string;
+    /** null: the container doesn't exist (yet). */
+    info: PodmanInfo | null;
+
+    constructor(name: string, info: PodmanInfo | null) {
         this.name = name;
         this.info = info;
     }
 
-    /** @param {string} name */
-    static load(name) {
+    static load(name: string): Container {
         return new Container(name, inspectContainer(name));
     }
 
     /** 'running', 'exited', ..., or '' when it doesn't exist. */
-    get state() {
+    get state(): string {
         return this.info?.State?.Status ?? '';
     }
 
-    get exists() {
+    get exists(): boolean {
         return this.info !== null;
     }
 
-    get active() {
+    get active(): boolean {
         return isActive(this.state);
     }
 
-    /** @returns {Record<string, string>} */
-    get labels() {
+    get labels(): { [label: string]: string } {
         return this.info?.Config?.Labels ?? {};
     }
 
     /** The config folder recorded on it (the devcontainer.local_folder label), or ''. */
-    get folder() {
+    get folder(): string {
         return this.labels['devcontainer.local_folder'] ?? '';
     }
 
     /** The sandbox's config folder: the label's, else $SANDBOX_DIR/NAME (folderOf). */
-    get dir() {
+    get dir(): string {
         return folderOf(this.name, { lookup: () => this.folder });
     }
 
     /** Whether it carries the sandbox label: { reason, hint } as containerSandbox gives them. */
-    get sandbox() {
+    get sandbox(): SandboxSigns {
         const reason = sandboxReason({ label: this.labels[SANDBOX_LABEL] });
         return { reason, hint: reason ? '' : unlabelledHint({ folder: this.folder }) };
     }
 
     /** Destinations of its read-only mounts. */
-    readonlyMounts() {
+    readonlyMounts(): string[] {
         return (this.info?.Mounts ?? []).filter((m) => !m.RW).map((m) => m.Destination);
     }
 
     /** Names of the volumes it mounts. */
-    volumes() {
+    volumes(): string[] {
         return (this.info?.Mounts ?? []).flatMap((m) => (m.Type === 'volume' && m.Name ? [m.Name] : []));
     }
 
@@ -123,7 +104,7 @@ export class Container {
      * but is stopped. Creating may take minutes: show that log (on stderr). Starting is quick, and its
      * log only matters when it fails.
      */
-    start() {
+    start(): void {
         if (this.state === 'running') return;
         const create = !this.exists;
         console.error(`sandbox: ${create ? 'creating' : 'starting'} ${this.name} ...`);
@@ -136,18 +117,18 @@ export class Container {
         }
     }
 
-    stop() {
+    stop(): void {
         const result = podman(['stop', this.name]);
         if (result.status !== 0) throw new SandboxError(result.stderr.trim());
     }
 
-    remove() {
+    remove(): void {
         const result = podman(['rm', '-f', this.name]);
         if (result.status !== 0) throw new SandboxError(result.stderr.trim());
     }
 
     /** A login shell as the user, in the workspace; its exit status. */
-    openShell() {
+    openShell(): number {
         return this.exec(['bash', '-l']);
     }
 
@@ -155,9 +136,8 @@ export class Container {
      * Run COMMAND (argv) as the user, in the workspace folder, with the environment of the shell; its
      * exit status. Node can't exec() in place: run it as a child and pass on its status. Ignore Ctrl-C
      * here so it only reaches the command in the container.
-     * @param {string[]} command
      */
-    exec(command) {
+    exec(command: string[]): number {
         const dir = this.dir;
         process.on('SIGINT', () => {});
         // "--" stops the CLI from parsing the command's options (bash -l) as its own.
@@ -168,13 +148,11 @@ export class Container {
      * sandbox inspect for an existing container: the command that created it and what it runs with,
      * measured inside while it runs. UNTRUSTED: how an --inplace sandbox's project config changed since
      * it was trusted, if it did.
-     * @param {{ untrusted?: string | null }} [options]
-     * @returns {string}
      */
-    describe({ untrusted = null } = {}) {
-        const info = /** @type {PodmanInfo} */ (this.info);
-        const { name } = this;
-        const lines = [];
+    describe({ untrusted = null }: { untrusted?: string | null } = {}): string {
+        const { name, info } = this;
+        if (!info) throw new SandboxError(`${name} has no container to describe`);
+        const lines: string[] = [];
         const { reason, hint } = this.sandbox;
         lines.push(reason ? `# ${name} is a sandbox (${reason}).`
             : hint ? `# ${name} is not a sandbox: no ${SANDBOX_LABEL} label, though ${hint} (a sandbox made before 0.6.0,`
@@ -187,9 +165,9 @@ export class Container {
             + '# socket, as VS Code and other Docker clients do)');
 
         // Measured inside while it runs: what the processes in it actually have.
-        let status = null;
-        let vscode = null;
-        let storage = null;
+        let status: ProcStatus | null = null;
+        let vscode: VscodeProbe | null = null;
+        let storage: PodmanStorage | null = null;
         if (this.state === 'running') {
             const proc = podman(['exec', name, 'cat', '/proc/1/status']);
             if (proc.status === 0) status = parseStatus(proc.stdout);
@@ -200,8 +178,7 @@ export class Container {
             const inner = podman(['exec', name, 'sh', '-c', PODMAN_STORAGE_PROBE]);
             if (inner.status === 0) storage = parsePodmanStorage(inner.stdout);
         }
-        /** @type {Record<string, boolean>} */
-        const internal = {};
+        const internal: { [network: string]: boolean } = {};
         const networks = Object.keys(info.NetworkSettings?.Networks ?? {});
         if (networks.length) {
             const nets = podman(['network', 'inspect', '--format', '{{.Name}} {{.Internal}}', ...networks]);
@@ -210,8 +187,7 @@ export class Container {
                 internal[net] = isInternal === 'true';
             }
         }
-        /** @type {string[]} */
-        let uncovered = [];
+        let uncovered: string[] = [];
         const { folder } = this;
         const configWritable = reason ? writableConfig(info, folder) : null;
         if (folder) {
@@ -221,12 +197,11 @@ export class Container {
                 // the config folder is gone: nothing to compare with
             }
         }
-        // inspect.js isn't type-checked: its defaults (null) would be taken for the options' types.
-        const report = audit(info, /** @type {any} */ ({ status, internal, uncovered, sandbox: Boolean(reason), vscode, configWritable }));
+        const report = audit(info, { status, internal, uncovered, sandbox: Boolean(reason), vscode, configWritable });
         if (untrusted) report.warnings.unshift(`${untrusted}: enter, exec and build refuse until 'sandbox trust ${name}'`);
 
         lines.push(`\n# What it runs with${status ? ' (capabilities, new privileges, seccomp: measured inside)' : ''}:`);
-        const rows = [...report.rows, ...report.mounts.map((text, i) => [i ? '' : 'mounts', text]),
+        const rows = [...report.rows, ...report.mounts.map((text, i): Row => [i ? '' : 'mounts', text]),
             ...(storage?.root ? podmanStorageRows(storage, info.Mounts ?? []) : [])];
         lines.push(table(rows));
         if (report.warnings.length || report.notes.length) lines.push('');

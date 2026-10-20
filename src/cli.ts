@@ -4,7 +4,9 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { SandboxError, checkName, childEnv, cliPath, folderOf } from './devcontainer.js';
+import {
+    PACKAGE_VERSION, SandboxError, checkName, childEnv, cliPath, errnoCode, folderOf, packageVersion,
+} from './devcontainer.js';
 import {
     TRUSTED, ask, keepTrusted, riskSummary, short, stageConfig, writeEffective, yes,
 } from './inplace.js';
@@ -12,8 +14,11 @@ import { checkExportable, exportedConfig } from './export.js';
 import { table } from './inspect.js';
 import { cmdNew } from './new.js';
 import { listRemoved, listSandboxes, loadSandbox } from './sandbox.js';
+import type { StagedConfig } from './inplace.js';
+import type { Kind } from './state.js';
 import { listTemplates } from './templates.js';
 import { SETTINGS, readSettings, writeSettings } from './workspace.js';
+import type { Settings } from './workspace.js';
 
 const USAGE = `\
 sandbox — lxc-style front end for dev containers on rootless Podman.
@@ -95,7 +100,10 @@ Sandboxes live in $SANDBOX_DIR (default ~/sandboxes).
 More: https://github.com/EddyPronk/podman-agent-sandbox#usage
 `;
 
-const commands = {
+/** A command: its exit status, or nothing for 0. */
+type Command = (args: string[]) => number | void;
+
+const commands: { [name: string]: Command } = {
     new: cmdNew,
     trust: cmdTrust,
     export: cmdExport,
@@ -110,7 +118,7 @@ const commands = {
     rm: cmdRm,
 };
 
-export function main(argv) {
+export function main(argv: string[]): number {
     const [cmd, ...args] = argv;
     if (cmd === '-h' || cmd === '--help' || (cmd === 'help' && args.length === 0)) {
         process.stdout.write(USAGE);
@@ -120,14 +128,15 @@ export function main(argv) {
         console.log(versionLine());
         return 0;
     }
-    if (!Object.hasOwn(commands, cmd ?? '')) {
+    const command = cmd !== undefined && Object.hasOwn(commands, cmd) ? commands[cmd] : undefined;
+    if (!command) {
         process.stderr.write(USAGE);
         return 2;
     }
     try {
-        return commands[cmd](args) ?? 0;
+        return command(args) ?? 0;
     } catch (err) {
-        if (err instanceof SandboxError || err.code?.startsWith('ERR_PARSE_ARGS')) {
+        if (err instanceof SandboxError || isParseArgsError(err)) {
             console.error(`sandbox: ${err.message}`);
             return 1;
         }
@@ -135,20 +144,23 @@ export function main(argv) {
     }
 }
 
+/** An error parseArgs throws for a bad command line (an unknown option, say). */
+function isParseArgsError(err: unknown): err is Error {
+    return err instanceof Error && Boolean(errnoCode(err)?.startsWith('ERR_PARSE_ARGS'));
+}
+
 /** "sandbox X.Y.Z (@devcontainers/cli A.B.C)", from the installed package.json files. */
-export function versionLine() {
-    const version = (path) => JSON.parse(readFileSync(path, 'utf8')).version;
-    return `sandbox ${version(new URL('../package.json', import.meta.url))}`
-        + ` (@devcontainers/cli ${version(join(dirname(cliPath()), 'package.json'))})`;
+export function versionLine(): string {
+    return `sandbox ${PACKAGE_VERSION} (@devcontainers/cli ${packageVersion(join(dirname(cliPath()), 'package.json'))})`;
 }
 
 /** Exactly one NAME and nothing else. */
-function oneName(args, usage) {
+function oneName(args: string[], usage: string): string {
     if (args.length !== 1) throw new SandboxError(`usage: ${usage}`);
     return checkName(args[0]);
 }
 
-function cmdTemplates(args) {
+function cmdTemplates(args: string[]): void {
     if (args.length) throw new SandboxError('usage: sandbox templates');
     for (const t of listTemplates()) {
         console.log(`${t.id}\t${t.description ?? ''}`);
@@ -161,13 +173,13 @@ function cmdTemplates(args) {
     }
 }
 
-function cmdBuild(args) {
+function cmdBuild(args: string[]): number {
     const [name, ...rest] = args;
     if (!name) throw new SandboxError('usage: sandbox build NAME [--no-cache]');
     return loadSandbox(name).build(rest);
 }
 
-function cmdEnter(args) {
+function cmdEnter(args: string[]): number {
     const { values, positionals } = parseArgs({
         args, allowPositionals: true,
         options: { vm: { type: 'boolean' }, container: { type: 'boolean' }, 'from-existing': { type: 'boolean' } },
@@ -176,7 +188,7 @@ function cmdEnter(args) {
     const name = oneName(positionals, usage);
     if (values.vm && values.container) throw new SandboxError(`--vm or --container, not both; usage: ${usage}`);
     if (values['from-existing'] && !values.vm) throw new SandboxError(`--from-existing goes with --vm; usage: ${usage}`);
-    const kind = values.vm ? 'vm' : values.container ? 'container' : null;
+    const kind: Kind | null = values.vm ? 'vm' : values.container ? 'container' : null;
     return loadSandbox(name, { lock: true }).enter({ kind, fromExisting: Boolean(values['from-existing']) });
 }
 
@@ -184,7 +196,7 @@ function cmdEnter(args) {
  * sandbox exec NAME [--] CMD [ARG...]: like `ssh host CMD`, everything after NAME is the command,
  * run as the user in the workspace folder with the environment of `enter`.
  */
-function cmdExec(args) {
+function cmdExec(args: string[]): number {
     const [name, ...rest] = args;
     const cmd = rest[0] === '--' ? rest.slice(1) : rest;
     if (!name || name.startsWith('-') || cmd.length === 0) {
@@ -194,7 +206,7 @@ function cmdExec(args) {
 }
 
 /** sandbox help NAME: what helpText says for it. Works while the sandbox is stopped. */
-function cmdHelp(args) {
+function cmdHelp(args: string[]): void {
     const name = oneName(args, 'sandbox help [NAME]');
     process.stdout.write(helpText(name, folderOf(name)));
 }
@@ -204,12 +216,12 @@ function cmdHelp(args) {
  * with ${localWorkspaceFolderBasename} and ${localWorkspaceFolder} replaced as in devcontainer.json.
  * Without one, what every sandbox offers.
  */
-export function helpText(name, dir) {
-    let text;
+export function helpText(name: string, dir: string): string {
+    let text: string;
     try {
         text = readFileSync(join(dir, '.devcontainer', 'HELP'), 'utf8');
     } catch (err) {
-        if (err.code !== 'ENOENT') throw err;
+        if (errnoCode(err) !== 'ENOENT') throw err;
         return `${name}: its template has no help of its own. Every sandbox has:\n`
             + table([
                 [`  sandbox enter ${name}`, 'a shell, as you, in the workspace'],
@@ -226,7 +238,7 @@ export function helpText(name, dir) {
  * sandbox trust NAME [--yes]: for an --inplace sandbox, show how the project's config changed since
  * it was trusted, and on yes, make that the trusted copy and the config that runs.
  */
-function cmdTrust(args) {
+function cmdTrust(args: string[]): number {
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { yes: { type: 'boolean', short: 'y' } } });
     const name = oneName(positionals, 'sandbox trust NAME [--yes]');
     const sandbox = loadSandbox(name);
@@ -260,7 +272,7 @@ function cmdTrust(args) {
             }
         }
         keepTrusted(dir, staged.root);
-        const updated = { ...settings, configTree: staged.id };
+        const updated: Settings = { ...settings, configTree: staged.id };
         writeSettings(dir, updated);
         writeEffective(dir, updated);
     } finally {
@@ -277,7 +289,7 @@ function cmdTrust(args) {
  * sandbox export NAME: write NAME's config (made with --workspace) into its project as .devcontainer,
  * without this machine's settings (export.js), check it as --inplace would, and make NAME use it.
  */
-function cmdExport(args) {
+function cmdExport(args: string[]): void {
     const name = oneName(args, 'sandbox export NAME');
     const sandbox = loadSandbox(name);
     const dir = sandbox.dir;
@@ -294,26 +306,27 @@ function cmdExport(args) {
     const backup = mkdtempSync(join(tmpdir(), 'sandbox-export-'));
     cpSync(source, join(backup, '.devcontainer'), { recursive: true, verbatimSymlinks: true });
     cpSync(join(dir, SETTINGS), join(backup, SETTINGS));
-    let staged = null;
+    let staged: StagedConfig | null = null;
     try {
         cpSync(source, target, { recursive: true, verbatimSymlinks: true, filter: (path) => !skipped.includes(path) });
         writeFileSync(join(target, 'devcontainer.json'), `${JSON.stringify(config, null, 2)}\n`);
         staged = stageConfig(settings.workspace);
         keepTrusted(dir, staged.root);
-        const updated = { ...settings, inplace: true, configTree: staged.id };
+        const updated: Settings = { ...settings, inplace: true, configTree: staged.id };
         writeSettings(dir, updated);
         writeEffective(dir, updated);
     } catch (err) {
+        const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
         try {
             for (const path of [target, join(dir, TRUSTED), source]) rmSync(path, { recursive: true, force: true });
             cpSync(join(backup, '.devcontainer'), source, { recursive: true, verbatimSymlinks: true });
             cpSync(join(backup, SETTINGS), join(dir, SETTINGS));
         } catch (restoreErr) {
-            throw new SandboxError(`export failed (${err.message}), and so did putting things back (${restoreErr.message}): `
+            throw new SandboxError(`export failed (${why(err)}), and so did putting things back (${why(restoreErr)}): `
                 + `${name}'s config and sandbox.json as they were are in ${backup}`);
         }
         rmSync(backup, { recursive: true, force: true });
-        throw new SandboxError(`export failed, so nothing changed (${name} and ${target} are as they were): ${err.message}`);
+        throw new SandboxError(`export failed, so nothing changed (${name} and ${target} are as they were): ${why(err)}`);
     } finally {
         if (staged) rmSync(staged.root, { recursive: true, force: true });
     }
@@ -334,28 +347,28 @@ function cmdExport(args) {
         + '      sandbox new --workspace . --inplace');
 }
 
-function cmdInspect(args) {
+function cmdInspect(args: string[]): void {
     const name = oneName(args, 'sandbox inspect NAME');
     console.log(loadSandbox(name).describe());
 }
 
-function cmdList(args) {
+function cmdList(args: string[]): void {
     const { values } = parseArgs({ args, options: { removed: { type: 'boolean' } } });
     console.log(values.removed ? listRemoved() : listSandboxes());
 }
 
 /** NAME and the options of `sandbox SUB [--force] NAME`. */
-function forceAndName(args, sub) {
+function forceAndName(args: string[], sub: string): { name: string; force: boolean } {
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { force: { type: 'boolean' } } });
     return { name: oneName(positionals, `sandbox ${sub} [--force] NAME`), force: Boolean(values.force) };
 }
 
-function cmdStop(args) {
+function cmdStop(args: string[]): void {
     const { name, force } = forceAndName(args, 'stop');
     console.log(loadSandbox(name, { lock: true }).stop({ force }));
 }
 
-function cmdRm(args) {
+function cmdRm(args: string[]): void {
     const { name, force } = forceAndName(args, 'rm');
     console.log(loadSandbox(name, { lock: true }).remove({ force }));
 }

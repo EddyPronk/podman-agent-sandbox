@@ -163,3 +163,20 @@ test('export refuses a sandbox without --workspace, and a project that has a .de
     mkdirSync(join(root, '.devcontainer'));
     assert.match(sandbox(['export', 'w'], dir).stderr, /\.devcontainer already exists; export doesn't write over it/);
 });
+
+test('export refuses a config --inplace would refuse, with a message, before it writes anything', { skip: noGit }, () => {
+    // claude-containers: its generated seccomp.json makes export rewrite runArgs, which crashed on a string.
+    const dir = tempDir();
+    const root = project();
+    assert.equal(sandbox(['new', 'p', '--template', 'claude-containers', '--workspace', root], dir).status, 0);
+    const file = join(dir, 'p', '.devcontainer', 'devcontainer.json');
+    for (const [key, value] of [['runArgs', '--cap-drop=all'], ['capAdd', 'NET_ADMIN']]) {
+        const config = json(file);
+        writeFileSync(file, JSON.stringify({ ...config, [key]: value }, null, 2));
+        const refused = sandbox(['export', 'p'], dir);
+        assert.notEqual(refused.status, 0);
+        assert.match(refused.stderr, new RegExp(`^sandbox: [^:]*devcontainer.json: "${key}" must be a list of strings\\n$`));
+        assert.ok(!existsSync(join(root, '.devcontainer')), 'nothing written into the project');
+        writeFileSync(file, JSON.stringify(config, null, 2));
+    }
+});

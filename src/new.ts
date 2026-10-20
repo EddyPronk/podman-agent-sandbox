@@ -4,23 +4,51 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
 import { SandboxError, checkName, childEnv, hasConfig, sandboxDir } from './devcontainer.js';
+import { isStringList } from './json.js';
+import type { JsonObject } from './json.js';
 import {
     ask, checkNotHidden, hasMarker, keepTrusted, riskSummary, short, stageConfig, writeEffective, yes,
 } from './inplace.js';
+import type { StagedConfig } from './inplace.js';
 import { table } from './inspect.js';
 import { SECCOMP_RUN_ARG } from './seccomp.js';
 import { removeRecord, writeRecord } from './state.js';
 import {
     applyTemplate, experimentalImage, parseOptionArgs, seccompAllow, TESTED_IMAGES, withImage,
 } from './templates.js';
+import type { OptionValues, Template } from './templates.js';
 import {
     applyWorkspace, configFile, defaultName, findGitDirs, findSecretFiles, isInside, readConfig, readSettings, realConfigDir,
     resolveWorkspace, workspaceMounts, workspacePath, writeSettings,
 } from './workspace.js';
+import type { Settings } from './workspace.js';
 import { checkHost, vmPolicy } from './vm.js';
 
-export function cmdNew(args) {
-    const { values, positionals } = parseArgs({
+/** sandbox new's options, as parseArgs gives them. */
+interface NewValues {
+    template?: string;
+    option?: string[];
+    image?: string;
+    workspace?: string;
+    hide?: string[];
+    readonly?: string[];
+    inplace?: boolean;
+    yes?: boolean;
+    vm?: boolean;
+}
+
+/** Everything --workspace adds, checked (planWorkspace). HIDE and READONLY are relative to WORKSPACE. */
+interface WorkspacePlan {
+    workspace: string;
+    hide: string[];
+    readonly: string[];
+    mounts: string[];
+    gitDirs: string[];
+    secrets: string[];
+}
+
+export function cmdNew(args: string[]): void {
+    const { values, positionals }: { values: NewValues; positionals: string[] } = parseArgs({
         args,
         allowPositionals: true,
         options: {
@@ -48,7 +76,8 @@ export function cmdNew(args) {
             ? `\nThis project has its own sandbox config: sandbox new --workspace ${values.workspace} --inplace` : '';
         throw new SandboxError(`usage: ${usage}${hint}`);
     }
-    const name = checkName(positionals[0] ?? defaultName(workspace));
+    // Without a NAME there is a workspace (the usage check above).
+    const name = checkName(positionals[0] ?? (workspace ? defaultName(workspace) : ''));
     const dest = join(sandboxDir(), name);
     // Before alreadyExists: its "rm -r" advice would delete the project.
     if (workspace && isInside(workspace, realConfigDir(dest))) {
@@ -61,7 +90,9 @@ export function cmdNew(args) {
     }
     // A record left by a sandbox of this name whose folder was deleted would match the new folder.
     removeRecord(name);
-    if (values.inplace) return newInplace(name, dest, workspace, values);
+    // --inplace has a workspace, and without --inplace there is a template (the checks above).
+    if (values.inplace && workspace) return newInplace(name, dest, workspace, values);
+    if (!values.template) throw new SandboxError(`usage: ${usage}`);
     // Check everything about the workspace before creating anything.
     const plan = workspace && planWorkspace(workspace, values, realConfigDir(dest));
     const given = withImage(parseOptionArgs(values.option ?? []), values.image);
@@ -88,7 +119,7 @@ export function cmdNew(args) {
 }
 
 /** What to run after sandbox new: enter, which makes the container or, with --vm, the VM. */
-function nextStep(name, vm) {
+function nextStep(name: string, vm: boolean | undefined): string {
     return vm ? `a VM sandbox. next: sandbox enter ${name} (makes its VM; see docs/microvm.md)` : `next: sandbox enter ${name}`;
 }
 
@@ -97,16 +128,17 @@ function nextStep(name, vm) {
  * the no-vm policy, a postStartCommand or postAttachCommand). Features may add such commands too;
  * enter checks again once the image exists.
  */
-function checkVm(name, config, dest) {
+function checkVm(name: string, config: JsonObject, dest: string): void {
     const policy = vmPolicy(config);
     if (!policy.allowed) throw new SandboxError(`${name} can't run as a VM: ${policy.reason}; ${dest} wasn't made`);
 }
 
 /** Warn about an experimental --image (GIVEN.image) for TEMPLATE. */
-function warnImage(name, template, given) {
+function warnImage(name: string, template: Template, given: OptionValues): void {
     if (given.image === undefined) return;
     // A template from a path may declare the option without a default.
-    const defaultImage = template.options?.image?.default;
+    const declared = template.options?.image?.default;
+    const defaultImage = typeof declared === 'string' ? declared : undefined;
     if (experimentalImage(given.image, defaultImage)) {
         const tested = [...TESTED_IMAGES, ...(defaultImage === undefined ? [] : [`the default, ${defaultImage}`])];
         console.error(`sandbox: warning: --image ${given.image} is experimental (tested: ${tested.join(' and ')}).`
@@ -119,7 +151,7 @@ function warnImage(name, template, given) {
  * the project (WORKSPACE) or a folder around it: NAME defaults to the project folder's name, so a
  * project kept in $SANDBOX_DIR gets this. GIVEN: the NAME given, if any.
  */
-function projectAsConfigFolder(dest, name, workspace, given) {
+function projectAsConfigFolder(dest: string, name: string, workspace: string, given: string | undefined): SandboxError {
     const what = dest === workspace ? 'which is your project itself' : `which contains your project (${workspace})`;
     const why = given ? '' : ` (NAME defaults to the project folder's name, ${name})`;
     return new SandboxError([
@@ -130,8 +162,8 @@ function projectAsConfigFolder(dest, name, workspace, given) {
 }
 
 /** The error for `sandbox new` when $SANDBOX_DIR/NAME exists: what it is, and the ways out. */
-function alreadyExists(dest, name) {
-    let settings = null;
+function alreadyExists(dest: string, name: string): SandboxError {
+    let settings: Settings | null = null;
     try {
         settings = readSettings(dest);
     } catch {
@@ -160,11 +192,11 @@ function alreadyExists(dest, name) {
  * just written from a template, or --yes), keep that copy in DEST/trusted, and make the config that
  * runs from it.
  */
-function newInplace(name, dest, workspace, values) {
+function newInplace(name: string, dest: string, workspace: string, values: NewValues): void {
     const plan = planWorkspace(workspace, values, realConfigDir(dest));
     checkNotHidden(workspace, plan.hide.map((path) => join(workspace, path)));
     const config = join(workspace, '.devcontainer');
-    let template = null;
+    let template: Template | null = null;
     const given = withImage(parseOptionArgs(values.option ?? []), values.image);
     if (values.template) {
         if (existsSync(config)) {
@@ -174,7 +206,7 @@ function newInplace(name, dest, workspace, values) {
     } else if (values.option || values.image) {
         throw new SandboxError('--option and --image fill in a template: with --inplace, they need --template');
     }
-    let staged;
+    let staged: StagedConfig | undefined;
     try {
         staged = stageConfig(workspace);
         if (values.vm) checkVm(name, staged.config, dest);
@@ -190,7 +222,7 @@ function newInplace(name, dest, workspace, values) {
         try {
             mkdirSync(dest, { recursive: true });
             keepTrusted(dest, staged.root);
-            const settings = { workspace, hide: plan.hide, readonly: plan.readonly, inplace: true, configTree: staged.id };
+            const settings: Settings = { workspace, hide: plan.hide, readonly: plan.readonly, inplace: true, configTree: staged.id };
             writeSettings(dest, settings);
             writeEffective(dest, settings);
         } catch (err) {
@@ -220,7 +252,7 @@ function newInplace(name, dest, workspace, values) {
  * it, but only its .devcontainer, and without what sandbox makes from seccompAllow: the profile
  * (seccomp.json) and the runArg naming it (SECCOMP_RUN_ARG). Returns the template's metadata.
  */
-function writeTemplateInto(spec, workspace, given) {
+function writeTemplateInto(spec: string, workspace: string, given: OptionValues): Template {
     const tmp = mkdtempSync(join(tmpdir(), 'sandbox-template-'));
     try {
         const copy = join(tmp, 'template');
@@ -228,7 +260,9 @@ function writeTemplateInto(spec, workspace, given) {
         const generated = seccompAllow(copy, template)?.length ? join(copy, '.devcontainer', 'seccomp.json') : null;
         if (generated) {
             const config = readConfig(configFile(copy));
-            config.runArgs = (config.runArgs ?? []).filter((arg) => arg !== SECCOMP_RUN_ARG);
+            // runArgs that aren't a list stay as they are, for stageConfig to refuse (checkFields).
+            const runArgs = config.runArgs ?? [];
+            if (isStringList(runArgs)) config.runArgs = runArgs.filter((arg) => arg !== SECCOMP_RUN_ARG);
             writeFileSync(configFile(copy), `${JSON.stringify(config, null, 2)}\n`);
         }
         try {
@@ -251,7 +285,7 @@ function writeTemplateInto(spec, workspace, given) {
  * The first trust of a project's config: what it asks for, and a yes. YES (--yes) skips the
  * question; not at a terminal without it, refuse.
  */
-function firstTrust(name, config, staged, yesFlag) {
+function firstTrust(name: string, config: string, staged: StagedConfig, yesFlag: boolean | undefined): boolean {
     const risks = riskSummary(staged.config, childEnv());
     console.error(`sandbox: ${config} (${short(staged.id)}) asks for:`);
     console.error(risks.length ? table(risks.map(([what, value]) => [`  ${what}`, value])) : '  nothing beyond a plain container');
@@ -264,18 +298,18 @@ function firstTrust(name, config, staged, yesFlag) {
 }
 
 /** Everything --workspace adds, checked: the mounts, and the choices for sandbox.json. */
-function planWorkspace(workspace, values, configDir) {
+function planWorkspace(workspace: string, values: NewValues, configDir: string): WorkspacePlan {
     const hidden = (values.hide ?? []).map((p) => workspacePath(workspace, p, 'hide'));
     const readonly = (values.readonly ?? []).map((p) => workspacePath(workspace, p, 'readonly'));
     const gitDirs = findGitDirs(workspace, hidden);
     const mounts = workspaceMounts({ workspace, hide: hidden, readonly, configDir, gitDirs });
-    const rel = (path) => relative(workspace, path);
+    const rel = (path: string) => relative(workspace, path);
     const secrets = findSecretFiles(workspace, hidden);
     return { workspace, hide: hidden.map(rel), readonly: readonly.map(rel), mounts, gitDirs, secrets };
 }
 
 /** After making NAME (in DEST): warn about files in the workspace that may hold secrets (PLAN). */
-function warnSecrets(name, dest, plan) {
+function warnSecrets(name: string, dest: string, plan: WorkspacePlan): void {
     if (!plan.secrets.length) return;
     const shown = plan.secrets.slice(0, 10);
     const more = plan.secrets.length - shown.length;

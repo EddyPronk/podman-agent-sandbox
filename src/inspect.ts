@@ -3,12 +3,152 @@
 import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { resolveLocalEnv } from './inplace.js';
+import { isBoolean, isNumber, isObject, isString, isStringList, nullable, optional } from './json.js';
+import type { Check, JsonObject } from './json.js';
 import { SETTINGS } from './workspace.js';
+import type { DevcontainerConfig, Settings } from './workspace.js';
+
+/**
+ * What sandbox reads of `podman container inspect` (one element of its JSON list); isPodmanInfo
+ * checks it. Its lists and maps may be null: see isPodmanInfo.
+ */
+export interface PodmanInfo {
+    Id: string;
+    /** The container's name. */
+    Name?: string;
+    /** RFC 3339. */
+    Created: string;
+    /** The image's ID. */
+    Image: string;
+    /** The image's name as given to podman run. */
+    ImageName?: string;
+    State: { Status: string };
+    Config: { CreateCommand?: string[] | null; Labels?: { [label: string]: string } | null; User?: string };
+    HostConfig?: PodmanHostConfig | null;
+    BoundingCaps?: string[] | null;
+    Mounts?: PodmanMount[] | null;
+    NetworkSettings?: { Networks?: { [network: string]: unknown } | null } | null;
+}
+
+export interface PodmanHostConfig {
+    Privileged?: boolean;
+    SecurityOpt?: string[] | null;
+    Devices?: { PathOnHost: string }[] | null;
+    NetworkMode?: string;
+    PidsLimit?: number;
+    Memory?: number;
+}
+
+export interface PodmanMount {
+    /** 'bind', 'volume', 'tmpfs'. */
+    Type: string;
+    /** A volume's name. */
+    Name?: string;
+    Source: string;
+    Destination: string;
+    RW: boolean;
+}
+
+const listOf = <T>(check: Check<T>) => (value: unknown): value is T[] => Array.isArray(value) && value.every(check);
+
+function isMount(value: unknown): value is PodmanMount {
+    return isObject(value) && isString(value.Type) && isString(value.Source) && isString(value.Destination)
+        && isBoolean(value.RW) && optional(value.Name, isString);
+}
+
+function isHostConfig(value: unknown): value is PodmanHostConfig {
+    return isObject(value) && optional(value.Privileged, isBoolean) && nullable(value.SecurityOpt, isStringList)
+        && nullable(value.Devices, listOf((d): d is { PathOnHost: string } => isObject(d) && isString(d.PathOnHost)))
+        && optional(value.NetworkMode, isString) && optional(value.PidsLimit, isNumber) && optional(value.Memory, isNumber);
+}
+
+/**
+ * Whether VALUE (one element of `podman container inspect`'s JSON) has what PodmanInfo says, as far
+ * as sandbox reads it. Id, Created, Image, State.Status and Config must be there. The lists and maps
+ * may be null: BoundingCaps is null after --cap-drop=all (seen with podman 5.4.2); for the others it
+ * is assumed, not seen (Go writes a nil slice or map as null). Every reader takes null as empty, as
+ * sandbox did before these checks, and where that matters it fails safe: no read-only Mounts means
+ * the git paths count as unprotected, and enter refuses.
+ */
+export function isPodmanInfo(value: unknown): value is PodmanInfo {
+    if (!isObject(value) || !isObject(value.State) || !isObject(value.Config)) return false;
+    const { State: state, Config: config } = value;
+    return isString(value.Id) && isString(value.Created) && isString(value.Image)
+        && optional(value.Name, isString) && optional(value.ImageName, isString) && isString(state.Status)
+        && nullable(config.CreateCommand, isStringList) && optional(config.User, isString)
+        && nullable(config.Labels, (labels): labels is { [label: string]: string } => isObject(labels)
+            && Object.values(labels).every(isString))
+        && nullable(value.BoundingCaps, isStringList) && nullable(value.HostConfig, isHostConfig)
+        && nullable(value.Mounts, listOf(isMount))
+        && nullable(value.NetworkSettings, (n): n is JsonObject => isObject(n) && nullable(n.Networks, isObject));
+}
+
+/** A row of `sandbox inspect`: label and text. */
+export type Row = [label: string, text: string];
+
+/** An option of a command line: [flag] or [flag, value]. */
+export type CommandOption = [flag: string] | [flag: string, value: string];
+
+/** splitCommand's parts of a `podman run` command line. */
+export interface SplitCommand {
+    head: string[];
+    options: CommandOption[];
+    image: string;
+    args: string[];
+}
+
+/** What parseStatus reads of /proc/PID/status. */
+export interface ProcStatus {
+    CapBnd?: string;
+    NoNewPrivs?: string;
+    Seccomp?: string;
+}
+
+export interface VscodeProbe {
+    server: number;
+    sockets: { path: string; agent: string }[];
+    helpers: { file: string; value: string }[];
+}
+
+/** What `podman system df` reports, per type. */
+export interface StorageUsage {
+    count: number;
+    size: number;
+    reclaimable: number;
+}
+
+const STORAGE_TYPES = ['Images', 'Containers', 'Local Volumes'] as const;
+type StorageType = typeof STORAGE_TYPES[number];
+
+export type PodmanStorage = { root: string; disk: number | null } & { [type in StorageType]?: StorageUsage };
+
+/** A volume a config mounts, and its size: null when it doesn't exist. */
+export interface VolumeSize {
+    name: string;
+    bytes: number | null;
+}
+
+/** audit's OPTIONS: what was measured inside, and what sandbox knows about the container. */
+export interface AuditOptions {
+    status?: ProcStatus | null;
+    internal?: { [network: string]: boolean };
+    uncovered?: string[];
+    sandbox?: boolean;
+    vscode?: VscodeProbe | null;
+    configWritable?: string | null;
+}
+
+export interface Audit {
+    rows: Row[];
+    mounts: string[];
+    warnings: string[];
+    notes: string[];
+}
 
 const SAFE = /^[A-Za-z0-9_@%+=:,./-]+$/;
 
 /** ARG quoted for the shell: bare when safe, else '…'; $'…' (bash, zsh) when it has control characters. */
-export function shellQuote(arg) {
+export function shellQuote(arg: string): string {
     if (SAFE.test(arg)) return arg;
     if (/[\x00-\x1f\x7f]/.test(arg)) {
         const escaped = arg.replace(/[\\']/g, '\\$&').replace(/\n/g, '\\n').replace(/\t/g, '\\t')
@@ -19,7 +159,7 @@ export function shellQuote(arg) {
 }
 
 /** An image reference as the Dev Containers CLI passes it: without localhost/ and :latest. */
-const bare = (image) => image.replace(/^localhost\//, '').replace(/:latest$/, '');
+const bare = (image: string) => image.replace(/^localhost\//, '').replace(/:latest$/, '');
 
 /**
  * Split a `podman run` command line into [program, subcommand], the options as [flag] or
@@ -27,9 +167,9 @@ const bare = (image) => image.replace(/^localhost\//, '').replace(/:latest$/, ''
  * end: a flag followed by a word that isn't the image takes it as its value. Null when the image
  * isn't found.
  */
-export function splitCommand(argv, image) {
+export function splitCommand(argv: string[], image: string): SplitCommand | null {
     const want = bare(image);
-    const options = [];
+    const options: CommandOption[] = [];
     for (let i = 2; i < argv.length; i++) {
         const arg = argv[i];
         if (!arg.startsWith('-')) {
@@ -47,17 +187,17 @@ export function splitCommand(argv, image) {
 }
 
 /** The command as a shell command line: one option per line, the image and its command last. */
-export function formatCommand(argv, image) {
+export function formatCommand(argv: string[], image: string): string {
     const split = splitCommand(argv, image);
-    const lines = split
+    const lines: string[][] = split
         ? [split.head, ...split.options, [split.image, ...split.args]]
         : [argv.slice(0, 2), ...argv.slice(2).map((arg) => [arg])];
     return lines.map((words) => words.map(shellQuote).join(' ')).join(' \\\n    ');
 }
 
 /** Every value given to FLAG, as --flag=value or --flag value. */
-export function optionValues(options, flag) {
-    const values = [];
+export function optionValues(options: CommandOption[], flag: string): string[] {
+    const values: string[] = [];
     for (const [name, value] of options) {
         if (name === flag && value !== undefined) values.push(value);
         else if (name.startsWith(`${flag}=`)) values.push(name.slice(flag.length + 1));
@@ -66,11 +206,11 @@ export function optionValues(options, flag) {
 }
 
 /** CapBnd, NoNewPrivs and Seccomp from a /proc/PID/status text. */
-export function parseStatus(text) {
-    const status = {};
+export function parseStatus(text: string): ProcStatus {
+    const status: ProcStatus = {};
     for (const line of text.split('\n')) {
         const m = /^(CapBnd|NoNewPrivs|Seccomp):\s*(\S+)/.exec(line);
-        if (m) status[m[1]] = m[2];
+        if (m) status[m[1] as keyof ProcStatus] = m[2];
     }
     return status;
 }
@@ -117,8 +257,8 @@ done
 `;
 
 /** VSCODE_PROBE's output → { server, sockets: [{ path, agent }], helpers: [{ file, value }] }. */
-export function parseVscodeProbe(text) {
-    const probe = { server: 0, sockets: [], helpers: [] };
+export function parseVscodeProbe(text: string): VscodeProbe {
+    const probe: VscodeProbe = { server: 0, sockets: [], helpers: [] };
     for (const line of text.split('\n')) {
         const [kind, ...rest] = line.trim().split(' ');
         if (kind === 'server') probe.server = Number(rest[0]) || 0;
@@ -146,8 +286,8 @@ podman system df --format '{{.Type}}|{{.Total}}|{{.RawSize}}|{{.RawReclaimable}}
 `;
 
 /** PODMAN_STORAGE_PROBE's output → { root, disk (bytes or null), Images: { count, size, reclaimable }, ... }. */
-export function parsePodmanStorage(text) {
-    const storage = { root: '', disk: null };
+export function parsePodmanStorage(text: string): PodmanStorage {
+    const storage: PodmanStorage = { root: '', disk: null };
     for (const line of text.split('\n')) {
         if (line.startsWith('root ')) storage.root = line.slice(5).trim();
         else if (line.startsWith('disk ')) {
@@ -155,14 +295,18 @@ export function parsePodmanStorage(text) {
             storage.disk = line.slice(5).trim() && Number.isFinite(kb) ? kb * 1024 : null;
         } else {
             const [type, count, size, reclaimable] = line.split('|');
-            if (count !== undefined) storage[type] = { count: Number(count), size: Number(size), reclaimable: Number(reclaimable) };
+            if (count !== undefined && isStorageType(type)) storage[type] = { count: Number(count), size: Number(size), reclaimable: Number(reclaimable) };
         }
     }
     return storage;
 }
 
+function isStorageType(type: string): type is StorageType {
+    return (STORAGE_TYPES as readonly string[]).includes(type);
+}
+
 /** BYTES as podman prints sizes: 1.55 GB, 29.8 kB. */
-export function formatBytes(bytes) {
+export function formatBytes(bytes: number): string {
     const units = ['B', 'kB', 'MB', 'GB', 'TB'];
     let value = bytes;
     let unit = 0;
@@ -181,8 +325,8 @@ export function formatBytes(bytes) {
  * (podman inspect's Mounts): in a volume or host folder, `sandbox rm` keeps it; in the container
  * itself, rm removes it.
  */
-export function podmanStorageRows(storage, mounts = []) {
-    const part = (type, label) => {
+export function podmanStorageRows(storage: PodmanStorage, mounts: PodmanMount[] = []): Row[] {
+    const part = (type: StorageType, label: string) => {
         const t = storage[type];
         if (!t) return null;
         const free = t.reclaimable ? `, ${formatBytes(t.reclaimable)} reclaimable` : '';
@@ -205,12 +349,12 @@ export function podmanStorageRows(storage, mounts = []) {
  * FOLDER: ${localWorkspaceFolderBasename} and ${localEnv:…} (from ENV) filled in, as the Dev
  * Containers CLI does. They outlive the container: `sandbox rm` keeps them.
  */
-export function configVolumes(config, folder, env = {}) {
-    const names = [];
+export function configVolumes(config: DevcontainerConfig, folder: string, env: NodeJS.ProcessEnv = {}): string[] {
+    const names: string[] = [];
     for (const mount of config.mounts ?? []) {
-        const fields = typeof mount === 'string' ? mountFields(mount) : mount ?? {};
+        const fields = typeof mount === 'string' ? mountFields(mount) : isObject(mount) ? mount : {};
         const source = fields.source ?? fields.src;
-        if (fields.type !== 'volume' || !source) continue;
+        if (fields.type !== 'volume' || typeof source !== 'string' || !source) continue;
         names.push(resolveLocalEnv(source.replaceAll('${localWorkspaceFolderBasename}', basename(folder)), env));
     }
     return [...new Set(names)];
@@ -222,8 +366,8 @@ export function configVolumes(config, folder, env = {}) {
  * project's config changed, or null; VOLUMES: [{ name, bytes }], bytes null when the volume doesn't
  * exist (the next `sandbox enter` makes it).
  */
-export function removedRows(folder, settings, untrusted, volumes) {
-    const rows = [['config', folder], ['workspace', settings?.workspace ?? `${folder} (the config folder itself)`]];
+export function removedRows(folder: string, settings: Settings | null, untrusted: string | null, volumes: VolumeSize[]): Row[] {
+    const rows: Row[] = [['config', folder], ['workspace', settings?.workspace ?? `${folder} (the config folder itself)`]];
     if (settings?.inplace) {
         rows.push(['project config', `--inplace, trusted ${String(settings.configTree ?? '').slice(0, 7)}: `
             + (untrusted ? `${untrusted}: enter refuses until sandbox trust` : 'unchanged since')]);
@@ -237,7 +381,7 @@ export function removedRows(folder, settings, untrusted, volumes) {
 }
 
 /** What an agent's answer means, for people. ATTACHED: another socket answers now. */
-function agentState(agent, attached) {
+function agentState(agent: string, attached: boolean): string {
     const keys = /^keys (\d+)$/.exec(agent);
     if (keys) return `answers now: ${keys[1]} key${keys[1] === '1' ? '' : 's'}`;
     if (agent === 'dead') return attached ? 'not answering: from an earlier attach' : 'not answering: VS Code not attached';
@@ -245,7 +389,7 @@ function agentState(agent, attached) {
 }
 
 // Host sockets that give a container more than files: [test on the mount source, what it means, warn?].
-const HOST_SOCKETS = [
+const HOST_SOCKETS: [test: RegExp, meaning: string, warn: boolean][] = [
     [/(keyring\/ssh|ssh-agent|\/agent\.\d+|\/S\.gpg-agent(\.ssh)?)$/,
         'the host\'s SSH or GPG agent: any process inside can use your keys', true],
     [/(podman|docker)\.sock$/, 'a Podman or Docker API socket: control of containers outside this one', true],
@@ -256,11 +400,11 @@ const HOST_SOCKETS = [
 ];
 
 /** KEY=VALUE pairs of a --mount value. */
-function mountFields(spec) {
+function mountFields(spec: string): { [key: string]: string } {
     return Object.fromEntries(spec.split(',').map((kv) => [kv.split('=')[0], kv.split('=').slice(1).join('=')]));
 }
 
-const capName = (cap) => cap.replace(/^CAP_/, '').toLowerCase();
+const capName = (cap: string) => cap.replace(/^CAP_/, '').toLowerCase();
 
 /**
  * What container INFO (one `podman container inspect` object) runs with, and what to warn about.
@@ -273,10 +417,10 @@ const capName = (cap) => cap.replace(/^CAP_/, '').toLowerCase();
  * templates mounted it read-only), or null.
  * Returns { rows: [[label, text]], mounts: [text], warnings: [text], notes: [text] }.
  */
-export function audit(info, {
+export function audit(info: PodmanInfo, {
     status = null, internal = {}, uncovered = [], sandbox = true, vscode = null, configWritable = null,
-} = {}) {
-    const host = info.HostConfig ?? {};
+}: AuditOptions = {}): Audit {
+    const host: PodmanHostConfig = info.HostConfig ?? {};
     const split = splitCommand(info.Config?.CreateCommand ?? [], info.ImageName ?? '');
     const options = split?.options ?? [];
     // Inspect's own fields where it has them; the command line for what it leaves out (unmask, devices).
@@ -286,10 +430,10 @@ export function audit(info, {
     const devices = [...new Set([...(host.Devices ?? []).map((d) => d.PathOnHost),
         ...optionValues(options, '--device').map((d) => d.split(':')[0])])];
     const nested = devices.includes('/dev/net/tun');
-    const rows = [];
-    const warnings = [];
-    const notes = [];
-    const unhardened = [];
+    const rows: Row[] = [];
+    const warnings: string[] = [];
+    const notes: string[] = [];
+    const unhardened: string[] = [];
 
     rows.push(['state', info.State?.Status ?? '?']);
     const userns = optionValues(options, '--userns').at(-1);
@@ -346,7 +490,7 @@ export function audit(info, {
     const memory = host.Memory ? `${Math.round(host.Memory / 2 ** 20)} MiB` : 'no limit';
     rows.push(['limits', `processes ${pids}, memory ${memory}`]);
 
-    const mounts = [];
+    const mounts: [target: string, text: string][] = [];
     for (const m of info.Mounts ?? []) {
         if (m.Type === 'bind' && m.Source === '/dev/null') {
             mounts.push([m.Destination, `hidden  ${m.Destination} (empty file)`]);
@@ -406,7 +550,7 @@ export function audit(info, {
  * bind-mounted read-write (the workspace) and nothing read-only covers FOLDER/.devcontainer. Null when
  * protected, for --workspace sandboxes (their config stays outside), or when there's no such config.
  */
-export function writableConfig(info, folder, exists = existsSync) {
+export function writableConfig(info: PodmanInfo, folder: string, exists: (path: string) => boolean = existsSync): string | null {
     if (!folder || exists(join(folder, SETTINGS)) || !exists(join(folder, '.devcontainer'))) return null;
     const mounts = (info.Mounts ?? []).filter((m) => m.Type === 'bind');
     const workspace = mounts.find((m) => m.Source === folder && m.RW);
@@ -416,7 +560,7 @@ export function writableConfig(info, folder, exists = existsSync) {
 }
 
 /** Left-aligned columns, two spaces apart. */
-export function table(rows) {
+export function table(rows: string[][]): string {
     const widths = rows[0].map((_, i) => Math.max(...rows.map((row) => (row[i] ?? '').length)));
     return rows.map((row) => row.map((cell, i) => (i < row.length - 1 ? cell.padEnd(widths[i]) : cell)).join('  '))
         .join('\n');

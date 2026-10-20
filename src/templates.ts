@@ -5,7 +5,10 @@ import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } 
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PACKAGE_VERSION, SandboxError } from './devcontainer.js';
+import { isBoolean, isObject, isString, isStringList, nullable } from './json.js';
+import type { JsonObject } from './json.js';
 import { writeSeccompProfile } from './seccomp.js';
+import type { SeccompOptions } from './seccomp.js';
 
 export const TEMPLATES_DIR = fileURLToPath(new URL('../templates/', import.meta.url));
 const METADATA = 'devcontainer-template.json';
@@ -13,9 +16,35 @@ const METADATA = 'devcontainer-template.json';
 /** Our namespace in devcontainer.json's "customizations": marks a config written for sandbox. */
 export const MARKER = 'podman-agent-sandbox';
 
+/** A template's devcontainer-template.json, as far as readMetadata checks it. Null is unset (isTemplate). */
+export interface Template {
+    id: string;
+    description?: string | null;
+    options?: { [key: string]: TemplateOption } | null;
+    [field: string]: unknown;
+}
+
+export interface TemplateOption {
+    type?: string | null;
+    description?: string | null;
+    proposals?: string[] | null;
+    enum?: string[] | null;
+    default?: string | boolean | null;
+}
+
+/** Template option values by key: from --option, and as a template is applied with them. */
+export type OptionValues = { [key: string]: string };
+
+/** CONFIG's (parsed devcontainer.json) "customizations": { MARKER: {...} }, if it has one. */
+export function markerOf(config: unknown): JsonObject | undefined {
+    const customizations = isObject(config) ? config.customizations : undefined;
+    const marker = isObject(customizations) ? customizations[MARKER] : undefined;
+    return isObject(marker) ? marker : undefined;
+}
+
 /** Is version HAVE (X.Y.Z) at least NEED? A prerelease or build suffix is ignored. */
-export function versionAtLeast(have, need) {
-    const parts = (v) => v.split(/[-+]/)[0].split('.').map(Number);
+export function versionAtLeast(have: string, need: string): boolean {
+    const parts = (v: string) => v.split(/[-+]/)[0].split('.').map(Number);
     const [a, b] = [parts(have), parts(need)];
     for (let i = 0; i < 3; i += 1) {
         if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
@@ -28,8 +57,8 @@ export function versionAtLeast(have, need) {
  * relies on something an older sandbox would silently do without (a seccomp allowance, a check).
  * Releases before 0.8.0 ignore the field.
  */
-export function checkMinVersion(config, file, version = PACKAGE_VERSION) {
-    const min = config?.customizations?.[MARKER]?.minVersion;
+export function checkMinVersion(config: unknown, file: string, version: string = PACKAGE_VERSION): void {
+    const min = markerOf(config)?.minVersion;
     if (min === undefined) return;
     if (typeof min !== 'string' || !/^\d+\.\d+\.\d+$/.test(min)) {
         throw new SandboxError(`${file}: "${MARKER}".minVersion must be a version like "0.8.0", not ${JSON.stringify(min)}`);
@@ -41,16 +70,40 @@ export function checkMinVersion(config, file, version = PACKAGE_VERSION) {
 }
 
 /** Metadata of every template under ROOT, sorted by id. */
-export function listTemplates(root = TEMPLATES_DIR) {
+export function listTemplates(root: string = TEMPLATES_DIR): Template[] {
     return readdirSync(root, { withFileTypes: true })
         .filter((entry) => entry.isDirectory() && existsSync(join(root, entry.name, METADATA)))
-        .map((entry) => JSON.parse(readFileSync(join(root, entry.name, METADATA), 'utf8')))
+        .map((entry) => readMetadata(join(root, entry.name, METADATA)))
         .sort((a, b) => a.id.localeCompare(b.id));
 }
 
+/** A template's METADATA file, with what sandbox reads from it checked. */
+function readMetadata(file: string): Template {
+    const template: unknown = JSON.parse(readFileSync(file, 'utf8'));
+    if (!isTemplate(template)) {
+        throw new SandboxError(`${file} isn't a template's metadata: it needs an "id", and "options" (if there) `
+            + 'as https://containers.dev/implementors/templates/ describes them');
+    }
+    return template;
+}
+
+// Null passes, as unset, as sandbox read these fields before these checks (with ??). The bundled
+// templates have none; a template given by path is trusted whole anyway, since all of it is copied.
+function isOption(value: unknown): value is TemplateOption {
+    return isObject(value) && nullable(value.type, isString) && nullable(value.description, isString)
+        && nullable(value.proposals, isStringList) && nullable(value.enum, isStringList)
+        && nullable(value.default, (d): d is string | boolean => isString(d) || isBoolean(d));
+}
+
+function isTemplate(value: unknown): value is Template {
+    return isObject(value) && isString(value.id) && nullable(value.description, isString)
+        && nullable(value.options, (options): options is { [key: string]: TemplateOption } => isObject(options)
+            && Object.values(options).every(isOption));
+}
+
 /** ['KEY=VALUE', ...] → { KEY: 'VALUE', ... } */
-export function parseOptionArgs(args) {
-    const options = {};
+export function parseOptionArgs(args: string[]): OptionValues {
+    const options: OptionValues = {};
     for (const arg of args) {
         const eq = arg.indexOf('=');
         if (eq < 1) throw new SandboxError(`invalid option '${arg}' (expected KEY=VALUE)`);
@@ -60,7 +113,7 @@ export function parseOptionArgs(args) {
 }
 
 /** Check GIVEN against the template's options and fill in defaults. All values are strings. */
-export function resolveOptions(template, given) {
+export function resolveOptions(template: Template, given: OptionValues): OptionValues {
     const declared = template.options ?? {};
     for (const key of Object.keys(given)) {
         if (!Object.hasOwn(declared, key)) {
@@ -72,7 +125,7 @@ export function resolveOptions(template, given) {
             throw new SandboxError(`template '${template.id}' has no option '${key}'`);
         }
     }
-    const values = {};
+    const values: OptionValues = {};
     for (const [key, opt] of Object.entries(declared)) {
         const value = Object.hasOwn(given, key) ? given[key] : String(opt.default ?? '');
         if (opt.type === 'boolean' && value !== 'true' && value !== 'false') {
@@ -87,7 +140,7 @@ export function resolveOptions(template, given) {
 }
 
 /** --image IMAGE is the template option image; GIVEN (from --option) may name it too, but the same. */
-export function withImage(given, image) {
+export function withImage(given: OptionValues, image: string | undefined): OptionValues {
     if (image === undefined) return given;
     if (Object.hasOwn(given, 'image') && fullImageName(given.image) !== fullImageName(image)) {
         throw new SandboxError(`--image ${image} and --option image=${given.image} disagree`);
@@ -103,13 +156,13 @@ export const TESTED_IMAGES = ['docker.io/library/ubuntu:26.04'];
  * True for an --image that is neither the template's default (if it has one) nor tested; Docker Hub
  * short names count as the full name.
  */
-export function experimentalImage(image, defaultImage) {
+export function experimentalImage(image: string, defaultImage: string | undefined): boolean {
     if (defaultImage !== undefined && fullImageName(image) === fullImageName(defaultImage)) return false;
     return !TESTED_IMAGES.includes(fullImageName(image));
 }
 
 /** ubuntu:26.04 and docker.io/ubuntu:26.04 → docker.io/library/ubuntu:26.04; other registries as they are. */
-function fullImageName(ref) {
+function fullImageName(ref: string): string {
     const first = ref.split('/')[0];
     const registry = ref.includes('/') && (first.includes('.') || first.includes(':') || first === 'localhost');
     if (registry && first !== 'docker.io') return ref;
@@ -118,22 +171,22 @@ function fullImageName(ref) {
 }
 
 /** Replace ${templateOption:KEY} in TEXT; unknown keys are left as they are. */
-export function substitute(text, values) {
+export function substitute(text: string, values: OptionValues): string {
     return text.replace(/\$\{templateOption:([^}]+)\}/g,
-        (match, key) => (Object.hasOwn(values, key) ? values[key] : match));
+        (match, key: string) => (Object.hasOwn(values, key) ? values[key] : match));
 }
 
 /**
  * SPEC is a bundled template's id, or a path to a template folder (anything with a '/').
  * Returns the template's metadata and its folder.
  */
-export function findTemplate(spec, root = TEMPLATES_DIR) {
+export function findTemplate(spec: string, root: string = TEMPLATES_DIR): { template: Template; src: string } {
     if (spec.includes('/')) {
         const src = resolve(spec);
         if (!existsSync(join(src, METADATA))) {
             throw new SandboxError(`no template at ${src} (it has no ${METADATA})`);
         }
-        return { template: JSON.parse(readFileSync(join(src, METADATA), 'utf8')), src };
+        return { template: readMetadata(join(src, METADATA)), src };
     }
     const template = listTemplates(root).find((t) => t.id === spec);
     if (!template) {
@@ -148,15 +201,20 @@ export function findTemplate(spec, root = TEMPLATES_DIR) {
  * "customizations": { "podman-agent-sandbox": { "seccompAllow": [...] } }, or else (older templates
  * given by path) TEMPLATE metadata's "x-sandbox": { "seccompAllow": [...] }.
  */
-export function seccompAllow(dir, template = {}) {
+export function seccompAllow(dir: string, template: JsonObject = {}): string[] | undefined {
     const file = join(dir, '.devcontainer', 'devcontainer.json');
-    let config = {};
+    let config: unknown = {};
     try {
         config = JSON.parse(readFileSync(file, 'utf8'));
     } catch {
         // no config, or JSONC: only the metadata can say
     }
-    return config.customizations?.[MARKER]?.seccompAllow ?? template['x-sandbox']?.seccompAllow;
+    const legacy = isObject(template['x-sandbox']) ? template['x-sandbox'].seccompAllow : undefined;
+    const allow = markerOf(config)?.seccompAllow ?? legacy;
+    if (!nullable(allow, isStringList)) {
+        throw new SandboxError(`${dir}: seccompAllow must be a list of system call names, not ${JSON.stringify(allow)}`);
+    }
+    return allow ?? undefined;
 }
 
 /**
@@ -164,13 +222,19 @@ export function seccompAllow(dir, template = {}) {
  * config has seccompAllow (above) also gets its seccomp profile (seccomp.js), unless HOOKS.seccomp is
  * false (--inplace makes it later); HOOKS are passed on to it (tests). Returns the template's metadata.
  */
-export function applyTemplate(spec, dest, given = {}, root = TEMPLATES_DIR, hooks = {}) {
+export function applyTemplate(
+    spec: string,
+    dest: string,
+    given: OptionValues = {},
+    root: string = TEMPLATES_DIR,
+    hooks: SeccompOptions & { seccomp?: boolean } = {},
+): Template {
     const { template, src } = findTemplate(spec, root);
     if (existsSync(dest)) throw new SandboxError(`${dest} already exists`);
     const values = resolveOptions(template, given);
     const config = join(src, '.devcontainer', 'devcontainer.json');
     if (existsSync(config)) {
-        let parsed = null;
+        let parsed: unknown = null;
         try {
             parsed = JSON.parse(readFileSync(config, 'utf8'));
         } catch {
@@ -186,14 +250,12 @@ export function applyTemplate(spec, dest, given = {}, root = TEMPLATES_DIR, hook
         const replaced = substitute(text, values);
         if (replaced !== text) writeFileSync(path, replaced);
     }
-    const allow = seccompAllow(dest, template);
-    if (allow?.length && hooks.seccomp !== false) {
-        try {
-            writeSeccompProfile(dest, allow, hooks);
-        } catch (err) {
-            rmSync(dest, { recursive: true, force: true });
-            throw err;
-        }
+    try {
+        const allow = seccompAllow(dest, template);
+        if (allow?.length && hooks.seccomp !== false) writeSeccompProfile(dest, allow, hooks);
+    } catch (err) {
+        rmSync(dest, { recursive: true, force: true });
+        throw err;
     }
     return template;
 }

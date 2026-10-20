@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
     KNOWN_POLICIES, MARKER_VERSION, checkMarker, checkSelfContained, configTree, hasMarker, resolveLocalEnv, riskSummary,
+    stageConfig,
 } from '../dist/inplace.js';
 import { listTemplates } from '../dist/templates.js';
 
@@ -321,3 +322,51 @@ test('new --inplace refuses --hide of the project\'s .devcontainer; new without 
         assert.match(sandbox(['new', 'x', '--inplace'], dir).stderr, /--inplace needs --workspace/);
         assert.match(sandbox(['trust', 'nothing-here-xyz'], dir).stderr, /no container or dev container config/);
     });
+
+test('stageConfig refuses fields of the wrong type that riskSummary would crash on, with a message', { skip: noGit }, () => {
+    const marker = (fields) => ({ 'podman-agent-sandbox': { version: 1, ...fields } });
+    for (const [config, key] of [[{ capAdd: 5 }, 'capAdd'], [{ securityOpt: 'label=disable' }, 'securityOpt'],
+        [{ runArgs: '--privileged' }, 'runArgs'], [{ runArgs: [1] }, 'runArgs'], [{ image: 5 }, 'image'],
+        [{ mounts: [null] }, 'mounts'], [{ features: ['ghcr.io/x/y:1'] }, 'features'],
+        [{ customizations: marker({ seccompAllow: 'chroot' }) }, 'seccompAllow']]) {
+        const root = project(config);
+        assert.throws(() => stageConfig(root), (err) => err.name === 'Error' && err.message.includes(`"${key}" must be`),
+            JSON.stringify(config));
+    }
+    const ok = project({ capAdd: ['NET_ADMIN'], runArgs: ['--cap-drop=all'], mounts: ['type=volume,source=x,target=/y',
+        { type: 'bind', source: '/a', target: '/a' }], customizations: marker({ seccompAllow: ['chroot'] }) });
+    const staged = stageConfig(ok);
+    rmSync(staged.root, { recursive: true, force: true });
+});
+
+test('new --inplace --template PATH: a template whose runArgs is no list is refused with a message, and taken out again',
+    { skip: noGit }, () => {
+        const dir = tempDir();
+        const root = tempDir();
+        const template = join(tempDir(), 'tpl');
+        mkdirSync(join(template, '.devcontainer'), { recursive: true });
+        writeFileSync(join(template, 'devcontainer-template.json'), JSON.stringify({ id: 'tpl' }));
+        writeFileSync(join(template, '.devcontainer', 'devcontainer.json'), JSON.stringify({
+            image: 'docker.io/library/debian:trixie-slim', runArgs: '--cap-drop=all',
+            customizations: { 'podman-agent-sandbox': { version: 1, seccompAllow: ['sethostname'] } },
+        }));
+        const result = sandbox(['new', 't', '--workspace', root, '--inplace', '--template', template], dir);
+        assert.notEqual(result.status, 0);
+        assert.match(result.stderr, /^sandbox: [^:]*devcontainer\.json: "runArgs" must be a list of strings\n$/);
+        assert.ok(!existsSync(join(root, '.devcontainer')), 'the template is taken out of the project again');
+        assert.ok(!existsSync(join(dir, 't')));
+    });
+
+test('null for an optional field reads as unset, as the Dev Containers CLI reads it', { skip: noGit }, () => {
+    const dir = tempDir();
+    const root = project({ capAdd: null, securityOpt: null, runArgs: null, image: null, mounts: null, features: null,
+        build: { dockerfile: 'Containerfile' },
+        customizations: { 'podman-agent-sandbox': { version: 1, policies: null, seccompAllow: null } } });
+    const staged = stageConfig(root);
+    assert.deepEqual(riskSummary(staged.config), []);
+    rmSync(staged.root, { recursive: true, force: true });
+    const made = sandbox(['new', 'n', '--workspace', root, '--inplace', '--yes'], dir);
+    assert.equal(made.status, 0, made.stderr);
+    const running = JSON.parse(readFileSync(join(dir, 'n', '.devcontainer', 'devcontainer.json'), 'utf8'));
+    assert.ok(running.mounts.length, 'the workspace mounts are added to a null list');
+});

@@ -1,11 +1,10 @@
-// @ts-check
 // A lock per sandbox, so that two sandbox commands on one sandbox (your own terminals) don't race:
 // both creating its container, one stopping it while the other starts it. Not a security boundary:
 // VS Code and plain podman don't take it.
 import { spawnSync } from 'node:child_process';
 import { closeSync, fstatSync, mkdirSync, openSync, rmSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { SandboxError, sandboxDir } from './devcontainer.js';
+import { SandboxError, errnoCode, sandboxDir } from './devcontainer.js';
 
 // What flock exits with when the lock is taken (--nonblock); its other errors use other codes.
 const CONFLICT = 75;
@@ -15,18 +14,16 @@ const CONFLICT = 75;
  * made from a template without --workspace that folder is the workspace, mounted read-write inside,
  * so the agent could hold the lock. No container mounts $SANDBOX_DIR itself, and no sandbox can be
  * called .locks (checkName).
- * @param {string} name
- * @param {NodeJS.ProcessEnv} [env]
  */
-export function lockPath(name, env = process.env) {
+export function lockPath(name: string, env: NodeJS.ProcessEnv = process.env): string {
     return join(sandboxDir(env), '.locks', name);
 }
 
 /**
  * Release a lock; with REMOVE, delete its file first (a command that found no such sandbox), while
  * still holding it.
- * @typedef {(options?: { remove?: boolean }) => void} Release
  */
+export type Release = (options?: { remove?: boolean }) => void;
 
 /**
  * Take NAME's lock, waiting (and saying so) while another command holds it. util-linux flock locks a
@@ -34,24 +31,21 @@ export function lockPath(name, env = process.env) {
  * held after flock exits, until the returned function closes it, or the OS does when sandbox exits.
  * The holder may delete the file (Release); a command that waited for it then holds a lock on a file
  * no one else can open, so it checks that PATH is still the file it locked, and else locks again.
- * @param {string} name
- * @param {{ env?: NodeJS.ProcessEnv, waiting?: (name: string) => void }} [options]
- * @returns {Release} releases the lock; calling it again does nothing
+ * Returns the Release for the lock; calling it again does nothing.
  */
-export function lockSandbox(name, {
+export function lockSandbox(name: string, {
     env = process.env,
     waiting = (n) => console.error(`sandbox: waiting for another sandbox command on ${n} ...`),
-} = {}) {
+}: { env?: NodeJS.ProcessEnv; waiting?: (name: string) => void } = {}): Release {
     const path = lockPath(name, env);
     let told = false;
     for (;;) {
         mkdirSync(dirname(path), { recursive: true });
         const fd = openSync(path, 'a');
-        /** @param {string[]} args */
-        const flock = (args) => spawnSync('flock', [...args, '3'], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe', fd] });
+        const flock = (args: string[]) => spawnSync('flock', [...args, '3'], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe', fd] });
         try {
             let result = flock(['--exclusive', '--nonblock', '--conflict-exit-code', String(CONFLICT)]);
-            if (result.error && /** @type {NodeJS.ErrnoException} */ (result.error).code === 'ENOENT') {
+            if (errnoCode(result.error) === 'ENOENT') {
                 throw new SandboxError('flock not found on PATH: sandbox needs it (from util-linux) to keep two commands '
                     + 'on one sandbox apart');
             }
@@ -83,12 +77,8 @@ export function lockSandbox(name, {
     }
 }
 
-/**
- * Whether PATH is the file open as FD (it may have been deleted, or replaced by a new one).
- * @param {number} fd
- * @param {string} path
- */
-function sameFile(fd, path) {
+/** Whether PATH is the file open as FD (it may have been deleted, or replaced by a new one). */
+function sameFile(fd: number, path: string): boolean {
     try {
         const open = fstatSync(fd);
         const now = statSync(path);

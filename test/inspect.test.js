@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import { execFile, spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { createServer } from 'node:net';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, configVolumes, formatBytes, formatCommand, optionValues, parsePodmanStorage,
-    parseStatus, parseVscodeProbe, podmanStorageRows, removedRows, shellQuote, splitCommand,
+    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, configVolumes, formatBytes, formatCommand, isPodmanInfo, optionValues,
+    parsePodmanStorage, parseStatus, parseVscodeProbe, podmanStorageRows, removedRows, shellQuote, splitCommand,
 } from '../dist/inspect.js';
 
 // PODMAN_STORAGE_PROBE's output in agent-mitm-proxy's sandbox, with a proxy and a client inside (2026-10-14).
@@ -340,4 +340,23 @@ test('the agent query reads the key count, and calls a closed or refusing agent 
     assert.equal(await queryFakeAgent(null), 'dead');                               // closes without a word
     const missing = join(mkdtempSync(join(tmpdir(), 'sandbox-agent-')), 'none.sock');
     assert.equal(await runQuery(missing), 'dead');                                  // no agent there
+});
+
+test('isPodmanInfo: real inspect output passes, null (Go) for empty lists too; wrong types do not', () => {
+    const fixtures = new URL('./fixtures/vm/', import.meta.url);
+    for (const file of readdirSync(fixtures)) {
+        assert.ok(isPodmanInfo(JSON.parse(readFileSync(new URL(file, fixtures), 'utf8'))), file);
+    }
+    const info = {
+        Id: 'a', Created: '2026-10-20T00:00:00Z', Image: 'b', State: { Status: 'running' },
+        Config: { CreateCommand: ['podman', 'run'], Labels: null, User: '' }, BoundingCaps: null,
+        HostConfig: { Privileged: false, SecurityOpt: [], Devices: null, NetworkMode: 'pasta', PidsLimit: 2048, Memory: 0 },
+        Mounts: [{ Type: 'volume', Name: 'v', Source: '/s', Destination: '/d', RW: true }], NetworkSettings: { Networks: null },
+    };
+    assert.ok(isPodmanInfo(info));
+    for (const [key, bad] of [['Id', undefined], ['State', {}], ['Config', null], ['BoundingCaps', 'all'],
+        ['HostConfig', { SecurityOpt: 'label=disable' }], ['Mounts', [{ Type: 'bind', Source: '/s', Destination: '/d' }]],
+        ['Config', { Labels: { a: 1 } }], ['NetworkSettings', { Networks: [] }]]) {
+        assert.ok(!isPodmanInfo({ ...info, [key]: bad }), `${key}: ${JSON.stringify(bad)}`);
+    }
 });
