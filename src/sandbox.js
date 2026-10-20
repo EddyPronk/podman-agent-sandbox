@@ -14,6 +14,7 @@ import {
 import { ask, configChange, short, writeEffective } from './inplace.js';
 import { configVolumes, formatBytes, removedRows, table } from './inspect.js';
 import { lockSandbox } from './lock.js';
+import { isObject } from './json.js';
 import { readRecord, removeRecord, writeRecord } from './state.js';
 import { checkMinVersion } from './templates.js';
 import { VM_OF_LABEL, Vm, checkHost, madeAt, vmName, vmPolicy } from './vm.js';
@@ -469,8 +470,24 @@ function readConfiguration(dir) {
     if (result.status !== 0) {
         throw new SandboxError(`can't read the config in ${dir}: ${String(result.stderr).trim().split('\n').pop()}`);
     }
-    const out = JSON.parse(String(result.stdout));
-    return { merged: out.mergedConfiguration ?? out.configuration, workdir: out.workspace?.workspaceFolder || '/workspace' };
+    return parseConfiguration(String(result.stdout), dir);
+}
+
+/**
+ * devcontainer read-configuration's output (TEXT) for the config in DIR: { merged, workdir } as
+ * readConfiguration gives them. Refuses output without a configuration: vmPolicy and vmEnv read it.
+ * @param {string} text
+ * @param {string} dir
+ */
+export function parseConfiguration(text, dir) {
+    /** @type {unknown} */
+    const out = JSON.parse(text);
+    const merged = isObject(out) ? out.mergedConfiguration ?? out.configuration : undefined;
+    if (!isObject(out) || !isObject(merged)) {
+        throw new SandboxError(`devcontainer read-configuration gave output sandbox doesn't expect for ${dir}: no configuration`);
+    }
+    const folder = isObject(out.workspace) ? out.workspace.workspaceFolder : undefined;
+    return { merged, workdir: typeof folder === 'string' && folder ? folder : '/workspace' };
 }
 
 /**

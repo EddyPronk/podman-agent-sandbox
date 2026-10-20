@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { enterPlan } from '../dist/sandbox.js';
+import { enterPlan, parseConfiguration } from '../dist/sandbox.js';
 
 const SANDBOX = fileURLToPath(new URL('../bin/sandbox.js', import.meta.url));
 const FAKE = fileURLToPath(new URL('./fake-podman/', import.meta.url));
@@ -282,4 +282,18 @@ test('a command on a sandbox that doesn\'t exist leaves no lock file; one that e
     const real = run([sandbox('x', 'running')], 'stop', 'x');
     assert.equal(real.status, 0, real.stderr);
     assert.ok(existsSync(join(real.sandboxDir, '.locks', 'x')), 'the lock file stays for a sandbox that exists');
+});
+
+test('parseConfiguration: the merged configuration and the workspace folder; output without a configuration is refused', () => {
+    const merged = { remoteEnv: { A: 'b' } };
+    assert.deepEqual(parseConfiguration(JSON.stringify({ configuration: {}, mergedConfiguration: merged,
+        workspace: { workspaceFolder: '/p' } }), '/d'), { merged, workdir: '/p' });
+    assert.deepEqual(parseConfiguration(JSON.stringify({ configuration: merged }), '/d'), { merged, workdir: '/workspace' },
+        'without the merged one: the configuration; without a folder: /workspace');
+    assert.equal(parseConfiguration(JSON.stringify({ configuration: {}, workspace: { workspaceFolder: 7 } }), '/d').workdir,
+        '/workspace');
+    for (const out of [null, [], {}, { configuration: 'x' }, { mergedConfiguration: [] }]) {
+        assert.throws(() => parseConfiguration(JSON.stringify(out), '/d'),
+            /read-configuration gave output sandbox doesn't expect for \/d: no configuration/, JSON.stringify(out));
+    }
 });
