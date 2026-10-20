@@ -6,8 +6,8 @@ import {
     SANDBOX_LABEL, SandboxError, dc, exitStatus, folderOf, podman, sandboxReason, unlabelledHint,
 } from './devcontainer.js';
 import {
-    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, formatCommand, parsePodmanStorage, parseStatus, parseVscodeProbe,
-    podmanStorageRows, table, writableConfig,
+    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, formatCommand, isPodmanInfo, parsePodmanStorage, parseStatus,
+    parseVscodeProbe, podmanStorageRows, table, writableConfig,
 } from './inspect.js';
 import { uncoveredInSandbox } from './workspace.js';
 
@@ -24,8 +24,15 @@ import { uncoveredInSandbox } from './workspace.js';
 export function inspectContainer(name) {
     const result = podman(['container', 'inspect', name]);
     if (result.status !== 0) return null;
-    const [info] = JSON.parse(result.stdout);
-    return info ?? null;
+    /** @type {unknown} */
+    const parsed = JSON.parse(result.stdout);
+    const unexpected = () => new SandboxError(`podman container inspect ${name} gave output sandbox doesn't expect `
+        + '(a podman version it hasn\'t been tried with?): please report it, with podman --version');
+    if (!Array.isArray(parsed)) throw unexpected();
+    const [info] = parsed;
+    if (info === undefined) return null;
+    if (!isPodmanInfo(info)) throw unexpected();
+    return info;
 }
 
 // The states in which a container does nothing: it doesn't exist (''), or it isn't running.

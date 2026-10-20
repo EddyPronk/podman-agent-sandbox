@@ -3,11 +3,14 @@
 import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { resolveLocalEnv } from './inplace.js';
-import { isObject } from './json.js';
+import { isObject, isStringList } from './json.js';
 import { SETTINGS } from './workspace.js';
 import type { DevcontainerConfig, Settings } from './workspace.js';
 
-/** What sandbox reads of `podman container inspect` (one element of its JSON list). */
+/**
+ * What sandbox reads of `podman container inspect` (one element of its JSON list); isPodmanInfo
+ * checks it. A list or map can be null: Go writes an empty one so (BoundingCaps after --cap-drop=all).
+ */
 export interface PodmanInfo {
     Id: string;
     /** The container's name. */
@@ -19,17 +22,17 @@ export interface PodmanInfo {
     /** The image's name as given to podman run. */
     ImageName?: string;
     State: { Status: string };
-    Config: { CreateCommand?: string[]; Labels?: { [label: string]: string }; User?: string };
-    HostConfig?: PodmanHostConfig;
-    BoundingCaps?: string[];
-    Mounts?: PodmanMount[];
-    NetworkSettings?: { Networks?: { [network: string]: unknown } };
+    Config: { CreateCommand?: string[] | null; Labels?: { [label: string]: string } | null; User?: string };
+    HostConfig?: PodmanHostConfig | null;
+    BoundingCaps?: string[] | null;
+    Mounts?: PodmanMount[] | null;
+    NetworkSettings?: { Networks?: { [network: string]: unknown } | null } | null;
 }
 
 export interface PodmanHostConfig {
     Privileged?: boolean;
-    SecurityOpt?: string[];
-    Devices?: { PathOnHost: string }[];
+    SecurityOpt?: string[] | null;
+    Devices?: { PathOnHost: string }[] | null;
     NetworkMode?: string;
     PidsLimit?: number;
     Memory?: number;
@@ -43,6 +46,39 @@ export interface PodmanMount {
     Source: string;
     Destination: string;
     RW: boolean;
+}
+
+const isString = (value: unknown): value is string => typeof value === 'string';
+const isNumber = (value: unknown): value is number => typeof value === 'number';
+const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean';
+/** Missing, or what CHECK accepts. */
+const optional = (value: unknown, check: (value: unknown) => boolean) => value === undefined || check(value);
+/** Missing, null (an empty list or map, from Go), or what CHECK accepts. */
+const nullable = (value: unknown, check: (value: unknown) => boolean) => value === undefined || value === null || check(value);
+const listOf = (check: (value: unknown) => boolean) => (value: unknown) => Array.isArray(value) && value.every(check);
+
+function isMount(value: unknown): value is PodmanMount {
+    return isObject(value) && isString(value.Type) && isString(value.Source) && isString(value.Destination)
+        && isBoolean(value.RW) && optional(value.Name, isString);
+}
+
+function isHostConfig(value: unknown): value is PodmanHostConfig {
+    return isObject(value) && optional(value.Privileged, isBoolean) && nullable(value.SecurityOpt, isStringList)
+        && nullable(value.Devices, listOf((d) => isObject(d) && isString(d.PathOnHost)))
+        && optional(value.NetworkMode, isString) && optional(value.PidsLimit, isNumber) && optional(value.Memory, isNumber);
+}
+
+/** Whether VALUE (one element of `podman container inspect`'s JSON) has what PodmanInfo says, as far as sandbox reads it. */
+export function isPodmanInfo(value: unknown): value is PodmanInfo {
+    if (!isObject(value) || !isObject(value.State) || !isObject(value.Config)) return false;
+    const { State: state, Config: config } = value;
+    return isString(value.Id) && isString(value.Created) && isString(value.Image)
+        && optional(value.Name, isString) && optional(value.ImageName, isString) && isString(state.Status)
+        && nullable(config.CreateCommand, isStringList) && optional(config.User, isString)
+        && nullable(config.Labels, (labels) => isObject(labels) && Object.values(labels).every(isString))
+        && nullable(value.BoundingCaps, isStringList) && nullable(value.HostConfig, isHostConfig)
+        && nullable(value.Mounts, listOf(isMount))
+        && nullable(value.NetworkSettings, (n) => isObject(n) && nullable(n.Networks, isObject));
 }
 
 /** A row of `sandbox inspect`: label and text. */
