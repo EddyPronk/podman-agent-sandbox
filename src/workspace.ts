@@ -230,8 +230,8 @@ function isConfig(value: unknown): value is DevcontainerConfig {
  */
 export function applyWorkspace(configDir: string, { workspace, hide, readonly, mounts }: {
     workspace: string;
-    hide?: string[];
-    readonly?: string[];
+    hide: string[];
+    readonly: string[];
     mounts: string[];
 }): void {
     const file = configFile(configDir);
