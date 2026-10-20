@@ -1,4 +1,3 @@
-// @ts-check
 // A sandbox's VM (sandbox enter --vm): its container run with krun (crun built with libkrun), so the
 // processes inside run in a small KVM virtual machine with their own kernel. Made from the sandbox's
 // normal container: the same podman run command (vmRunArgs), with the image it was made from. There
@@ -9,7 +8,10 @@ import { spawnSync } from 'node:child_process';
 import { basename } from 'node:path';
 import { SANDBOX_LABEL, SandboxError, exitStatus, podman } from './devcontainer.js';
 import { inspectContainer, isActive } from './container.js';
+import type { Container, PodmanInfo } from './container.js';
 import { commandText } from './inplace.js';
+import { isObject } from './json.js';
+import type { JsonObject } from './json.js';
 import { MARKER } from './templates.js';
 
 /** The label that makes a container sandbox NAME's VM. (Its config folder is in its record: state.js.) */
@@ -21,31 +23,31 @@ export const NO_VM = 'no-vm';
 /** What detaches from the VM's shell: one key, as in telnet, that bash and most programs leave alone. */
 export const DETACH_KEYS = 'ctrl-]';
 
-/** The name a VM gets when made; it's found by VM_OF_LABEL, never by this name. @param {string} name */
-export function vmName(name) {
+/** The name a VM gets when made; it's found by VM_OF_LABEL, never by this name. */
+export function vmName(name: string): string {
     return `${name}-vm`;
 }
 
-/**
- * @typedef {{ allowed: true } | { allowed: false, reason: string }} Answer
- */
+export type Answer = { allowed: true } | { allowed: false; reason: string };
 
 /**
  * Whether the config CONFIG (devcontainer read-configuration's `configuration`, or its
  * `mergedConfiguration`, which lists lifecycle commands from Features and image metadata too) can run
  * as a VM: not with the no-vm policy, nor with a command the VM wouldn't run (postStartCommand and
  * postAttachCommand run in the container at each start and attach; the VM has neither).
- * @param {Record<string, any>} config
- * @returns {Answer}
  */
-export function vmPolicy(config) {
+export function vmPolicy(config: JsonObject): Answer {
     // The marker is an object in a configuration, and a list of them (one per source) when merged.
-    const marker = config.customizations?.[MARKER];
-    const markers = Array.isArray(marker) ? marker : [marker];
-    const policies = markers.flatMap((m) => (Array.isArray(m?.policies) ? m.policies : []));
+    const marker = isObject(config.customizations) ? config.customizations[MARKER] : undefined;
+    const markers: unknown[] = Array.isArray(marker) ? marker : [marker];
+    const policies: unknown[] = markers.flatMap((m) => (isObject(m) && Array.isArray(m.policies) ? m.policies : []));
     if (policies.includes(NO_VM)) return { allowed: false, reason: `this config's policies include ${NO_VM}` };
     for (const key of ['postStartCommand', 'postAttachCommand']) {
-        const commands = [config[key], ...(config[`${key}s`] ?? [])].filter((c) => c && (typeof c !== 'object' || Object.keys(c).length));
+        // The merged configuration lists them, one per source, under postStartCommands and postAttachCommands;
+        // anything else there counts as one more command: refused, not overlooked.
+        const listed = config[`${key}s`];
+        const commands = [config[key], ...(Array.isArray(listed) ? listed : [listed])]
+            .filter((c: unknown) => c && (typeof c !== 'object' || Object.keys(c).length));
         if (commands.length) {
             return { allowed: false, reason: `the VM wouldn't run its ${key} (${commandText(commands[0])}): it runs in a container at each `
                 + `${key === 'postStartCommand' ? 'start' : 'attach'}` };
@@ -54,11 +56,8 @@ export function vmPolicy(config) {
     return { allowed: true };
 }
 
-/**
- * Whether this machine can run a VM: krun on PATH, built with libkrun, and /dev/kvm usable.
- * @returns {Answer}
- */
-export function checkHost() {
+/** Whether this machine can run a VM: krun on PATH, built with libkrun, and /dev/kvm usable. */
+export function checkHost(): Answer {
     const krun = spawnSync('krun', ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
     if (krun.error) {
         return { allowed: false, reason: 'krun not found on PATH: sandbox enter --vm needs crun built with libkrun, '
@@ -107,18 +106,19 @@ const KEEP_ALIVE = 'echo Container started\ntrap "exit 0" 15\n\nexec "$@"\nwhile
 /**
  * An option of the recorded command: its flag, its value (null for a boolean), and its tokens as
  * recorded (one, `--flag=value`, `-fvalue`, or two).
- * @typedef {{ flag: string, value: string | null, tokens: string[] }} Option
  */
+export interface Option {
+    flag: string;
+    value: string | null;
+    tokens: string[];
+}
 
 /**
  * Split TOKENS (the options between `podman run` and the image) into options. Refuses an option it
  * doesn't know: guessing whether it takes a value could shift every option after it.
- * @param {string[]} tokens
- * @returns {Option[]}
  */
-export function parseOptions(tokens) {
-    /** @type {Option[]} */
-    const options = [];
+export function parseOptions(tokens: string[]): Option[] {
+    const options: Option[] = [];
     for (let i = 0; i < tokens.length; i += 1) {
         const token = tokens[i];
         if (!token.startsWith('-') || token === '-' || token === '--') throw unexpected(`'${token}' where an option was expected`);
@@ -142,16 +142,15 @@ export function parseOptions(tokens) {
     return options;
 }
 
-/** @param {string} what */
-function unexpected(what) {
+function unexpected(what: string): SandboxError {
     return new SandboxError(`the container wasn't made the way sandbox expects (${what}); can't make a VM from it`);
 }
 
-/** An image reference as the Dev Containers CLI passes it: without localhost/ and :latest. @param {string} image */
-const bare = (image) => image.replace(/^localhost\//, '').replace(/:latest$/, '');
+/** An image reference as the Dev Containers CLI passes it: without localhost/ and :latest. */
+const bare = (image: string) => image.replace(/^localhost\//, '').replace(/:latest$/, '');
 
 /** Options a VM doesn't take from the container (R4): what made it a container the Dev Containers CLI runs. */
-function dropped(/** @type {Option} */ option) {
+function dropped(option: Option): boolean {
     const { flag, value } = option;
     if (['--sig-proxy', '-a', '--attach', '--name', '--entrypoint'].includes(flag)) return true;
     if (flag === '-l' || flag === '--label') {
@@ -167,19 +166,27 @@ function dropped(/** @type {Option} */ option) {
 // VM's command, apart from the parsing, so a parsing bug becomes a refusal, not a weaker VM.
 const CONFINING = /^(--mount|-v|--volume|--cap-drop|--security-opt|--network|--net|--userns|-u|--user|--read-only|--tmpfs|--device|--pids-limit|-m|--memory|--ulimit|--uidmap|--gidmap)(=|$)/;
 
+/** What vmRunArgs makes a VM from. */
+export interface VmSource {
+    /** The container's .Config.CreateCommand. */
+    command: string[];
+    /** Its .ImageName: where the options end. */
+    imageName: string;
+    /** Its .Image (ID): what the VM runs, not what the name points at now. */
+    image: string;
+    /** The sandbox's name. */
+    name: string;
+    /** The shell's folder: the config's workspaceFolder. */
+    workdir: string;
+    /** Set for the shell (R8). */
+    env: { [key: string]: string };
+}
+
 /**
  * The `podman run` arguments (without "podman") of sandbox NAME's VM, made from its container's
  * recorded command (R4). Refuses what it can't copy faithfully.
- * @param {object} from
- * @param {string[]} from.command   the container's .Config.CreateCommand
- * @param {string} from.imageName   its .ImageName: where the options end
- * @param {string} from.image       its .Image (ID): what the VM runs, not what the name points at now
- * @param {string} from.name        the sandbox's name
- * @param {string} from.workdir     the shell's folder: the config's workspaceFolder
- * @param {Record<string, string>} from.env  set for the shell (R8)
- * @returns {string[]}
  */
-export function vmRunArgs({ command, imageName, image, name, workdir, env }) {
+export function vmRunArgs({ command, imageName, image, name, workdir, env }: VmSource): string[] {
     if (command.length < 3 || basename(command[0]) !== 'podman' || command[1] !== 'run') {
         throw unexpected(`not made with podman run: ${command.slice(0, 2).join(' ') || 'no command recorded'}`);
     }
@@ -216,14 +223,11 @@ export function vmRunArgs({ command, imageName, image, name, workdir, env }) {
  * R4.2, the post-condition: the VM's options (RESULT, without what vmRunArgs adds) are the container's
  * (ORIGINAL tokens, parsed as OPTIONS) minus exactly the dropped ones, in order; and, apart from the
  * parsing, every confining token of the original, with its value, is in the result.
- * @param {string[]} original
- * @param {Option[]} options
- * @param {string[]} result
  */
-export function checkNotWeaker(original, options, result) {
+export function checkNotWeaker(original: string[], options: Option[], result: string[]): void {
     const expected = options.filter((o) => !dropped(o)).flatMap((o) => o.tokens);
     const same = expected.length === result.length && expected.every((token, i) => token === result[i]);
-    const missing = [];
+    const missing: string[] = [];
     for (let i = 0; i < original.length; i += 1) {
         if (!CONFINING.test(original[i])) continue;
         const pair = original[i].includes('=') || BOOLEAN.has(original[i]) ? [original[i]] : original.slice(i, i + 2);
@@ -240,20 +244,17 @@ export class Vm {
     /** No exec into a krun guest: commands can't run next to its shell. */
     canExec = false;
 
-    /**
-     * @param {string} name  the sandbox's name
-     * @param {import('./container.js').PodmanInfo} info
-     */
-    constructor(name, info) {
+    /** The sandbox's name. */
+    name: string;
+    info: PodmanInfo;
+
+    constructor(name: string, info: PodmanInfo) {
         this.name = name;
         this.info = info;
     }
 
-    /**
-     * Sandbox NAME's VM, found by its label, or null when it has none.
-     * @param {string} name
-     */
-    static find(name) {
+    /** Sandbox NAME's VM, found by its label, or null when it has none. */
+    static find(name: string): Vm | null {
         const result = podman(['ps', '-a', '--filter', `label=${VM_OF_LABEL}=${name}`, '--format', '{{.ID}}']);
         if (result.status !== 0) throw new SandboxError(result.stderr.trim());
         const ids = result.stdout.split('\n').filter(Boolean);
@@ -265,31 +266,31 @@ export class Vm {
     }
 
     /** The VM's container name (NAME-vm when made). */
-    get containerName() {
+    get containerName(): string {
         return (this.info.Name ?? vmName(this.name)).replace(/^\//, '');
     }
 
-    get state() {
+    get state(): string {
         return this.info.State?.Status ?? '';
     }
 
-    get exists() {
+    get exists(): boolean {
         return true;
     }
 
-    get active() {
+    get active(): boolean {
         return isActive(this.state);
     }
 
-    readonlyMounts() {
+    readonlyMounts(): string[] {
         return (this.info.Mounts ?? []).filter((m) => !m.RW).map((m) => m.Destination);
     }
 
-    volumes() {
+    volumes(): string[] {
         return (this.info.Mounts ?? []).flatMap((m) => (m.Type === 'volume' && m.Name ? [m.Name] : []));
     }
 
-    start() {
+    start(): void {
         const result = podman(['start', this.info.Id]);
         if (result.status !== 0) {
             throw new SandboxError(`failed to start ${this.name}'s VM: ${result.stderr.trim()}\n`
@@ -298,12 +299,12 @@ export class Vm {
     }
 
     /** Stop it at once: the VMM ignores SIGTERM, and what the guest wrote is already on the host. */
-    stop() {
+    stop(): void {
         const result = podman(['stop', '--time', '0', this.info.Id]);
         if (result.status !== 0) throw new SandboxError(result.stderr.trim());
     }
 
-    remove() {
+    remove(): void {
         const result = podman(['rm', '-f', this.info.Id]);
         if (result.status !== 0) throw new SandboxError(result.stderr.trim());
     }
@@ -312,7 +313,7 @@ export class Vm {
      * Attach to the VM's shell (its main process); the exit status. Detached with DETACH_KEYS, not
      * Podman's default Ctrl-P Ctrl-Q, which takes bash's previous-command key while attached.
      */
-    openShell() {
+    openShell(): number {
         console.error(`sandbox: attached to ${this.name}'s VM (press Enter for a prompt). Ctrl-] detaches; `
             + 'exit stops the VM. Another terminal attached shares this shell.');
         process.on('SIGINT', () => {});
@@ -320,7 +321,7 @@ export class Vm {
     }
 
     /** One line for sandbox inspect. */
-    describe() {
+    describe(): string {
         const made = this.info.Created ? `, made ${madeAt(this.info.Created)}` : '';
         return `${this.containerName}, ${this.state}${made} from the container as it was then; to make it again: `
             + `sandbox rm ${this.name}, then sandbox enter ${this.name}`;
@@ -329,12 +330,10 @@ export class Vm {
     /**
      * Make sandbox NAME's VM from CONTAINER (stopped) and start it. A VM whose run fails is removed: it
      * never ran a session, and every later enter --vm would fail the same way on start.
-     * @param {import('./container.js').Container} container
-     * @param {{ workdir: string, env: Record<string, string> }} options
      */
-    static makeFrom(container, { workdir, env }) {
-        const info = /** @type {import('./container.js').PodmanInfo} */ (container.info);
-        const { name } = container;
+    static makeFrom(container: Container, { workdir, env }: { workdir: string; env: { [key: string]: string } }): Vm {
+        const { name, info } = container;
+        if (!info) throw new SandboxError(`${name} has no container to make a VM from`);
         const args = vmRunArgs({
             command: info.Config?.CreateCommand ?? [], imageName: info.ImageName ?? '', image: info.Image, name, workdir, env,
         });
@@ -351,10 +350,10 @@ export class Vm {
     }
 }
 
-/** A podman Created time as "2026-10-17 15:07", in local time. @param {string} created */
-export function madeAt(created) {
+/** A podman Created time as "2026-10-17 15:07", in local time. */
+export function madeAt(created: string): string {
     const date = new Date(created);
     if (Number.isNaN(date.getTime())) return created;
-    const pad = (/** @type {number} */ x) => String(x).padStart(2, '0');
+    const pad = (x: number) => String(x).padStart(2, '0');
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
