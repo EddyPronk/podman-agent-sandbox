@@ -1,6 +1,6 @@
 // A sandbox as the commands see it: its config folder and what podman has of it, a normal container,
-// a VM, or both. The middle layer between the commands (cli.js) and the containers (container.js,
-// vm.js): the commands call one method of a Sandbox, and the Sandbox decides what that means for its
+// a VM, or both. The middle layer between the commands (cli.ts) and the containers (container.ts,
+// vm.ts): the commands call one method of a Sandbox, and the Sandbox decides what that means for its
 // container and VM, and runs the checks first (the --inplace trust, the git protection, the config's
 // version). The only layer that knows a sandbox may have both.
 import { spawnSync } from 'node:child_process';
@@ -48,7 +48,7 @@ export function loadSandbox(name: string, { lock = false }: { lock?: boolean } =
 
 /**
  * What there is of sandbox NAME: the container named NAME (and, when that's another sandbox's VM,
- * whose), its VM, found by its label, and its record (state.js).
+ * whose), its VM, found by its label, and its record (state.ts).
  */
 function readState(name: string): { container: Container; vmOf: string; vm: Vm | null; record: StateRecord | null } {
     const container = Container.load(name);

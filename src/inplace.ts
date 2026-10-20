@@ -20,7 +20,7 @@ import type { DevcontainerConfig, Settings } from './workspace.js';
 
 /**
  * The marker format this sandbox understands, and the policies it can check. no-vm: the config can't
- * run as a VM (sandbox enter --vm refuses it; vm.js).
+ * run as a VM (sandbox enter --vm refuses it; vm.ts).
  */
 export const MARKER_VERSION = 1;
 export const KNOWN_POLICIES = ['no-vm'];
@@ -318,7 +318,7 @@ export function writeEffective(dest: string, settings: Settings, hooks: SeccompO
     if (allow?.length) {
         writeSeccompProfile(dest, allow, hooks);
         const runArgs = config.runArgs ?? [];
-        // Projects don't commit it (seccomp.js); a config that has it anyway keeps the one it names.
+        // Projects don't commit it (seccomp.ts); a config that has it anyway keeps the one it names.
         if (!runArgs.some((arg) => arg.startsWith('--security-opt=seccomp='))) config.runArgs = [...runArgs, SECCOMP_RUN_ARG];
     }
     const { workspace } = settings;

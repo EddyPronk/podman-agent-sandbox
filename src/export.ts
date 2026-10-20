@@ -1,7 +1,7 @@
 // sandbox export NAME: turn a sandbox made with --workspace into one that uses the project's own
 // config (--inplace). Its config as it is now, with the user's edits, is written into the project as
 // .devcontainer, without what sandbox added for this machine: those additions have fixed forms
-// (workspace.js, seccomp.js), so they are recognised exactly, also in sandboxes made before 0.7.0.
+// (workspace.ts, seccomp.ts), so they are recognised exactly, also in sandboxes made before 0.7.0.
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SandboxError } from './devcontainer.js';
@@ -14,7 +14,7 @@ import { MARKER, markerOf } from './templates.js';
 import { CONFIG_MOUNT, configFile, isInside, readConfig } from './workspace.js';
 import type { Settings } from './workspace.js';
 
-// The rule seccomp.js adds to the host's profile; older versions ended the comment differently.
+// The rule seccomp.ts adds to the host's profile; older versions ended the comment differently.
 const SECCOMP_RULE = 'sandbox: allowed for containers inside the sandbox';
 
 /** exportedConfig's result: see there. */

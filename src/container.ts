@@ -1,6 +1,6 @@
 // A sandbox's normal container: the one the Dev Containers CLI makes and starts (devcontainer up), and
-// runs commands in (devcontainer exec). The bottom layer under sandbox.js: it does what it's told,
-// without knowing about the sandbox's other states; the checks before a start are sandbox.js's.
+// runs commands in (devcontainer exec). The bottom layer under sandbox.ts: it does what it's told,
+// without knowing about the sandbox's other states; the checks before a start are sandbox.ts's.
 import {
     SANDBOX_LABEL, SandboxError, dc, exitStatus, folderOf, podman, sandboxReason, unlabelledHint,
 } from './devcontainer.js';
@@ -171,7 +171,7 @@ export class Container {
         if (this.state === 'running') {
             const proc = podman(['exec', name, 'cat', '/proc/1/status']);
             if (proc.status === 0) status = parseStatus(proc.stdout);
-            // What VS Code forwards when attached: not mounts, so only visible inside (inspect.js).
+            // What VS Code forwards when attached: not mounts, so only visible inside (inspect.ts).
             const probe = podman(['exec', name, 'sh', '-c', VSCODE_PROBE]);
             if (probe.status === 0) vscode = parseVscodeProbe(probe.stdout);
             // Podman inside (claude-containers and the like): its images may outlive the container.
