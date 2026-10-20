@@ -4,10 +4,10 @@ import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { lockPath, lockSandbox } from '../src/lock.js';
-import { isInside } from '../src/workspace.js';
+import { lockPath, lockSandbox } from '../dist/lock.js';
+import { isInside } from '../dist/workspace.js';
 
-const LOCK = new URL('../src/lock.js', import.meta.url).href;
+const LOCK = new URL('../dist/lock.js', import.meta.url).href;
 
 /**
  * A child process that takes NAME's lock (in SANDBOX_DIR), says "held", and keeps it until killed; with

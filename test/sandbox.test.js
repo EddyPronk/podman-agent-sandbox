@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { enterPlan } from '../src/sandbox.js';
+import { enterPlan } from '../dist/sandbox.js';
 
 const SANDBOX = fileURLToPath(new URL('../bin/sandbox.js', import.meta.url));
 const FAKE = fileURLToPath(new URL('./fake-podman/', import.meta.url));

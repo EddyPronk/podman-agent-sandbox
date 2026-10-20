@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { allowSyscalls, writeSeccompProfile } from '../src/seccomp.js';
-import { applyTemplate } from '../src/templates.js';
+import { allowSyscalls, writeSeccompProfile } from '../dist/seccomp.js';
+import { applyTemplate } from '../dist/templates.js';
 
 /** A small profile shaped like podman's default: sethostname is allowed only with CAP_SYS_ADMIN. */
 function fixture() {

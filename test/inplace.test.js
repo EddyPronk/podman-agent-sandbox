@@ -9,8 +9,8 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
     KNOWN_POLICIES, MARKER_VERSION, checkMarker, checkSelfContained, configTree, hasMarker, resolveLocalEnv, riskSummary,
-} from '../src/inplace.js';
-import { listTemplates } from '../src/templates.js';
+} from '../dist/inplace.js';
+import { listTemplates } from '../dist/templates.js';
 
 const SANDBOX = fileURLToPath(new URL('../bin/sandbox.js', import.meta.url));
 const noGit = spawnSync('git', ['--version']).status !== 0;

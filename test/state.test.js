@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { readRecord, recordPath, removeRecord, writeRecord } from '../src/state.js';
-import { isInside } from '../src/workspace.js';
+import { readRecord, recordPath, removeRecord, writeRecord } from '../dist/state.js';
+import { isInside } from '../dist/workspace.js';
 
 /** A $SANDBOX_DIR with a config folder for NAME. */
 function sandboxes(name) {

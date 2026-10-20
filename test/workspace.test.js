@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import {
     CONFIG_MOUNT, applyWorkspace, findGitDirs, findSecretFiles, readonlyTargets, readSettings, realConfigDir, resolveWorkspace,
     uncoveredGitPaths, uncoveredInSandbox, workspaceMounts, workspacePath,
-} from '../src/workspace.js';
+} from '../dist/workspace.js';
 
 const SANDBOX = fileURLToPath(new URL('../bin/sandbox.js', import.meta.url));
 

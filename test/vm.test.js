@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { checkNotWeaker, parseOptions, vmPolicy, vmRunArgs } from '../src/vm.js';
+import { checkNotWeaker, parseOptions, vmPolicy, vmRunArgs } from '../dist/vm.js';
 
 // Real `podman container inspect` output, one per bundled template and one --workspace sandbox (a git
 // repo in a git repo, --hide of a file and a folder, claude-containers' seccomp), recorded in nested

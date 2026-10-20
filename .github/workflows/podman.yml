@@ -68,6 +68,7 @@ jobs:
           node-version: 24
       - name: Install this build
         run: |
+          npm ci     # npm pack runs tsc (prepack)
           npm pack
           npm install -g ./podman-agent-sandbox-*.tgz
           sandbox --version

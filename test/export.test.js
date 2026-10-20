@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { addedMount } from '../src/export.js';
-import { configTree } from '../src/inplace.js';
+import { addedMount } from '../dist/export.js';
+import { configTree } from '../dist/inplace.js';
 
 const SANDBOX = fileURLToPath(new URL('../bin/sandbox.js', import.meta.url));
 const noGit = spawnSync('git', ['--version']).status !== 0;
