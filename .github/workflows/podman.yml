@@ -20,7 +20,7 @@ on:
       - 'src/seccomp.js'
       - 'src/templates.js'
       - 'src/cli.js'
-      - 'src/devcontainer.js'
+      - 'src/devcontainer.ts'
 
 permissions:
   contents: read
