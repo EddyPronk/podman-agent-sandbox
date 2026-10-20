@@ -50,7 +50,7 @@ export function loadSandbox(name, { lock = false } = {}) {
  * What there is of sandbox NAME: the container named NAME (and, when that's another sandbox's VM,
  * whose), its VM, found by its label, and its record (state.js).
  * @param {string} name
- * @returns {{ container: Container, vmOf: string, vm: Vm | null, record: import('./state.js').Record | null }}
+ * @returns {{ container: Container, vmOf: string, vm: Vm | null, record: import('./state.js').StateRecord | null }}
  */
 function readState(name) {
     const container = Container.load(name);

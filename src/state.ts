@@ -1,4 +1,3 @@
-// @ts-check
 // What sandbox records about a sandbox, apart from podman: its kind (a VM sandbox stays one after
 // sandbox rm) and its config folder. In $SANDBOX_DIR/.state/NAME.json, outside every mount: without
 // --workspace, a sandbox's own folder is its workspace, writable inside, and an agent that could
@@ -7,52 +6,48 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { dirname, join } from 'node:path';
 import { hasConfig, sandboxDir } from './devcontainer.js';
 
-/**
- * @typedef {'vm' | 'container'} Kind
- * @typedef {{ kind: Kind, folder: string }} Record
- */
+export type Kind = 'vm' | 'container';
 
-/**
- * Where NAME's record is. (.state can't be a sandbox's name: checkName.)
- * @param {string} name
- * @param {NodeJS.ProcessEnv} [env]
- */
-export function recordPath(name, env = process.env) {
+/** NAME.json's contents. */
+export interface StateRecord {
+    kind: Kind;
+    folder: string;
+}
+
+function isRecord(value: unknown): value is StateRecord {
+    return typeof value === 'object' && value !== null
+        && 'kind' in value && (value.kind === 'vm' || value.kind === 'container')
+        && 'folder' in value && typeof value.folder === 'string';
+}
+
+/** Where NAME's record is. (.state can't be a sandbox's name: checkName.) */
+export function recordPath(name: string, env: NodeJS.ProcessEnv = process.env): string {
     return join(sandboxDir(env), '.state', `${name}.json`);
 }
 
 /**
  * NAME's record, or null. A record whose config folder is gone (deleted by hand) counts as gone, and
  * is removed; so is one that can't be read.
- * @param {string} name
- * @param {{ env?: NodeJS.ProcessEnv }} [options]
- * @returns {Record | null}
  */
-export function readRecord(name, { env = process.env } = {}) {
+export function readRecord(name: string, { env = process.env }: { env?: NodeJS.ProcessEnv } = {}): StateRecord | null {
     const path = recordPath(name, env);
-    let record;
+    let record: unknown;
     try {
         record = JSON.parse(readFileSync(path, 'utf8'));
     } catch (err) {
-        if (/** @type {NodeJS.ErrnoException} */ (err).code === 'ENOENT') return null;
+        if (err instanceof Error && 'code' in err && err.code === 'ENOENT') return null;
         rmSync(path, { force: true });
         return null;
     }
-    const valid = record && (record.kind === 'vm' || record.kind === 'container') && typeof record.folder === 'string';
-    if (!valid || !hasConfig(record.folder)) {
+    if (!isRecord(record) || !hasConfig(record.folder)) {
         rmSync(path, { force: true });
         return null;
     }
     return { kind: record.kind, folder: record.folder };
 }
 
-/**
- * Record NAME's KIND and config FOLDER (written whole, then renamed into place).
- * @param {string} name
- * @param {Record} record
- * @param {NodeJS.ProcessEnv} [env]
- */
-export function writeRecord(name, { kind, folder }, env = process.env) {
+/** Record NAME's KIND and config FOLDER (written whole, then renamed into place). */
+export function writeRecord(name: string, { kind, folder }: StateRecord, env: NodeJS.ProcessEnv = process.env): void {
     const path = recordPath(name, env);
     mkdirSync(dirname(path), { recursive: true });
     const tmp = `${path}.${process.pid}.tmp`;
@@ -60,11 +55,7 @@ export function writeRecord(name, { kind, folder }, env = process.env) {
     renameSync(tmp, path);
 }
 
-/**
- * Forget NAME's record.
- * @param {string} name
- * @param {NodeJS.ProcessEnv} [env]
- */
-export function removeRecord(name, env = process.env) {
+/** Forget NAME's record. */
+export function removeRecord(name: string, env: NodeJS.ProcessEnv = process.env): void {
     rmSync(recordPath(name, env), { force: true });
 }
