@@ -19,6 +19,8 @@ Allowing a host
 Logs, inside (sandbox exec ${localWorkspaceFolderBasename} tail -f ~/proxy-data/...)
   ~/proxy-data/denied.jsonl            refused connections
   ~/proxy-data/proxy.log               the proxy's own log, with an access line per request
-  ~/proxy-data/decrypted-traffic.jsonl request and response bodies: sensitive
+  ~/proxy-data/decrypted-traffic.jsonl request and response bodies (JSON as JSON), with the
+                                       credentials and identity of Claude Code's endpoints
+                                       redacted; what the agent sends is not: sensitive
 
 Every sandbox also has: sandbox enter, sandbox inspect, sandbox exec NAME COMMAND.
