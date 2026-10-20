@@ -18,7 +18,7 @@ on:
       - 'templates/mitm-proxy/**'
       - 'templates/offline/**'
       - 'src/seccomp.ts'
-      - 'src/templates.js'
+      - 'src/templates.ts'
       - 'src/cli.js'
       - 'src/devcontainer.ts'
 
