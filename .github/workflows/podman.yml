@@ -1,7 +1,7 @@
 # Sandboxes on a GitHub runner with rootless podman: what the runner offers (diagnose), and a
 # sandbox from the claude-containers template that runs podman, a nested `claude` sandbox, and a
 # mitm-proxy + proxy-client pair of its own (nested, test/integration/nested.sh), and VM sandboxes with
-# krun (vm, test/integration/vm.sh).
+# krun (podman-vm, test/integration/vm.sh).
 # Not a required check. Runs by hand, and on PRs that change this file, the integration tests, the
 # templates (claude-containers, claude, proxy-client, mitm-proxy, offline), the code that writes the
 # seccomp profile (seccomp.ts, templates.ts, and json.ts, which checks what they read), or the code
@@ -81,7 +81,7 @@ jobs:
   # checked, not assumed: krun-check.sh fails on a missing library or symbol version, test.sh boots
   # a container under krun, then vm.sh runs the VM sandboxes for real. ubuntu-26.04 only: on 24.04
   # the release doesn't unpack (its usr/local/man symlink meets the runner's folder).
-  vm:
+  podman-vm:
     runs-on: ubuntu-26.04
     timeout-minutes: 60
     env:
