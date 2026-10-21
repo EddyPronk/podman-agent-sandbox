@@ -338,17 +338,18 @@ export class Sandbox {
         const { name, container, record } = this;
         const folder = record?.folder || container.folder;
         const why = [container.sandbox.reason, record ? `record ${recordPath(name)}` : ''].filter(Boolean).join(', ');
-        const header = `# ${name} is a VM sandbox${why ? ` (${why})` : ''}: it runs in its VM, ${vm.containerName}.`;
+        // The VM's container name (NAME-vm) is podman's, not the user's: only its command shows it.
+        const header = `# ${name} is a VM sandbox${why ? ` (${why})` : ''}: sandbox enter ${name} opens its VM.`;
         const parts = [describeInfo(vm.containerName, vm.info, {
             header, sandbox: true, folder, untrusted: folder ? untrustedChange(folder) : null,
-            unmeasured: 'podman exec can\'t reach into a VM', of: name,
+            unmeasured: 'podman exec can\'t reach into a VM', of: name, title: `${name}'s VM`,
         })];
-        const made = (info: PodmanInfo | null) => (info?.Created ? `, made ${madeAt(info.Created)}` : '');
-        const lines = [`# ${vm.containerName}${made(vm.info)} from the container as it was then; to make it again: `
+        const made = (info: PodmanInfo | null) => (info?.Created ? ` ${madeAt(info.Created)}` : '');
+        const lines = [`# The VM was made${made(vm.info)} from ${name}'s container as it was then; to make it again: `
             + `sandbox rm ${name}, then sandbox enter ${name}`];
         if (container.exists) {
-            lines.push(`# ${name}, the container it was made from (it built the image and ran the lifecycle commands; `
-                + `enter opens the VM, never this): ${container.state}${made(container.info)}`);
+            lines.push(`# ${name}'s container (it built the image and ran the lifecycle commands; enter opens the VM, `
+                + `never the container): ${container.state}${made(container.info) && `, made${made(container.info)}`}`);
             if (container.active) {
                 lines.push(`warning: ${name}'s container runs: the VM can't start while it does, and both would use the same `
                     + `volumes; 'sandbox stop ${name}' stops it`);

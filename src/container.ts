@@ -182,6 +182,8 @@ export interface DescribeOptions {
     unmeasured?: string;
     /** The sandbox's name, when NAME is its VM's. */
     of?: string;
+    /** What to call it in the headings: NAME, or e.g. "x's VM". */
+    title?: string;
 }
 
 /**
@@ -189,11 +191,11 @@ export interface DescribeOptions {
  * created it, and what it runs with, measured inside while it runs unless UNMEASURED says why not.
  */
 export function describeInfo(name: string, info: PodmanInfo, {
-    header, sandbox, folder, untrusted = null, unmeasured = '', of = name,
+    header, sandbox, folder, untrusted = null, unmeasured = '', of = name, title = name,
 }: DescribeOptions): string {
     const lines = [header];
     const command = info.Config?.CreateCommand ?? [];
-    lines.push(`\n# The command that created ${name} (podman recorded it):`);
+    lines.push(`\n# The command that created ${title} (podman recorded it):`);
     lines.push(command.length ? formatCommand(command, info.ImageName ?? '', info.Image)
         : '# (none: podman records it only for the podman command, not for containers made through its API\n'
         + '# socket, as VS Code and other Docker clients do)');

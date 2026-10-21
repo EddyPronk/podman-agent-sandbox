@@ -273,12 +273,13 @@ test('inspect of a VM sandbox: how its VM runs, then the container it was made f
     const inspect = runWith({ folders: ['x'], records: { x: 'vm' }, images }, [sandbox('x', 'exited'), vmOf('x', 'exited')], 'inspect', 'x');
     assert.equal(inspect.status, 0, inspect.stderr);
     assert.match(inspect.stdout, / -l\n# abababababab is vsc-img\n\n# What it runs with/, 'the image by ID, and its name');
-    assert.match(inspect.stdout, /^# x is a VM sandbox \(label podman-agent-sandbox=0\.8\.0, record \/.*\/\.state\/x\.json\): it runs in its VM, x-vm\.\n/);
-    assert.match(inspect.stdout, /^# The command that created x-vm \(podman recorded it\):\npodman run \\\n {4}-dit \\\n {4}--runtime krun \\\n/m);
+    assert.match(inspect.stdout, /^# x is a VM sandbox \(label podman-agent-sandbox=0\.8\.0, record \/.*\/\.state\/x\.json\): sandbox enter x opens its VM\.\n/);
+    assert.match(inspect.stdout, /^# The command that created x's VM \(podman recorded it\):\npodman run \\\n {4}-dit \\\n {4}--runtime krun \\\n/m);
     assert.match(inspect.stdout, /^# What it runs with \(as podman set it up: podman exec can't reach into a VM\):$/m);
     assert.match(inspect.stdout, /^runtime +krun: a microVM with its own kernel/m);
     assert.match(inspect.stdout, /^user +.*, user namespace keep-id \(you, not root\)$/m);
-    assert.match(inspect.stdout, /\n\n# x-vm, made .* from the container as it was then; to make it again: sandbox rm x, then sandbox enter x\n# x, the container it was made from .*: exited, made .*\n$/);
+    assert.match(inspect.stdout, /\n\n# The VM was made 2026-10-01 \S+ from x's container as it was then; to make it again: sandbox rm x, then sandbox enter x\n# x's container \(.*\): exited, made 2026-10-01 \S+\n$/);
+    assert.doesNotMatch(inspect.stdout.replace(/^podman run[^]*? -l\n/m, ''), /x-vm/, 'x-vm only in the command');
     assert.doesNotMatch(inspect.stdout, /not a sandbox|warning/);
 
     const rebuilt = runWith({ images: { 'vsc-img': 'cd'.repeat(32) } }, [sandbox('x', 'exited'), vmOf('x', 'exited')], 'inspect', 'x');
@@ -290,7 +291,7 @@ test('inspect of a VM sandbox: how its VM runs, then the container it was made f
     assert.match(busy.stdout, /\nwarning: x's container runs: the VM can't start while it does/);
     const alone = run([vmOf('x', 'running')], 'inspect', 'x');
     assert.equal(alone.status, 0, alone.stderr);
-    assert.match(alone.stdout, /^# x is a VM sandbox: it runs in its VM, x-vm\./);
+    assert.match(alone.stdout, /^# x is a VM sandbox: sandbox enter x opens its VM\./);
     assert.match(alone.stdout, /\n# x has no container left, only its VM\n$/);
 });
 
