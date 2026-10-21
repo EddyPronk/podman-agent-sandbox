@@ -1,10 +1,11 @@
 # Sandboxes on a GitHub runner with rootless podman: what the runner offers (diagnose), and a
 # sandbox from the claude-containers template that runs podman, a nested `claude` sandbox, and a
-# mitm-proxy + proxy-client pair of its own (nested, test/integration/nested.sh).
+# mitm-proxy + proxy-client pair of its own (nested, test/integration/nested.sh), and VM sandboxes with
+# krun (podman-vm, test/integration/vm.sh).
 # Not a required check. Runs by hand, and on PRs that change this file, the integration tests, the
 # templates (claude-containers, claude, proxy-client, mitm-proxy, offline), the code that writes the
 # seccomp profile (seccomp.ts, templates.ts, and json.ts, which checks what they read), or the code
-# behind new, enter and exec (cli.ts, devcontainer.ts).
+# behind new, enter and exec (cli.ts, devcontainer.ts; for VMs vm.ts, sandbox.ts, container.ts, state.ts).
 name: podman
 
 on:
@@ -23,6 +24,10 @@ on:
       - 'src/json.ts'
       - 'src/cli.ts'
       - 'src/devcontainer.ts'
+      - 'src/vm.ts'
+      - 'src/sandbox.ts'
+      - 'src/container.ts'
+      - 'src/state.ts'
 
 permissions:
   contents: read
@@ -53,6 +58,73 @@ jobs:
           df -h / /mnt || true
       - name: a rootless container
         run: podman run --rm docker.io/library/debian:trixie-slim cat /etc/os-release
+      # What test/integration/vm.sh needs (docs/microvm.md): /dev/kvm usable by the runner's user, and
+      # krun (crun built with libkrun) on PATH. Reports only; the udev rule is the usual way to open
+      # /dev/kvm on a GitHub runner.
+      - name: KVM and krun (for a VM sandbox)
+        run: |
+          grep -cwE 'vmx|svm' /proc/cpuinfo || echo "no vmx/svm flag in /proc/cpuinfo"
+          lsmod | grep -w kvm || true
+          ls -l /dev/kvm || true
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
+          ls -l /dev/kvm || true
+          if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then echo "/dev/kvm: usable"; else echo "/dev/kvm: not usable"; fi
+          crun --version || true
+          if command -v krun; then krun --version; else echo "no krun on PATH"; fi
+          apt-cache policy crun libkrun1 libkrun-dev libkrunfw4 libkrunfw5 || true
+          apt-cache search krun || true
+
+  # VM sandboxes (sandbox enter --vm, test/integration/vm.sh) with krun. Ubuntu doesn't package krun
+  # (crun without +LIBKRUN, no libkrun or libkrunfw, seen in diagnose), so this installs
+  # podman-krun-debian's release, built for Debian 13, into /usr/local. That it fits this Ubuntu is
+  # checked, not assumed: krun-check.sh fails on a missing library or symbol version, test.sh boots
+  # a container under krun, then vm.sh runs the VM sandboxes for real. ubuntu-26.04 only: on 24.04
+  # the release doesn't unpack (its usr/local/man symlink meets the runner's folder).
+  podman-vm:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    env:
+      KRUN_RELEASE: v1.0.1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: EddyPronk/podman-krun-debian
+          ref: ${{ env.KRUN_RELEASE }}
+          path: podman-krun-debian
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Open /dev/kvm to the runner's user
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - name: Download krun (podman-krun-debian ${{ env.KRUN_RELEASE }})
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$KRUN_RELEASE" --repo EddyPronk/podman-krun-debian --dir krun-release \
+            --pattern 'podman-krun-debian13-amd64-*.tar.gz' --pattern SHA256SUMS
+          cd krun-release && sha256sum --check --ignore-missing SHA256SUMS
+      - name: Install it, and boot a container under krun (its test.sh)
+        run: podman-krun-debian/install.sh krun-release/podman-krun-debian13-amd64-*.tar.gz
+      - name: Every library and symbol version krun needs is on this Ubuntu
+        run: test/integration/krun-check.sh
+      - name: Build this checkout (vm.sh runs bin/sandbox.js)
+        run: |
+          npm ci
+          npm run build
+      - name: VM sandboxes (test/integration/vm.sh)
+        run: test/integration/vm.sh vm-logs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: vm-logs
+          path: vm-logs
+          if-no-files-found: ignore
 
   nested:
     strategy:
