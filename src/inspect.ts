@@ -20,10 +20,15 @@ export interface PodmanInfo {
     Created: string;
     /** The image's ID. */
     Image: string;
-    /** The image's name as given to podman run. */
+    /** The image's name as given to podman run, or the name of the image given by ID. */
     ImageName?: string;
+    /** 'crun', 'runc', 'krun' (a VM: vm.ts). */
+    OCIRuntime?: string;
     State: { Status: string };
-    Config: { CreateCommand?: string[] | null; Labels?: { [label: string]: string } | null; User?: string };
+    Config: {
+        CreateCommand?: string[] | null; Labels?: { [label: string]: string } | null; User?: string;
+        Annotations?: { [key: string]: string } | null;
+    };
     HostConfig?: PodmanHostConfig | null;
     BoundingCaps?: string[] | null;
     Mounts?: PodmanMount[] | null;
@@ -73,11 +78,12 @@ function isHostConfig(value: unknown): value is PodmanHostConfig {
 export function isPodmanInfo(value: unknown): value is PodmanInfo {
     if (!isObject(value) || !isObject(value.State) || !isObject(value.Config)) return false;
     const { State: state, Config: config } = value;
+    const isStringMap = (map: unknown): map is { [key: string]: string } => isObject(map) && Object.values(map).every(isString);
     return isString(value.Id) && isString(value.Created) && isString(value.Image)
-        && optional(value.Name, isString) && optional(value.ImageName, isString) && isString(state.Status)
+        && optional(value.Name, isString) && optional(value.ImageName, isString) && optional(value.OCIRuntime, isString)
+        && isString(state.Status)
         && nullable(config.CreateCommand, isStringList) && optional(config.User, isString)
-        && nullable(config.Labels, (labels): labels is { [label: string]: string } => isObject(labels)
-            && Object.values(labels).every(isString))
+        && nullable(config.Labels, isStringMap) && nullable(config.Annotations, isStringMap)
         && nullable(value.BoundingCaps, isStringList) && nullable(value.HostConfig, isHostConfig)
         && nullable(value.Mounts, listOf(isMount))
         && nullable(value.NetworkSettings, (n): n is JsonObject => isObject(n) && nullable(n.Networks, isObject));
@@ -162,21 +168,31 @@ export function shellQuote(arg: string): string {
 const bare = (image: string) => image.replace(/^localhost\//, '').replace(/:latest$/, '');
 
 /**
- * Split a `podman run` command line into [program, subcommand], the options as [flag] or
- * [flag, value], the image, and the command after it. IMAGE (from inspect) is where the options
- * end: a flag followed by a word that isn't the image takes it as its value. Null when the image
- * isn't found.
+ * Whether ARG names the image IMAGE (its name, as inspect's ImageName gives it) or ID (inspect's
+ * Image): by name, or by ID, in full or abbreviated to 12 or more hex digits, as podman takes it. A
+ * VM's command names its image by ID (vm.ts), while inspect gives the name.
  */
-export function splitCommand(argv: string[], image: string): SplitCommand | null {
-    const want = bare(image);
+function isImage(arg: string, image: string, id: string): boolean {
+    if (bare(arg) === bare(image)) return true;
+    const hex = arg.replace(/^sha256:/, '');
+    return id !== '' && /^[0-9a-f]{12,64}$/.test(hex) && id.replace(/^sha256:/, '').startsWith(hex);
+}
+
+/**
+ * Split a `podman run` command line into [program, subcommand], the options as [flag] or
+ * [flag, value], the image, and the command after it. IMAGE and ID (from inspect) are where the
+ * options end: a flag followed by a word that isn't the image takes it as its value. Null when the
+ * image isn't found.
+ */
+export function splitCommand(argv: string[], image: string, id = ''): SplitCommand | null {
     const options: CommandOption[] = [];
     for (let i = 2; i < argv.length; i++) {
         const arg = argv[i];
         if (!arg.startsWith('-')) {
-            return bare(arg) === want ? { head: argv.slice(0, 2), options, image: arg, args: argv.slice(i + 1) } : null;
+            return isImage(arg, image, id) ? { head: argv.slice(0, 2), options, image: arg, args: argv.slice(i + 1) } : null;
         }
         const next = argv[i + 1];
-        if (!arg.includes('=') && next !== undefined && !next.startsWith('-') && bare(next) !== want) {
+        if (!arg.includes('=') && next !== undefined && !next.startsWith('-') && !isImage(next, image, id)) {
             options.push([arg, next]);
             i++;
         } else {
@@ -187,8 +203,8 @@ export function splitCommand(argv: string[], image: string): SplitCommand | null
 }
 
 /** The command as a shell command line: one option per line, the image and its command last. */
-export function formatCommand(argv: string[], image: string): string {
-    const split = splitCommand(argv, image);
+export function formatCommand(argv: string[], image: string, id = ''): string {
+    const split = splitCommand(argv, image, id);
     const lines: string[][] = split
         ? [split.head, ...split.options, [split.image, ...split.args]]
         : [argv.slice(0, 2), ...argv.slice(2).map((arg) => [arg])];
@@ -421,7 +437,7 @@ export function audit(info: PodmanInfo, {
     status = null, internal = {}, uncovered = [], sandbox = true, vscode = null, configWritable = null,
 }: AuditOptions = {}): Audit {
     const host: PodmanHostConfig = info.HostConfig ?? {};
-    const split = splitCommand(info.Config?.CreateCommand ?? [], info.ImageName ?? '');
+    const split = splitCommand(info.Config?.CreateCommand ?? [], info.ImageName ?? '', info.Image);
     const options = split?.options ?? [];
     // Inspect's own fields where it has them; the command line for what it leaves out (unmask, devices).
     const securityOpts = host.SecurityOpt ?? [];
@@ -436,6 +452,12 @@ export function audit(info: PodmanInfo, {
     const unhardened: string[] = [];
 
     rows.push(['state', info.State?.Status ?? '?']);
+    if (info.OCIRuntime === 'krun') {
+        // The guest's RAM: the annotation, else --memory, else krun's default (docs/microvm.md).
+        const ram = Number(info.Config?.Annotations?.['krun.ram_mib'] ?? 0);
+        const memory = ram > 0 ? `${ram} MiB` : host.Memory ? `${Math.round(host.Memory / 2 ** 20)} MiB` : '1024 MiB (krun\'s default)';
+        rows.push(['runtime', `krun: a microVM with its own kernel, memory ${memory}`]);
+    }
     const userns = optionValues(options, '--userns').at(-1);
     const user = info.Config?.User || 'root (the image\'s default)';
     rows.push(['user', `${user}${userns ? `, user namespace ${userns}${userns === 'keep-id' ? ' (you, not root)' : ''}` : ''}`]);
@@ -559,9 +581,9 @@ export function writableConfig(info: PodmanInfo, folder: string, exists: (path: 
     return mounts.some((m) => m.Source === config && !m.RW) ? null : join(workspace.Destination, '.devcontainer');
 }
 
-/** Left-aligned columns, two spaces apart. */
+/** Left-aligned columns, two spaces apart; no spaces at the end of a row whose last cells are empty. */
 export function table(rows: string[][]): string {
     const widths = rows[0].map((_, i) => Math.max(...rows.map((row) => (row[i] ?? '').length)));
-    return rows.map((row) => row.map((cell, i) => (i < row.length - 1 ? cell.padEnd(widths[i]) : cell)).join('  '))
+    return rows.map((row) => row.map((cell, i) => (i < row.length - 1 ? cell.padEnd(widths[i]) : cell)).join('  ').trimEnd())
         .join('\n');
 }

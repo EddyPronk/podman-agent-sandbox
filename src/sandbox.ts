@@ -6,7 +6,8 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { Container, inspectContainer } from './container.js';
+import { Container, describeInfo, inspectContainer, isActive } from './container.js';
+import type { PodmanInfo } from './container.js';
 import {
     SANDBOX_LABEL, SandboxError, checkName, childEnv, dc, exitStatus, folderOf, hasConfig, podman, sandboxDir,
 } from './devcontainer.js';
@@ -16,7 +17,7 @@ import { lockSandbox } from './lock.js';
 import { isObject } from './json.js';
 import type { JsonObject } from './json.js';
 import type { Release } from './lock.js';
-import { readRecord, removeRecord, writeRecord } from './state.js';
+import { readRecord, recordPath, removeRecord, writeRecord } from './state.js';
 import type { Kind, StateRecord } from './state.js';
 import { checkMinVersion } from './templates.js';
 import { VM_OF_LABEL, Vm, checkHost, madeAt, vmName, vmPolicy } from './vm.js';
@@ -303,30 +304,59 @@ export class Sandbox {
         }
     }
 
-    /** sandbox inspect: how it runs, or, without a container, what's left of it; and its VM. */
+    /**
+     * sandbox inspect: how it runs, or, without a container, what's left of it. With a VM: how the VM
+     * runs, then the container it was made from. Of a VM's name: its sandbox's.
+     */
     describe(): string {
         const { name, container, vm } = this;
-        if (this.vmOf) {
-            return `# ${name} is the VM of ${this.vmOf} (podman exec, and so the measurements inside, can't reach a VM): `
-                + `see sandbox inspect ${this.vmOf}\n\n${container.describe()}`;
+        if (this.vmOf && this.vmOf !== name) {
+            return `# ${name} is the VM of ${this.vmOf}: this is sandbox inspect ${this.vmOf}.\n\n${loadSandbox(this.vmOf).describe()}`;
         }
+        if (vm) return this.#describeVm(vm);
         const parts: string[] = [];
         if (container.exists) {
             const { folder } = container;
             parts.push(container.describe({ untrusted: folder ? untrustedChange(folder) : null }));
         } else {
             const folder = this.record?.folder || join(sandboxDir(), name);
-            if (hasConfig(folder)) {
-                // Removed with sandbox rm, or not created yet: what's left of it.
-                const what = this.kind === 'vm' ? 'its VM' : 'it';
-                parts.push(`# ${name} has no container (removed, or not created yet)${vm ? ', only its VM'
-                    : `; sandbox enter ${name} creates ${what} from its config`}.\n${table(removedSandbox(folder).rows)}`);
-            } else if (!vm) {
-                throw new SandboxError(`no container '${name}', and no sandbox config in ${folder}`);
-            }
+            if (!hasConfig(folder)) throw new SandboxError(`no container '${name}', and no sandbox config in ${folder}`);
+            // Removed with sandbox rm, or not created yet: what's left of it.
+            const what = this.kind === 'vm' ? 'its VM' : 'it';
+            parts.push(`# ${name} has no container (removed, or not created yet); sandbox enter ${name} creates ${what} `
+                + `from its config.\n${table(removedSandbox(folder).rows)}`);
         }
-        if (vm) parts.push(`# ${name}'s VM: ${vm.describe()}`);
-        else if (this.kind === 'vm') parts.push(`# ${name} is a VM sandbox: 'sandbox enter ${name}' makes its VM`);
+        if (this.kind === 'vm') parts.push(`# ${name} is a VM sandbox: 'sandbox enter ${name}' makes its VM`);
+        return parts.join('\n\n');
+    }
+
+    /**
+     * sandbox inspect of a sandbox with VM: how the VM runs (what enter opens), as configured, since
+     * podman exec can't reach into a VM; then the normal container it was made from, if it's still there.
+     */
+    #describeVm(vm: Vm): string {
+        const { name, container, record } = this;
+        const folder = record?.folder || container.folder;
+        const why = [container.sandbox.reason, record ? `record ${recordPath(name)}` : ''].filter(Boolean).join(', ');
+        const header = `# ${name} is a VM sandbox${why ? ` (${why})` : ''}: it runs in its VM, ${vm.containerName}.`;
+        const parts = [describeInfo(vm.containerName, vm.info, {
+            header, sandbox: true, folder, untrusted: folder ? untrustedChange(folder) : null,
+            unmeasured: 'podman exec can\'t reach into a VM', of: name,
+        })];
+        const made = (info: PodmanInfo | null) => (info?.Created ? `, made ${madeAt(info.Created)}` : '');
+        const lines = [`# ${vm.containerName}${made(vm.info)} from the container as it was then; to make it again: `
+            + `sandbox rm ${name}, then sandbox enter ${name}`];
+        if (container.exists) {
+            lines.push(`# ${name}, the container it was made from (it built the image and ran the lifecycle commands; `
+                + `enter opens the VM, never this): ${container.state}${made(container.info)}`);
+            if (container.active) {
+                lines.push(`warning: ${name}'s container runs: the VM can't start while it does, and both would use the same `
+                    + `volumes; 'sandbox stop ${name}' stops it`);
+            }
+        } else {
+            lines.push(`# ${name} has no container left, only its VM`);
+        }
+        parts.push(lines.join('\n'));
         return parts.join('\n\n');
     }
 
@@ -501,7 +531,10 @@ export function vmEnv(config: JsonObject, env: NodeJS.ProcessEnv = childEnv()): 
     return { TERM: env.TERM || 'xterm-256color', ...(user ? { USER: user, LOGNAME: user } : {}) };
 }
 
-/** sandbox list: the dev containers and the sandboxes' VMs, by sandbox name, as a table. */
+/**
+ * sandbox list: one row per sandbox, from the dev containers and the sandboxes' VMs, as a table. A VM
+ * sandbox's row is its VM's (what enter opens); COMMENT says what else there is to know, as a list.
+ */
 export function listSandboxes(): string {
     const ps = (filter: string, last: string) => {
         const result = podman(['ps', '-a', '--filter', `label=${filter}`, '--format',
@@ -509,13 +542,19 @@ export function listSandboxes(): string {
         if (result.status !== 0) throw new SandboxError(result.stderr.trim());
         return result.stdout.split('\n').filter(Boolean).map((line) => line.split('\t'));
     };
-    const containers = ps('devcontainer.local_folder', 'devcontainer.local_folder').map((row) => ({ sandbox: row[0], vm: 0, row }));
-    const vms = ps(VM_OF_LABEL, VM_OF_LABEL)
-        .map(([name, state, networks, of]) => ({ sandbox: of, vm: 1, row: [name, state, networks, `VM of ${of}`] }));
-    const rows = [...containers, ...vms]
-        .sort((a, b) => a.sandbox.localeCompare(b.sandbox) || a.vm - b.vm)
-        .map(({ row }) => row);
-    return table([['NAME', 'STATE', 'NETWORK', 'FOLDER'], ...rows]);
+    const sandboxes = new Map<string, { state: string; networks: string; folder: string; comment: string[] }>();
+    for (const [name, state, networks, folder] of ps('devcontainer.local_folder', 'devcontainer.local_folder')) {
+        const vm = readRecord(name)?.kind === 'vm';
+        sandboxes.set(name, { state, networks, folder, comment: vm ? ['vm', 'no VM yet'] : [] });
+    }
+    for (const [, state, networks, of] of ps(VM_OF_LABEL, VM_OF_LABEL)) {
+        const container = sandboxes.get(of);
+        const comment = ['vm', ...(container && isActive(container.state) ? ['container running'] : [])];
+        sandboxes.set(of, { state, networks, folder: container?.folder || readRecord(of)?.folder || '', comment });
+    }
+    const rows = [...sandboxes].sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, s]) => [name, s.state, s.networks, s.folder, s.comment.join(', ')]);
+    return table([['NAME', 'STATE', 'NETWORK', 'FOLDER', 'COMMENT'], ...rows]);
 }
 
 /**

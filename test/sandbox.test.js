@@ -80,8 +80,13 @@ function container(name, status, { labels = {}, volumes = [] } = {}) {
 }
 const sandbox = (name, status, options = {}) => container(name, status,
     { ...options, labels: { 'podman-agent-sandbox': '0.8.0', ...options.labels } });
-const vmOf = (of, status, options = {}) => container(`${of}-vm`, status,
-    { ...options, labels: { 'podman-agent-sandbox.vm-of': of, ...options.labels } });
+/** OF's VM: krun, its command naming the image by ID (vm.ts). */
+function vmOf(of, status, options = {}) {
+    const vm = container(`${of}-vm`, status, { ...options, labels: { 'podman-agent-sandbox.vm-of': of, ...options.labels } });
+    const id = 'ab'.repeat(32);
+    return { ...vm, Image: id, OCIRuntime: 'krun', HostConfig: { SecurityOpt: ['no-new-privileges'], NetworkMode: 'none' },
+        Config: { ...vm.Config, CreateCommand: ['podman', 'run', '-dit', '--runtime', 'krun', '--name', `${of}-vm`, '--userns=keep-id', id, '-l'] } };
+}
 
 /** Run sandbox ARGS against the fake podman with CONTAINERS: { status, stdout, stderr, calls, containers }. */
 function run(containers, ...args) {
@@ -140,7 +145,10 @@ test('x\'s VM is no sandbox x-vm: rm, stop (also with --force), enter and exec o
         assert.deepEqual(changes(result.calls), [], args.join(' '));
     }
     const inspect = run(state(), 'inspect', 'x-vm');
-    assert.match(inspect.stdout, /^# x-vm is the VM of x .*see sandbox inspect x/);
+    assert.equal(inspect.status, 0, inspect.stderr);
+    assert.match(inspect.stdout, /^# x-vm is the VM of x: this is sandbox inspect x\.\n\n# x is a VM sandbox/);
+    assert.doesNotMatch(inspect.stdout, /not a sandbox/);
+    assert.equal(inspect.stdout.replace(/^.*\n\n/, ''), run(state(), 'inspect', 'x').stdout, 'the same as inspect x');
 });
 
 test('stop: the VM at once (--time 0, by ID), the container as before; nothing active is said', () => {
@@ -259,18 +267,46 @@ test('enter --from-existing needs --vm', () => {
     assert.match(result.stderr, /--from-existing goes with --vm/);
 });
 
-test('inspect and list show the VM next to its sandbox', () => {
-    const inspect = run([sandbox('x', 'exited'), vmOf('x', 'exited')], 'inspect', 'x');
+test('inspect of a VM sandbox: how its VM runs, then the container it was made from', () => {
+    const inspect = runWith({ folders: ['x'], records: { x: 'vm' } }, [sandbox('x', 'exited'), vmOf('x', 'exited')], 'inspect', 'x');
     assert.equal(inspect.status, 0, inspect.stderr);
-    assert.match(inspect.stdout, /^# x is a sandbox/);
-    assert.match(inspect.stdout, /# x's VM: x-vm, exited, made .* to make it again: sandbox rm x, then sandbox enter x\n$/);
+    assert.match(inspect.stdout, /^# x is a VM sandbox \(label podman-agent-sandbox=0\.8\.0, record \/.*\/\.state\/x\.json\): it runs in its VM, x-vm\.\n/);
+    assert.match(inspect.stdout, /^# The command that created x-vm \(podman recorded it\):\npodman run \\\n {4}-dit \\\n {4}--runtime krun \\\n/m);
+    assert.match(inspect.stdout, /^# What it runs with \(as podman set it up: podman exec can't reach into a VM\):$/m);
+    assert.match(inspect.stdout, /^runtime +krun: a microVM with its own kernel/m);
+    assert.match(inspect.stdout, /^user +.*, user namespace keep-id \(you, not root\)$/m);
+    assert.match(inspect.stdout, /\n\n# x-vm, made .* from the container as it was then; to make it again: sandbox rm x, then sandbox enter x\n# x, the container it was made from .*: exited, made .*\n$/);
+    assert.doesNotMatch(inspect.stdout, /not a sandbox|warning/);
 
+    const busy = run([sandbox('x', 'running'), vmOf('x', 'exited')], 'inspect', 'x');
+    assert.match(busy.stdout, /^# x is a VM sandbox \(label podman-agent-sandbox=0\.8\.0\): /, 'without a record');
+    assert.match(busy.stdout, /\nwarning: x's container runs: the VM can't start while it does/);
+    const alone = run([vmOf('x', 'running')], 'inspect', 'x');
+    assert.equal(alone.status, 0, alone.stderr);
+    assert.match(alone.stdout, /^# x is a VM sandbox: it runs in its VM, x-vm\./);
+    assert.match(alone.stdout, /\n# x has no container left, only its VM\n$/);
+});
+
+test('list: one row per sandbox; COMMENT says vm for a VM sandbox, whose row is its VM\'s', () => {
     const local = (c, folder) => ({ ...c, Config: { ...c.Config, Labels: { ...c.Config.Labels, 'devcontainer.local_folder': folder } } });
-    const list = run([local(sandbox('b', 'running'), '/s/b'), vmOf('a', 'running'), local(sandbox('a', 'exited'), '/s/a')], 'list');
+    const list = runWith({ folders: ['a', 'c', 'd', 'f'], records: { a: 'vm', c: 'vm', d: 'vm', f: 'vm' } }, [
+        local(sandbox('b', 'running'), '/s/b'), vmOf('a', 'running'), local(sandbox('a', 'exited'), '/s/a'),
+        local(sandbox('c', 'running'), '/s/c'), vmOf('c', 'exited'), vmOf('d', 'exited'), local(sandbox('e', 'exited'), '/s/e'),
+        local(sandbox('f', 'exited'), '/s/f'),
+    ], 'list');
     assert.equal(list.status, 0, list.stderr);
-    const rows = list.stdout.trim().split('\n').map((line) => line.split(/\s{2,}/));
-    assert.deepEqual(rows.map((row) => [row[0], row.at(-1)]),
-        [['NAME', 'FOLDER'], ['a', '/s/a'], ['a-vm', 'VM of a'], ['b', '/s/b']]);
+    const lines = list.stdout.trimEnd().split('\n');
+    const rows = lines.map((line) => line.split(/\s{2,}/));
+    assert.deepEqual(rows.map((row) => [row[0], row[1], row.slice(2).join('|')]), [
+        ['NAME', 'STATE', 'NETWORK|FOLDER|COMMENT'],   // the fake's containers have no networks
+        ['a', 'running', '/s/a|vm'],
+        ['b', 'running', '/s/b'],
+        ['c', 'exited', '/s/c|vm, container running'],
+        ['d', 'exited', `${list.sandboxDir}/d|vm`],
+        ['e', 'exited', '/s/e'],
+        ['f', 'exited', '/s/f|vm, no VM yet'],
+    ]);
+    assert.deepEqual(lines.filter((line) => line !== line.trimEnd()), [], 'no spaces at the end of a row');
 });
 
 test('a command on a sandbox that doesn\'t exist leaves no lock file; one that exists keeps it', () => {

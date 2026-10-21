@@ -159,7 +159,9 @@ and, for a sandbox that runs Podman inside, how much its images and containers t
 Warnings follow, e.g. for a sandbox made before 0.5.2 that still has capabilities, or a git repo in a
 `--workspace` whose hooks or config would be writable. It works on any container, e.g. one VS Code
 made, and says first whether it is a sandbox. Podman records the command line only for containers
-made with the `podman` command, not through its API socket (as VS Code does).
+made with the `podman` command, not through its API socket (as VS Code does). Of a VM sandbox it shows
+the VM, as Podman set it up (nothing can be read inside a VM), then the container it was made from
+([A sandbox in a microVM](docs/microvm.md)).
 
 After `sandbox rm`, the container is gone but its config folder and volumes stay: `sandbox inspect
 NAME` then shows what's left (the workspace, an `--inplace` config's trust, each volume with its
