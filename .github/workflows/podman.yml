@@ -70,6 +70,57 @@ jobs:
           apt-cache policy crun libkrun1 libkrun-dev libkrunfw4 libkrunfw5 || true
           apt-cache search krun || true
 
+  # Whether a VM sandbox can run on a GitHub runner: krun from podman-krun-debian's release (built
+  # for Debian 13, unpacked into /usr/local), then its test.sh, which boots a container under krun
+  # and checks the guest kernel. A probe: its failures don't fail the run.
+  vm-probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-26.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    timeout-minutes: 20
+    env:
+      KRUN_RELEASE: v1.0.1
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: EddyPronk/podman-krun-debian
+          ref: ${{ env.KRUN_RELEASE }}
+          path: podman-krun-debian
+      - name: Open /dev/kvm to the runner's user
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - name: Download krun (podman-krun-debian ${{ env.KRUN_RELEASE }})
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$KRUN_RELEASE" --repo EddyPronk/podman-krun-debian --dir krun-release \
+            --pattern 'podman-krun-debian13-amd64-*.tar.gz' --pattern SHA256SUMS
+          cd krun-release && sha256sum --check --ignore-missing SHA256SUMS
+      - name: Install and test it (test.sh boots a container under krun)
+        run: podman-krun-debian/install.sh krun-release/podman-krun-debian13-amd64-*.tar.gz
+      - name: What the libraries need (when the test fails)
+        if: always()
+        run: |
+          for f in /usr/local/bin/crun /usr/local/lib*/libkrun.so.1 /usr/local/lib*/libkrunfw.so.5 \
+              /usr/local/lib/*/libkrun.so.1 /usr/local/lib/*/libkrunfw.so.5; do
+            [ -e "$f" ] || continue
+            echo "== $f"
+            ldd "$f" | grep -E 'not found|=>' || true
+          done
+          /usr/local/bin/crun --version || true
+      - name: Boot time of a krun container
+        run: |
+          podman pull -q docker.io/library/alpine
+          for i in 1 2 3; do
+            /usr/bin/time -f "%e s" podman run --rm --runtime krun docker.io/library/alpine uname -r
+          done
+
   nested:
     strategy:
       fail-fast: false
