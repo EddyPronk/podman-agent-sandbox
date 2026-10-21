@@ -6,8 +6,8 @@ import {
 } from './devcontainer.js';
 import type { SandboxSigns } from './devcontainer.js';
 import {
-    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, formatCommand, isPodmanInfo, parsePodmanStorage, parseStatus,
-    parseVscodeProbe, podmanStorageRows, table, writableConfig,
+    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, formatCommand, imageLine, isPodmanInfo, parsePodmanStorage, parseStatus,
+    parseVscodeProbe, podmanStorageRows, splitCommand, table, writableConfig,
 } from './inspect.js';
 import type { PodmanInfo, PodmanStorage, ProcStatus, Row, VscodeProbe } from './inspect.js';
 import { uncoveredInSandbox } from './workspace.js';
@@ -152,61 +152,101 @@ export class Container {
     describe({ untrusted = null }: { untrusted?: string | null } = {}): string {
         const { name, info } = this;
         if (!info) throw new SandboxError(`${name} has no container to describe`);
-        const lines: string[] = [];
         const { reason, hint } = this.sandbox;
-        lines.push(reason ? `# ${name} is a sandbox (${reason}).`
+        const header = reason ? `# ${name} is a sandbox (${reason}).`
             : hint ? `# ${name} is not a sandbox: no ${SANDBOX_LABEL} label, though ${hint} (a sandbox made before 0.6.0,`
                 + ' or another tool\'s container?).'
-                : `# ${name} is not a sandbox: no ${SANDBOX_LABEL} label (VS Code's, or your own?).`);
-        const command = info.Config?.CreateCommand ?? [];
-        lines.push(`\n# The command that created ${name} (podman recorded it):`);
-        lines.push(command.length ? formatCommand(command, info.ImageName ?? '')
-            : '# (none: podman records it only for the podman command, not for containers made through its API\n'
-            + '# socket, as VS Code and other Docker clients do)');
-
-        // Measured inside while it runs: what the processes in it actually have.
-        let status: ProcStatus | null = null;
-        let vscode: VscodeProbe | null = null;
-        let storage: PodmanStorage | null = null;
-        if (this.state === 'running') {
-            const proc = podman(['exec', name, 'cat', '/proc/1/status']);
-            if (proc.status === 0) status = parseStatus(proc.stdout);
-            // What VS Code forwards when attached: not mounts, so only visible inside (inspect.ts).
-            const probe = podman(['exec', name, 'sh', '-c', VSCODE_PROBE]);
-            if (probe.status === 0) vscode = parseVscodeProbe(probe.stdout);
-            // Podman inside (claude-containers and the like): its images may outlive the container.
-            const inner = podman(['exec', name, 'sh', '-c', PODMAN_STORAGE_PROBE]);
-            if (inner.status === 0) storage = parsePodmanStorage(inner.stdout);
-        }
-        const internal: { [network: string]: boolean } = {};
-        const networks = Object.keys(info.NetworkSettings?.Networks ?? {});
-        if (networks.length) {
-            const nets = podman(['network', 'inspect', '--format', '{{.Name}} {{.Internal}}', ...networks]);
-            for (const line of nets.stdout.split('\n').filter(Boolean)) {
-                const [net, isInternal] = line.split(' ');
-                internal[net] = isInternal === 'true';
-            }
-        }
-        let uncovered: string[] = [];
-        const { folder } = this;
-        const configWritable = reason ? writableConfig(info, folder) : null;
-        if (folder) {
-            try {
-                uncovered = uncoveredInSandbox(folder, this.readonlyMounts());
-            } catch {
-                // the config folder is gone: nothing to compare with
-            }
-        }
-        const report = audit(info, { status, internal, uncovered, sandbox: Boolean(reason), vscode, configWritable });
-        if (untrusted) report.warnings.unshift(`${untrusted}: enter, exec and build refuse until 'sandbox trust ${name}'`);
-
-        lines.push(`\n# What it runs with${status ? ' (capabilities, new privileges, seccomp: measured inside)' : ''}:`);
-        const rows = [...report.rows, ...report.mounts.map((text, i): Row => [i ? '' : 'mounts', text]),
-            ...(storage?.root ? podmanStorageRows(storage, info.Mounts ?? []) : [])];
-        lines.push(table(rows));
-        if (report.warnings.length || report.notes.length) lines.push('');
-        for (const text of report.warnings) lines.push(`warning: ${text}`);
-        for (const text of report.notes) lines.push(`note: ${text}`);
-        return lines.join('\n');
+                : `# ${name} is not a sandbox: no ${SANDBOX_LABEL} label (VS Code's, or your own?).`;
+        return describeInfo(name, info, { header, sandbox: Boolean(reason), folder: this.folder, untrusted });
     }
+}
+
+/** The ID of image NAME now; null when there's no such image, undefined when podman can't say. */
+function imageId(name: string): string | null | undefined {
+    const result = podman(['image', 'inspect', '--format', '{{.Id}}', name]);
+    if (result.status === 0) return result.stdout.trim();
+    return /image not known|no such image/i.test(result.stderr) ? null : undefined;
+}
+
+/** describeInfo's OPTIONS. */
+export interface DescribeOptions {
+    /** The first line(s). */
+    header: string;
+    /** Whether sandbox made it: the advice is the templates', and its own config is checked. */
+    sandbox: boolean;
+    /** The sandbox's config folder, for the git paths a --workspace sandbox must have read-only; '' when unknown. */
+    folder: string;
+    /** As for Container.describe. */
+    untrusted?: string | null;
+    /** Why nothing can be measured inside (a VM: no podman exec), or '' to measure while it runs. */
+    unmeasured?: string;
+    /** The sandbox's name, when NAME is its VM's. */
+    of?: string;
+    /** What to call it in the headings: NAME, or e.g. "x's VM". */
+    title?: string;
+}
+
+/**
+ * sandbox inspect of container NAME (INFO), a sandbox's container or its VM: HEADER, the command that
+ * created it, and what it runs with, measured inside while it runs unless UNMEASURED says why not.
+ */
+export function describeInfo(name: string, info: PodmanInfo, {
+    header, sandbox, folder, untrusted = null, unmeasured = '', of = name, title = name,
+}: DescribeOptions): string {
+    const lines = [header];
+    const command = info.Config?.CreateCommand ?? [];
+    lines.push(`\n# The command that created ${title} (podman recorded it):`);
+    lines.push(command.length ? formatCommand(command, info.ImageName ?? '', info.Image)
+        : '# (none: podman records it only for the podman command, not for containers made through its API\n'
+        + '# socket, as VS Code and other Docker clients do)');
+    // A command that names its image by ID (a VM's): which image that was, and whether its name still is.
+    const image = splitCommand(command, info.ImageName ?? '', info.Image)?.image;
+    const imageText = image ? imageLine(image, info.ImageName ?? '', imageId, sandbox ? `sandbox rm ${of}, then sandbox enter ${of}` : '') : '';
+    if (imageText) lines.push(imageText);
+
+    // Measured inside while it runs: what the processes in it actually have.
+    let status: ProcStatus | null = null;
+    let vscode: VscodeProbe | null = null;
+    let storage: PodmanStorage | null = null;
+    if (!unmeasured && info.State?.Status === 'running') {
+        const proc = podman(['exec', name, 'cat', '/proc/1/status']);
+        if (proc.status === 0) status = parseStatus(proc.stdout);
+        // What VS Code forwards when attached: not mounts, so only visible inside (inspect.ts).
+        const probe = podman(['exec', name, 'sh', '-c', VSCODE_PROBE]);
+        if (probe.status === 0) vscode = parseVscodeProbe(probe.stdout);
+        // Podman inside (claude-containers and the like): its images may outlive the container.
+        const inner = podman(['exec', name, 'sh', '-c', PODMAN_STORAGE_PROBE]);
+        if (inner.status === 0) storage = parsePodmanStorage(inner.stdout);
+    }
+    const internal: { [network: string]: boolean } = {};
+    const networks = Object.keys(info.NetworkSettings?.Networks ?? {});
+    if (networks.length) {
+        const nets = podman(['network', 'inspect', '--format', '{{.Name}} {{.Internal}}', ...networks]);
+        for (const line of nets.stdout.split('\n').filter(Boolean)) {
+            const [net, isInternal] = line.split(' ');
+            internal[net] = isInternal === 'true';
+        }
+    }
+    let uncovered: string[] = [];
+    const configWritable = sandbox ? writableConfig(info, folder) : null;
+    if (folder) {
+        try {
+            uncovered = uncoveredInSandbox(folder, (info.Mounts ?? []).filter((m) => !m.RW).map((m) => m.Destination));
+        } catch {
+            // the config folder is gone: nothing to compare with
+        }
+    }
+    const report = audit(info, { status, internal, uncovered, sandbox, vscode, configWritable });
+    if (untrusted) report.warnings.unshift(`${untrusted}: enter, exec and build refuse until 'sandbox trust ${of}'`);
+
+    const how = unmeasured ? ` (as podman set it up: ${unmeasured})`
+        : status ? ' (capabilities, new privileges, seccomp: measured inside)' : '';
+    lines.push(`\n# What it runs with${how}:`);
+    const rows = [...report.rows, ...report.mounts.map((text, i): Row => [i ? '' : 'mounts', text]),
+        ...(storage?.root ? podmanStorageRows(storage, info.Mounts ?? []) : [])];
+    lines.push(table(rows));
+    if (report.warnings.length || report.notes.length) lines.push('');
+    for (const text of report.warnings) lines.push(`warning: ${text}`);
+    for (const text of report.notes) lines.push(`note: ${text}`);
+    return lines.join('\n');
 }

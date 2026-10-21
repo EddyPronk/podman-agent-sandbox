@@ -6,7 +6,7 @@ import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, configVolumes, formatBytes, formatCommand, isPodmanInfo, optionValues,
+    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, configVolumes, formatBytes, formatCommand, imageLine, isPodmanInfo, optionValues,
     parsePodmanStorage, parseStatus, parseVscodeProbe, podmanStorageRows, removedRows, shellQuote, splitCommand,
 } from '../dist/inspect.js';
 
@@ -124,6 +124,50 @@ test('splitCommand pairs flags with values up to the image, and keeps the comman
     assert.equal(split.image, IMAGE);
     assert.deepEqual(split.args, ['-c', 'echo started\nexec "$@"', '-']);
     assert.equal(splitCommand(COMMAND, 'other-image'), null);
+});
+
+// A VM's command, as vm.ts makes it: the image by ID, while inspect gives its name as ImageName.
+const ID = 'dd47a848806783f1d46c9bd194ceba4a7a74868ec7363f2e690798ce39b63b86';
+const VM_COMMAND = ['podman', 'run', '-dit', '--runtime', 'krun', '--name', 'box-vm', '--label', 'podman-agent-sandbox.vm-of=box',
+    '-u', '1000:1000', '--userns=keep-id', '--cap-drop=all', '-e', 'TERM=xterm', ID, '-l'];
+
+test('splitCommand finds the image by ID too, in full or abbreviated, as a VM\'s command names it', () => {
+    const split = splitCommand(VM_COMMAND, `localhost/${IMAGE}:latest`, ID);
+    assert.deepEqual(split.options.slice(0, 3), [['-dit'], ['--runtime', 'krun'], ['--name', 'box-vm']]);
+    assert.deepEqual(split.options.at(-1), ['-e', 'TERM=xterm']);
+    assert.equal(split.image, ID);
+    assert.deepEqual(split.args, ['-l']);
+    const short = VM_COMMAND.map((arg) => (arg === ID ? ID.slice(0, 12) : arg));
+    assert.equal(splitCommand(short, IMAGE, `sha256:${ID}`).image, ID.slice(0, 12));
+    assert.equal(splitCommand(VM_COMMAND, IMAGE), null, 'without the ID: not found');
+    assert.equal(splitCommand(VM_COMMAND.map((arg) => (arg === ID ? ID.slice(0, 11) : arg)), IMAGE, ID), null,
+        'fewer than 12 digits: not the image');
+});
+
+test('imageLine: the name of an image given by ID, and whether the name is that image still', () => {
+    const name = `localhost/${IMAGE}:latest`;
+    const never = () => assert.fail('no lookup for an image given by name');
+    assert.equal(imageLine(IMAGE, name, never), '', 'by name: nothing to add');
+    assert.equal(imageLine(ID, name, () => `sha256:${ID}`), `# ${ID.slice(0, 12)} is ${name}`);
+    assert.equal(imageLine(ID, name, () => 'f'.repeat(64), 'sandbox rm box, then sandbox enter box'),
+        `# ${ID.slice(0, 12)} was ${name} when this was made; that name is another image now (sandbox build makes a new one): `
+        + 'sandbox rm box, then sandbox enter box to use it');
+    assert.match(imageLine(ID, name, () => null), /; no image has that name now$/);
+    assert.equal(imageLine(ID, name, () => undefined), '', 'podman can\'t say: no line');
+    assert.equal(imageLine(ID, '', never), '', 'no name to say');
+});
+
+test('audit of a VM: options read from its command, and a runtime row with its memory', () => {
+    const vm = (overrides = {}) => info({ Image: ID, OCIRuntime: 'krun', Config: { User: '1000:1000', CreateCommand: VM_COMMAND }, ...overrides });
+    const report = audit(vm());
+    assert.equal(row(report, 'user'), '1000:1000, user namespace keep-id (you, not root)');
+    assert.equal(row(report, 'runtime'), 'krun: a microVM with its own kernel, memory 1024 MiB (krun\'s default)');
+    assert.deepEqual(report.rows.slice(0, 2).map(([label]) => label), ['state', 'runtime']);
+    const annotated = vm({ Config: { CreateCommand: VM_COMMAND, Annotations: { 'krun.ram_mib': '4096' } } });
+    assert.match(row(audit(annotated), 'runtime'), /memory 4096 MiB$/);
+    const limited = vm({ HostConfig: { NetworkMode: 'none', Memory: 3 * 2 ** 30 } });
+    assert.match(row(audit(limited), 'runtime'), /memory 3072 MiB$/);
+    assert.equal(row(audit(info()), 'runtime'), undefined, 'a container: no runtime row');
 });
 
 test('formatCommand: one option per line, and the shell reads back the same words', () => {

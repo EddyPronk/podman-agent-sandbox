@@ -320,13 +320,6 @@ export class Vm {
         return exitStatus(podman(['attach', '--detach-keys', DETACH_KEYS, this.info.Id], { stdio: 'inherit' }));
     }
 
-    /** One line for sandbox inspect. */
-    describe(): string {
-        const made = this.info.Created ? `, made ${madeAt(this.info.Created)}` : '';
-        return `${this.containerName}, ${this.state}${made} from the container as it was then; to make it again: `
-            + `sandbox rm ${this.name}, then sandbox enter ${this.name}`;
-    }
-
     /**
      * Make sandbox NAME's VM from CONTAINER (stopped) and start it. A VM whose run fails is removed: it
      * never ran a session, and every later enter --vm would fail the same way on start.

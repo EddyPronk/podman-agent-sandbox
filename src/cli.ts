@@ -82,10 +82,12 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        command line, and what it runs with: user, capabilities,
                        new privileges, seccomp, network, mounts; with warnings.
                        Without a container (after sandbox rm): what's left, its
-                       config and the volumes it keeps, with their size
+                       config and the volumes it keeps, with their size. Of a
+                       VM sandbox: its VM, then the container it was made from
   sandbox list [--removed]
-                       list dev containers; --removed: sandboxes in
-                       $SANDBOX_DIR without a container, and their kept volumes
+                       list sandboxes, one row each (a VM sandbox's is its VM's;
+                       COMMENT says vm); --removed: sandboxes in $SANDBOX_DIR
+                       without a container, and their kept volumes
   sandbox stop [--force] NAME
                        stop NAME (a VM at once); --force also stops a container
                        sandbox didn't make

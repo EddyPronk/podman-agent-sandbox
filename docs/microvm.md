@@ -103,10 +103,16 @@ gone.
   loses in a plain container. `exit` in the VM's shell is cleaner: the VM stops when its shell ends.
 - `sandbox rm NAME` removes the VM and the normal container, and keeps the volumes, as before; the sandbox
   stays a VM sandbox.
-- `sandbox list` shows the VM next to its sandbox, as `VM of NAME`; `sandbox list --removed` shows each
-  removed sandbox's kind. `sandbox inspect NAME` adds a line for the VM: its state, when it was made, and
-  how to make it again. Its measurements inside (capabilities, seccomp) are of the normal container, when
-  it runs: they can't be taken in a VM.
+- `sandbox list` shows a VM sandbox in one row, with its VM's state and `vm` under COMMENT (and
+  `container running` when the normal container runs, which keeps the VM from starting);
+  `sandbox list --removed` shows each removed sandbox's kind.
+- `sandbox inspect NAME` shows the VM: the command that created it and what it runs with, `runtime krun`
+  and the guest's memory included, then a line on the normal container it was made from. The VM's
+  command names its image by ID, so a later `sandbox build` doesn't change what it runs; a line under
+  the command gives the image's name, or says that the name is another image now.
+  `sandbox inspect NAME-vm` shows the same. What it runs with is as Podman set it up: the measurements a
+  running container gets (capabilities, seccomp, VS Code's forwarding) need `podman exec`, which can't
+  reach into a VM.
 - `sandbox build NAME` doesn't change the VM: it keeps the image it was made from. Make it again with
   `sandbox rm NAME`, then `sandbox enter NAME`.
 
