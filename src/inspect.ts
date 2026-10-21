@@ -211,6 +211,24 @@ export function formatCommand(argv: string[], image: string, id = ''): string {
     return lines.map((words) => words.map(shellQuote).join(' ')).join(' \\\n    ');
 }
 
+/**
+ * A line on the image a command names by ID (ARG; a VM's, vm.ts), or '' when it names it by NAME:
+ * which name that ID had when the container was made, and whether NAME is that image still. LOOKUP
+ * gives the ID NAME has now: null when no image has it, undefined when podman can't say (no line).
+ * REMAKE: how to use the image the name has now.
+ */
+export function imageLine(arg: string, name: string, lookup: (name: string) => string | null | undefined, remake = ''): string {
+    if (!name || bare(arg) === bare(name)) return '';
+    const now = lookup(name);
+    if (now === undefined) return '';
+    const id = arg.replace(/^sha256:/, '');
+    const short = id.slice(0, 12);
+    if (now !== null && now.replace(/^sha256:/, '').startsWith(id)) return `# ${short} is ${name}`;
+    const then = `# ${short} was ${name} when this was made`;
+    if (now === null) return `${then}; no image has that name now`;
+    return `${then}; that name is another image now (sandbox build makes a new one)${remake ? `: ${remake} to use it` : ''}`;
+}
+
 /** Every value given to FLAG, as --flag=value or --flag value. */
 export function optionValues(options: CommandOption[], flag: string): string[] {
     const values: string[] = [];

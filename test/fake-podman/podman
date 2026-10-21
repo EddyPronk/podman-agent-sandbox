@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// A fake podman for the tests of sandbox.js: answers container inspect, ps, stop, start, rm and
-// attach from the JSON state file $FAKE_PODMAN_STATE ({ containers: [podman inspect objects] }),
+// A fake podman for the tests of sandbox.js: answers container inspect, image inspect, ps, stop, start,
+// rm and attach from the JSON state file $FAKE_PODMAN_STATE ({ containers: [podman inspect objects],
+// images: { name: ID } }),
 // changes it, and logs each command line (JSON) to $FAKE_PODMAN_LOG. Anything else fails.
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 
@@ -38,6 +39,12 @@ if (cmd === 'container' && rest[0] === 'inspect') {
     const c = find(rest[1]);
     if (!c) noSuch(rest[1]);
     process.stdout.write(JSON.stringify([c]));
+} else if (cmd === 'image' && rest[0] === 'inspect') {
+    // { images: { NAME: ID } } in the state; only --format {{.Id}}.
+    const name = rest.at(-1);
+    const id = state.images?.[name];
+    if (id === undefined) fail(`${name}: image not known`);
+    console.log(id);
 } else if (cmd === 'ps') {
     const filter = option('--filter');
     const template = option('--format');

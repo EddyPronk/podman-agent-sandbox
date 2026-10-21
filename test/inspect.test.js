@@ -6,7 +6,7 @@ import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, configVolumes, formatBytes, formatCommand, isPodmanInfo, optionValues,
+    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, configVolumes, formatBytes, formatCommand, imageLine, isPodmanInfo, optionValues,
     parsePodmanStorage, parseStatus, parseVscodeProbe, podmanStorageRows, removedRows, shellQuote, splitCommand,
 } from '../dist/inspect.js';
 
@@ -142,6 +142,19 @@ test('splitCommand finds the image by ID too, in full or abbreviated, as a VM\'s
     assert.equal(splitCommand(VM_COMMAND, IMAGE), null, 'without the ID: not found');
     assert.equal(splitCommand(VM_COMMAND.map((arg) => (arg === ID ? ID.slice(0, 11) : arg)), IMAGE, ID), null,
         'fewer than 12 digits: not the image');
+});
+
+test('imageLine: the name of an image given by ID, and whether the name is that image still', () => {
+    const name = `localhost/${IMAGE}:latest`;
+    const never = () => assert.fail('no lookup for an image given by name');
+    assert.equal(imageLine(IMAGE, name, never), '', 'by name: nothing to add');
+    assert.equal(imageLine(ID, name, () => `sha256:${ID}`), `# ${ID.slice(0, 12)} is ${name}`);
+    assert.equal(imageLine(ID, name, () => 'f'.repeat(64), 'sandbox rm box, then sandbox enter box'),
+        `# ${ID.slice(0, 12)} was ${name} when this was made; that name is another image now (sandbox build makes a new one): `
+        + 'sandbox rm box, then sandbox enter box to use it');
+    assert.match(imageLine(ID, name, () => null), /; no image has that name now$/);
+    assert.equal(imageLine(ID, name, () => undefined), '', 'podman can\'t say: no line');
+    assert.equal(imageLine(ID, '', never), '', 'no name to say');
 });
 
 test('audit of a VM: options read from its command, and a runtime row with its memory', () => {

@@ -95,13 +95,14 @@ function run(containers, ...args) {
 
 /**
  * run, in a $SANDBOX_DIR with a config folder for each of FOLDERS (names), and RECORDS ({ NAME: kind },
- * state.js), whose folder is $SANDBOX_DIR/NAME. Also returns sandboxDir.
+ * state.js), whose folder is $SANDBOX_DIR/NAME; IMAGES ({ name: ID }) for podman image inspect. Also
+ * returns sandboxDir.
  */
-function runWith({ folders = [], records = {} }, containers, ...args) {
+function runWith({ folders = [], records = {}, images = {} }, containers, ...args) {
     const dir = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
     const stateFile = join(dir, 'state.json');
     const log = join(dir, 'podman.log');
-    writeFileSync(stateFile, JSON.stringify({ containers }));
+    writeFileSync(stateFile, JSON.stringify({ containers, images }));
     writeFileSync(log, '');
     mkdirSync(join(dir, 'sandboxes'));
     for (const name of folders) {
@@ -268,8 +269,10 @@ test('enter --from-existing needs --vm', () => {
 });
 
 test('inspect of a VM sandbox: how its VM runs, then the container it was made from', () => {
-    const inspect = runWith({ folders: ['x'], records: { x: 'vm' } }, [sandbox('x', 'exited'), vmOf('x', 'exited')], 'inspect', 'x');
+    const images = { 'vsc-img': 'ab'.repeat(32) };
+    const inspect = runWith({ folders: ['x'], records: { x: 'vm' }, images }, [sandbox('x', 'exited'), vmOf('x', 'exited')], 'inspect', 'x');
     assert.equal(inspect.status, 0, inspect.stderr);
+    assert.match(inspect.stdout, / -l\n# abababababab is vsc-img\n\n# What it runs with/, 'the image by ID, and its name');
     assert.match(inspect.stdout, /^# x is a VM sandbox \(label podman-agent-sandbox=0\.8\.0, record \/.*\/\.state\/x\.json\): it runs in its VM, x-vm\.\n/);
     assert.match(inspect.stdout, /^# The command that created x-vm \(podman recorded it\):\npodman run \\\n {4}-dit \\\n {4}--runtime krun \\\n/m);
     assert.match(inspect.stdout, /^# What it runs with \(as podman set it up: podman exec can't reach into a VM\):$/m);
@@ -278,7 +281,11 @@ test('inspect of a VM sandbox: how its VM runs, then the container it was made f
     assert.match(inspect.stdout, /\n\n# x-vm, made .* from the container as it was then; to make it again: sandbox rm x, then sandbox enter x\n# x, the container it was made from .*: exited, made .*\n$/);
     assert.doesNotMatch(inspect.stdout, /not a sandbox|warning/);
 
+    const rebuilt = runWith({ images: { 'vsc-img': 'cd'.repeat(32) } }, [sandbox('x', 'exited'), vmOf('x', 'exited')], 'inspect', 'x');
+    assert.match(rebuilt.stdout, /\n# abababababab was vsc-img when this was made; that name is another image now \(sandbox build makes a new one\): sandbox rm x, then sandbox enter x to use it\n/);
+
     const busy = run([sandbox('x', 'running'), vmOf('x', 'exited')], 'inspect', 'x');
+    assert.match(busy.stdout, /\n# abababababab was vsc-img when this was made; no image has that name now\n/);
     assert.match(busy.stdout, /^# x is a VM sandbox \(label podman-agent-sandbox=0\.8\.0\): /, 'without a record');
     assert.match(busy.stdout, /\nwarning: x's container runs: the VM can't start while it does/);
     const alone = run([vmOf('x', 'running')], 'inspect', 'x');

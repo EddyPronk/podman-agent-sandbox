@@ -6,8 +6,8 @@ import {
 } from './devcontainer.js';
 import type { SandboxSigns } from './devcontainer.js';
 import {
-    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, formatCommand, isPodmanInfo, parsePodmanStorage, parseStatus,
-    parseVscodeProbe, podmanStorageRows, table, writableConfig,
+    PODMAN_STORAGE_PROBE, VSCODE_PROBE, audit, formatCommand, imageLine, isPodmanInfo, parsePodmanStorage, parseStatus,
+    parseVscodeProbe, podmanStorageRows, splitCommand, table, writableConfig,
 } from './inspect.js';
 import type { PodmanInfo, PodmanStorage, ProcStatus, Row, VscodeProbe } from './inspect.js';
 import { uncoveredInSandbox } from './workspace.js';
@@ -161,6 +161,13 @@ export class Container {
     }
 }
 
+/** The ID of image NAME now; null when there's no such image, undefined when podman can't say. */
+function imageId(name: string): string | null | undefined {
+    const result = podman(['image', 'inspect', '--format', '{{.Id}}', name]);
+    if (result.status === 0) return result.stdout.trim();
+    return /image not known|no such image/i.test(result.stderr) ? null : undefined;
+}
+
 /** describeInfo's OPTIONS. */
 export interface DescribeOptions {
     /** The first line(s). */
@@ -190,6 +197,10 @@ export function describeInfo(name: string, info: PodmanInfo, {
     lines.push(command.length ? formatCommand(command, info.ImageName ?? '', info.Image)
         : '# (none: podman records it only for the podman command, not for containers made through its API\n'
         + '# socket, as VS Code and other Docker clients do)');
+    // A command that names its image by ID (a VM's): which image that was, and whether its name still is.
+    const image = splitCommand(command, info.ImageName ?? '', info.Image)?.image;
+    const imageText = image ? imageLine(image, info.ImageName ?? '', imageId, sandbox ? `sandbox rm ${of}, then sandbox enter ${of}` : '') : '';
+    if (imageText) lines.push(imageText);
 
     // Measured inside while it runs: what the processes in it actually have.
     let status: ProcStatus | null = null;

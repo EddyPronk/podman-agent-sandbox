@@ -107,7 +107,9 @@ gone.
   `container running` when the normal container runs, which keeps the VM from starting);
   `sandbox list --removed` shows each removed sandbox's kind.
 - `sandbox inspect NAME` shows the VM: the command that created it and what it runs with, `runtime krun`
-  and the guest's memory included, then a line on the normal container it was made from.
+  and the guest's memory included, then a line on the normal container it was made from. The VM's
+  command names its image by ID, so a later `sandbox build` doesn't change what it runs; a line under
+  the command gives the image's name, or says that the name is another image now.
   `sandbox inspect NAME-vm` shows the same. What it runs with is as Podman set it up: the measurements a
   running container gets (capabilities, seccomp, VS Code's forwarding) need `podman exec`, which can't
   reach into a VM.
