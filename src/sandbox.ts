@@ -293,8 +293,7 @@ export class Sandbox {
             const what = container.exists && vm ? 'the container and its VM were' : container.exists ? 'the container was' : 'the VM was';
             return [
                 ...done,
-                ...volumes.map((volume) => `kept volume ${volume}, with what's in it (e.g. the home, podman's images `
-                    + `inside): podman volume rm ${volume} removes it`),
+                ...volumes.map((volume) => keptVolume(name, volume)),
                 ...(settings ? [`${settings.workspace} is untouched: only ${what} removed`] : []),
                 ...(this.kind === 'vm' ? [`${name} stays a VM sandbox: 'sandbox enter ${name}' makes its VM again `
                     + `('sandbox enter --container ${name}' makes it a container)`] : []),
@@ -603,6 +602,22 @@ function removedSandbox(folder: string): { settings: Settings | null; volumes: V
     }
     const untrusted = settings?.inplace ? untrustedChange(folder) : null;
     return { settings, volumes, rows: removedRows(folder, settings, untrusted, volumes) };
+}
+
+/**
+ * What sandbox rm says about VOLUME, which NAME mounted and rm kept. NAME-home is its home, its own to
+ * remove. Any other volume is shared (agent-proxy-ca: the proxy's CA, mounted by the proxy and every
+ * proxy-client sandbox), so no podman volume rm for it; the containers still mounting it are named.
+ */
+function keptVolume(name: string, volume: string): string {
+    if (volume === `${name}-home`) {
+        return `kept volume ${volume}, ${name}'s home, with what's in it (e.g. podman's images inside): `
+            + `podman volume rm ${volume} removes it`;
+    }
+    const result = podman(['ps', '-a', '--filter', `volume=${volume}`, '--format', '{{.Names}}']);
+    const users = result.status === 0 ? result.stdout.split('\n').filter(Boolean) : [];
+    return `kept volume ${volume}, shared: not ${name}'s own; `
+        + (users.length ? `still mounted by ${users.join(', ')}` : 'other sandboxes from the same template mount it too');
 }
 
 /**

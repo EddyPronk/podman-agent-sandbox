@@ -187,6 +187,18 @@ test('rm: the VM and the container, the kept volumes listed once; also when only
     assert.match(only.stdout, /^removed x's VM\nkept volume x-home/);
 });
 
+test('rm: the home volume is the sandbox\'s to remove; a shared one is not, and its other users are named (S.35)', () => {
+    const result = run([sandbox('x', 'exited', { volumes: ['x-home', 'agent-proxy-ca'] }),
+        sandbox('proxy', 'running', { volumes: ['proxy-home', 'agent-proxy-ca'] })], 'rm', 'x');
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /^kept volume x-home, x's home, with what's in it \(e\.g\. podman's images inside\): podman volume rm x-home removes it$/m);
+    assert.match(result.stdout, /^kept volume agent-proxy-ca, shared: not x's own; still mounted by proxy$/m);
+    assert.doesNotMatch(result.stdout, /volume rm agent-proxy-ca/);
+
+    const alone = run([sandbox('x', 'exited', { volumes: ['agent-proxy-ca'] })], 'rm', 'x');
+    assert.match(alone.stdout, /^kept volume agent-proxy-ca, shared: not x's own; other sandboxes from the same template mount it too$/m);
+});
+
 // Where the tests run there's no krun or /dev/kvm: a command that goes the VM way stops at that check.
 const NO_KVM = /krun not found on PATH|\/dev\/kvm isn't readable/;
 
