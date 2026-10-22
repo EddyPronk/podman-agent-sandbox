@@ -49,7 +49,10 @@ if (cmd === 'container' && rest[0] === 'inspect') {
     const filter = option('--filter');
     const template = option('--format');
     let list = state.containers;
-    if (filter) {
+    if (filter?.startsWith('volume=')) {
+        const volume = filter.slice('volume='.length);
+        list = list.filter((c) => (c.Mounts ?? []).some((m) => m.Type === 'volume' && m.Name === volume));
+    } else if (filter) {
         const [key, value] = filter.replace(/^label=/, '').split(/=(.*)/s);
         list = list.filter((c) => key in (c.Config?.Labels ?? {}) && (value === undefined || c.Config.Labels[key] === value));
     }
