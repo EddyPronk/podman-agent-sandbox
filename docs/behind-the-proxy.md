@@ -26,9 +26,10 @@ identity that Claude Code's own endpoints carry in their bodies (OAuth tokens, a
 organisation ids, the email address) are logged as `[REDACTED]`; agent-mitm-proxy's README lists
 each one. What the agent sends as content, such as a key pasted into a prompt, is logged as it is,
 so the log is still sensitive. A proxy made before 0.8.1 builds agent-mitm-proxy 1.1.0, without the
-redaction. To bring it up to date and keep its CA (in `proxy-home`), make it anew under the same
-name: `sandbox rm proxy`, move `~/sandboxes/proxy` aside (copy its `allowlist.txt` back if you
-changed it), `sandbox new proxy --template mitm-proxy`.
+redaction; one made before 0.8.2 builds 1.2.0, without the credential vault (step 4). To bring it
+up to date and keep its CA (in `proxy-home`), make it anew under the same name: `sandbox rm proxy`,
+move `~/sandboxes/proxy` aside (copy its `allowlist.txt` back if you changed it),
+`sandbox new proxy --template mitm-proxy`.
 
 ## 2. Your project behind it
 
@@ -59,3 +60,26 @@ logs record the burst once. To allow more:
   applies changes without a restart.
 
 `sandbox help proxy` lists these, and where the proxy's logs are.
+
+## 4. Keep Claude Code's tokens out of the sandbox
+
+Claude Code keeps its OAuth tokens in `~/.claude/.credentials.json`, in the sandbox's home volume,
+where the agent and anything it runs can read them: enough to use your account from anywhere, for
+weeks. With the credential vault, the proxy keeps the tokens, and the sandbox holds only
+placeholders. Choose it when you make the proxy:
+
+```sh
+sandbox new proxy --template mitm-proxy --option credentialVault=1
+```
+
+Nothing changes in the client sandboxes: Claude Code signs in as usual (`/login`), but stores
+`agent-mitm-proxy-oat-…`/`agent-mitm-proxy-ort-…` placeholders, and the proxy swaps them for the real
+tokens on the way to Anthropic (only to Anthropic's own hosts). A client that signed in before is
+taken over at its next refresh. The agent can still *use* your account through the proxy, as
+before; it just can't take a credential with it.
+
+The tokens are in the proxy's home volume (`~/proxy-data/credential-vault.json`, private), and
+`~/proxy-data/vault.jsonl` logs what the vault did, without token values. The vault follows
+Claude Code's sign-in, which Anthropic doesn't document: if that changes, the symptom is a 401 in
+Claude Code; make the proxy anew without the option meanwhile. agent-mitm-proxy's README has the
+details. An existing proxy gets the option by being made anew, as in step 1 (its CA stays).
