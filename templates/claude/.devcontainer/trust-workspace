@@ -1,0 +1,18 @@
+#!/bin/sh
+# trust-workspace DIR: records in ~/.claude.json that Claude Code may trust DIR, as answering "Yes,
+# I trust this folder" would, so that it starts there without asking. postCreateCommand runs it
+# with the container's workspace folder when the template option trustWorkspace is 1 (the default).
+# The sandbox is what contains the workspace's code; the question would only repeat that choice.
+set -eu
+[ $# -eq 1 ] && [ -n "$1" ] || { echo "usage: trust-workspace DIR" >&2; exit 2; }
+DIR=$1 node -e '
+const fs = require("fs"), f = process.env.HOME + "/.claude.json", dir = process.env.DIR;
+let o = {};
+try { o = JSON.parse(fs.readFileSync(f, "utf8")); } catch (e) { if (e.code !== "ENOENT") throw e; }
+o.projects = o.projects || {};
+o.projects[dir] = { ...(o.projects[dir] || {}), hasTrustDialogAccepted: true };
+const tmp = f + "." + process.pid + ".tmp";
+fs.writeFileSync(tmp, JSON.stringify(o, null, 2), { mode: 0o600 });
+fs.renameSync(tmp, f);
+'
+echo "trust-workspace: Claude Code trusts $1"

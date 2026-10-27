@@ -4,6 +4,13 @@
   "name": "Claude Code with containers inside",
   "description": "Like claude, plus rootless podman and the sandbox command inside, so the agent can build images, run containers and make sandboxes of its own, and Python 3 with uv. Weakens the sandbox: /dev/net/tun, /proc unmasked and a seccomp profile allowing sethostname/setdomainname (see the README). Use claude unless the agent needs containers",
   "documentationURL": "https://github.com/EddyPronk/podman-agent-sandbox#containers-inside-a-sandbox",
-  "options": {},
+  "options": {
+    "trustWorkspace": {
+      "type": "string",
+      "enum": ["0", "1"],
+      "default": "1",
+      "description": "1: Claude Code trusts the workspace folder from the start (no \"Do you trust this folder?\" question; the sandbox contains what it runs). 0: it asks, as outside a sandbox"
+    }
+  },
   "platforms": ["Any"]
 }

@@ -33,7 +33,7 @@
     "DISABLE_AUTOUPDATER": "1",
     "NVM_SYMLINK_CURRENT": "false"
   },
-  "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/",
+  "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/; [ \"${templateOption:trustWorkspace}\" != 1 ] || trust-workspace \"${containerWorkspaceFolder}\"",
   "mounts": [
     "type=volume,source=${localWorkspaceFolderBasename}-home,target=/home/${localEnv:USER},U=true",
     "type=bind,source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,readonly"

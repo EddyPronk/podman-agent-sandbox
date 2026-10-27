@@ -61,3 +61,7 @@ sandbox-dev new try --template claude
   behind `new`, `enter` and `exec` change.
 - Releases are tagged `vX.Y.Z` on `main` after the merge. The tag must match `version` in
   `package.json`.
+- The PR that sets a new `version` adds its section to `CHANGELOG.md`, headed
+  `## X.Y.Z (Unreleased)`, with the date filled in once it's released. Write it for users: what they
+  can do now, or what got safer, and what to do about sandboxes made earlier. CI refuses a version
+  without a section, and the release's notes are that section, followed by the merged PRs.
