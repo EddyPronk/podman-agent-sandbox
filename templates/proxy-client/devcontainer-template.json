@@ -15,6 +15,12 @@
         "mcr.microsoft.com/devcontainers/typescript-node:5-24-trixie"
       ],
       "default": "docker.io/library/debian:trixie-slim"
+    },
+    "clientAuth": {
+      "type": "string",
+      "enum": ["0", "1"],
+      "default": "0",
+      "description": "1: the proxy was made with clientAuth=1; this sandbox is enrolled with it when it starts, and gets its own name and token in its proxy URL (kept in proxy.env next to .devcontainer, mode 0600)"
     }
   },
   "platforms": ["Any"]

@@ -19,6 +19,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         procps \
     && rm -rf /var/lib/apt/lists/*
 
+# Fetches Claude Code's credentials file (placeholders) from the proxy's vault; see its header.
+COPY proxy-credentials /usr/local/bin/proxy-credentials
+RUN chmod 755 /usr/local/bin/proxy-credentials
+
 # --userns=keep-id adds the host user to /etc/passwd only when no user has its UID yet. Some images
 # already have one (ubuntu in Ubuntu 23.04 and later, node or vscode in Microsoft's dev container
 # images), and then $USER doesn't exist in the container. Rename that user to $USER, home included;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdirSync, mkdtempSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, existsSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -339,6 +339,66 @@ test('mitm-proxy: credentialVault reaches the proxy as AGENT_MITM_PROXY_CREDENTI
     assert.equal(env({}), '0');
     assert.equal(env({ credentialVault: '1' }), '1');
     assert.throws(() => env({ credentialVault: 'yes' }), /option 'credentialVault' must be one of 0, 1, not 'yes'/);
+});
+
+test('mitm-proxy: clientAuth reaches the proxy as AGENT_MITM_PROXY_CLIENT_AUTH, off by default', () => {
+    const env = (given) => {
+        const dest = join(mkdtempSync(join(tmpdir(), 'sandbox-test-')), 'proxy');
+        applyTemplate('mitm-proxy', dest, given);
+        const config = JSON.parse(readFileSync(join(dest, '.devcontainer', 'devcontainer.json'), 'utf8'));
+        return config.containerEnv.AGENT_MITM_PROXY_CLIENT_AUTH;
+    };
+    assert.equal(env({}), '0');
+    assert.equal(env({ clientAuth: '1' }), '1');
+    assert.throws(() => env({ clientAuth: 'yes' }), /option 'clientAuth' must be one of 0, 1, not 'yes'/);
+});
+
+test('proxy-client: the proxy settings come from proxy.env, which initializeCommand writes', () => {
+    const dest = join(mkdtempSync(join(tmpdir(), 'sandbox-test-')), 'client');
+    applyTemplate('proxy-client', dest, { clientAuth: '1' });
+    const config = JSON.parse(readFileSync(join(dest, '.devcontainer', 'devcontainer.json'), 'utf8'));
+    assert.match(config.initializeCommand, /sh \.devcontainer\/proxy-env\.sh "\$\{localWorkspaceFolderBasename\}" "1"$/);
+    assert.ok(config.runArgs.includes('--env-file=${localWorkspaceFolder}/proxy.env'));
+    assert.ok(!('HTTPS_PROXY' in config.containerEnv), 'not also in containerEnv');
+    assert.match(config.postCreateCommand, /proxy-credentials fetch \|\| true$/);
+    assert.ok(existsSync(join(dest, '.devcontainer', 'proxy-credentials')));
+});
+
+/** Run the proxy-client template's proxy-env.sh in DIR, with a stand-in podman that prints ENROLL. */
+function proxyEnv(dir, auth, enroll = 'enrolled box; its proxy URL (shown once):\nhttp://box:t0ken@proxy:8899\ngranted entry e1') {
+    const bin = join(dir, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'podman'), `#!/bin/sh\necho "$@" >>"${join(dir, 'podman-calls')}"\nprintf '%s\\n' '${enroll.replaceAll('\n', "' '")}'\n`,
+        { mode: 0o755 });
+    const script = fileURLToPath(new URL('../templates/proxy-client/.devcontainer/proxy-env.sh', import.meta.url));
+    return spawnSync('sh', [script, 'box', auth], { cwd: dir, encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } });
+}
+
+test('proxy-env.sh: the plain URL without clientAuth; with it, enrols once and keeps the token', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
+    const env = () => readFileSync(join(dir, 'proxy.env'), 'utf8');
+    assert.equal(proxyEnv(dir, '0').status, 0);
+    assert.match(env(), /^HTTPS_PROXY=http:\/\/proxy:8899$/m);
+    assert.ok(!existsSync(join(dir, 'podman-calls')), 'no enrolment without clientAuth');
+
+    const first = proxyEnv(dir, '1');
+    assert.equal(first.status, 0, first.stderr);
+    assert.equal(env().split('\n').filter(Boolean).length, 4);
+    assert.match(env(), /^https_proxy=http:\/\/box:t0ken@proxy:8899$/m);
+    assert.equal(statSync(join(dir, 'proxy.env')).mode & 0o777, 0o600);
+    assert.match(readFileSync(join(dir, 'podman-calls'), 'utf8'), /^exec proxy \S+\/vault enroll box$/m);
+
+    assert.equal(proxyEnv(dir, '1').status, 0);
+    assert.equal(readFileSync(join(dir, 'podman-calls'), 'utf8').split('\n').filter(Boolean).length, 1,
+        'enrolled once: a second start keeps the token');
+});
+
+test('proxy-env.sh: an unexpected answer from the proxy writes nothing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
+    const result = proxyEnv(dir, '1', 'something else');
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /unexpected answer/);
+    assert.ok(!existsSync(join(dir, 'proxy.env')));
 });
 
 test('template metadata without an id, or with malformed options, is refused with a message', () => {

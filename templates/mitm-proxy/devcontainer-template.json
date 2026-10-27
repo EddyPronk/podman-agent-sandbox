@@ -7,14 +7,20 @@
   "options": {
     "ref": {
       "type": "string",
-      "default": "4ed36d6765ffbe6b01b6d264433fd2ee3b48e5af",
-      "description": "agent-mitm-proxy commit (or tag) to build; the default is v1.3.0's commit. A full commit hash pins exactly what runs; a tag can be moved"
+      "default": "5af7a27ca4f6f89ee15b1590a481ef6a99f37def",
+      "description": "agent-mitm-proxy commit (or tag) to build; the default is v1.4.0's commit. A full commit hash pins exactly what runs; a tag can be moved"
     },
     "credentialVault": {
       "type": "string",
       "enum": ["0", "1"],
       "default": "0",
-      "description": "1: keep Claude Code's OAuth tokens in the proxy; clients get placeholders, so no real token is in a client sandbox (agent-mitm-proxy 1.3.0 or later)"
+      "description": "1: keep Claude Code's OAuth tokens in the proxy; clients get placeholders, so no real token is in a client sandbox, and a new client can fetch them without signing in (agent-mitm-proxy 1.3.0 or later; 1.4.0 for the fetch)"
+    },
+    "clientAuth": {
+      "type": "string",
+      "enum": ["0", "1"],
+      "default": "0",
+      "description": "1: every client sandbox needs a name and token of its own in its proxy URL; sandbox new for a proxy-client made with the same option enrols it (agent-mitm-proxy 1.4.0 or later)"
     }
   },
   "platforms": ["Any"]

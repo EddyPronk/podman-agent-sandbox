@@ -26,7 +26,8 @@ identity that Claude Code's own endpoints carry in their bodies (OAuth tokens, a
 organisation ids, the email address) are logged as `[REDACTED]`; agent-mitm-proxy's README lists
 each one. What the agent sends as content, such as a key pasted into a prompt, is logged as it is,
 so the log is still sensitive. A proxy made before 0.8.1 builds agent-mitm-proxy 1.1.0, without the
-redaction; one made before 0.8.2 builds 1.2.0, without the credential vault (step 4). To bring it
+redaction; one made before 0.8.2 builds 1.2.0, without the credential vault (step 4); one made before
+0.8.3 builds 1.3.0, without the credentials fetch (step 4) and client names (step 5). To bring it
 up to date and keep its CA (in `proxy-home`), make it anew under the same name: `sandbox rm proxy`,
 move `~/sandboxes/proxy` aside (copy its `allowlist.txt` back if you changed it),
 `sandbox new proxy --template mitm-proxy`.
@@ -78,8 +79,39 @@ tokens on the way to Anthropic (only to Anthropic's own hosts). A client that si
 taken over at its next refresh. The agent can still *use* your account through the proxy, as
 before; it just can't take a credential with it.
 
+**Only one sign-in.** Once one client has signed in, the next ones don't need to: a `proxy-client`
+made since 0.8.3 fetches its credentials file (the placeholders) from the proxy when its container
+is made, and Claude Code starts signed in. In a client made earlier, or after deleting the file,
+run `proxy-credentials fetch` (`--force` replaces a file that's there). Without a sign-in in the
+vault yet, it says so, and you sign in once with `/login`.
+
 The tokens are in the proxy's home volume (`~/proxy-data/credential-vault.json`, private), and
 `~/proxy-data/vault.jsonl` logs what the vault did, without token values. The vault follows
 Claude Code's sign-in, which Anthropic doesn't document: if that changes, the symptom is a 401 in
 Claude Code; make the proxy anew without the option meanwhile. agent-mitm-proxy's README has the
 details. An existing proxy gets the option by being made anew, as in step 1 (its CA stays).
+
+## 5. A name and token per client
+
+Without it, any sandbox on `agent-proxy-net` can use the proxy, and, with the vault, fetch the
+placeholders and use your account through it: fine for one person whose sandboxes all may. To tell
+them apart, make the proxy and each client with `clientAuth=1`:
+
+```sh
+sandbox new proxy --template mitm-proxy --option credentialVault=1 --option clientAuth=1
+sandbox new your-project --template proxy-client --option clientAuth=1 --workspace ~/development/your-project
+```
+
+- **Enrolling is automatic.** The first time the client starts (`sandbox enter`), it asks the
+  proxy for a name and token of its own (`vault enroll NAME` in the proxy; the name is the
+  sandbox's) and keeps them in its proxy URL, `http://NAME:TOKEN@proxy:8899`, in `proxy.env` in
+  the sandbox folder (mode 0600). The proxy must be running then. The client is also granted the
+  vault's sign-in, so it starts signed in.
+- **Anything else gets 407**, including clients made without the option, or before 0.8.3: make
+  them anew with it (`sandbox rm NAME`, move the folder aside, `sandbox new … --option clientAuth=1`).
+- **In the proxy:** `sandbox exec proxy vault clients` lists the enrolled names; `vault unenroll
+  NAME` ends a client's token at once, open connections too; `vault grant NAME` gives it the
+  sign-in; `vault entries` lists the sign-ins, without tokens.
+- The token is a credential for the proxy, and the sandbox can read it in its own environment: an
+  agent can use the proxy as that sandbox, as before, but not as another one, and nothing else on
+  the network can use it at all.
