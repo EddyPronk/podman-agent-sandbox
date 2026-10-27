@@ -17,7 +17,8 @@
     "AGENT_MITM_PROXY_PYTHON": "/opt/agent-mitm-proxy/venv/bin/python",
     "AGENT_MITM_PROXY_DATA": "/home/${localEnv:USER}/proxy-data",
     "AGENT_MITM_PROXY_CA_PUBLISH": "/proxy-ca",
-    "AGENT_MITM_PROXY_ALLOWLIST": "/workspace/allowlist.txt"
+    "AGENT_MITM_PROXY_ALLOWLIST": "/workspace/allowlist.txt",
+    "AGENT_MITM_PROXY_CREDENTIAL_VAULT": "${templateOption:credentialVault}"
   },
   "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/",
   "postStartCommand": "/opt/agent-mitm-proxy/scripts/start-proxy.sh",
