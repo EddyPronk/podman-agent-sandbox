@@ -19,7 +19,7 @@
     "ghcr.io/devcontainers/features/node",
     "ghcr.io/anthropics/devcontainer-features/claude-code"
   ],
-  "initializeCommand": "podman network exists agent-proxy-net || podman network create --internal agent-proxy-net",
+  "initializeCommand": "podman network exists agent-proxy-net || podman network create --internal agent-proxy-net; sh .devcontainer/proxy-env.sh \"${localWorkspaceFolderBasename}\" \"${templateOption:clientAuth}\"",
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
   "containerUser": "${localEnv:SANDBOX_UID:1000}:${localEnv:SANDBOX_GID:1000}",
@@ -31,10 +31,6 @@
     "LOGNAME": "${localEnv:USER}"
   },
   "containerEnv": {
-    "HTTP_PROXY": "http://proxy:8899",
-    "HTTPS_PROXY": "http://proxy:8899",
-    "http_proxy": "http://proxy:8899",
-    "https_proxy": "http://proxy:8899",
     "NO_PROXY": "localhost,127.0.0.1,proxy",
     "no_proxy": "localhost,127.0.0.1,proxy",
     "CURL_CA_BUNDLE": "/proxy-ca/ca-cert.pem",
@@ -42,7 +38,7 @@
     "DISABLE_AUTOUPDATER": "1",
     "NVM_SYMLINK_CURRENT": "false"
   },
-  "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/",
+  "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/; proxy-credentials fetch || true",
   "mounts": [
     "type=volume,source=${localWorkspaceFolderBasename}-home,target=/home/${localEnv:USER},U=true",
     "type=volume,source=agent-proxy-ca,target=/proxy-ca,readonly",
@@ -54,6 +50,7 @@
     "--hostname",
     "${localWorkspaceFolderBasename}",
     "--label=podman-agent-sandbox=${localEnv:SANDBOX_VERSION}",
+    "--env-file=${localWorkspaceFolder}/proxy.env",
     "--userns=keep-id",
     "--cap-drop=all",
     "--security-opt=no-new-privileges",

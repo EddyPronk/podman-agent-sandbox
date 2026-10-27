@@ -27,7 +27,19 @@ Credential vault (option credentialVault=1 when the proxy was made)
   Claude Code's OAuth tokens stay in the proxy; clients sign in as usual but hold
   only placeholders (agent-mitm-proxy-oat-..., -ort-...), swapped for the real
   tokens on the way to Anthropic.
+  A new proxy-client fetches its credentials file (the placeholders) from the
+  proxy, so only the first one has to sign in.
   ~/proxy-data/credential-vault.json   the real tokens: private
-  ~/proxy-data/vault.jsonl             sign-ins, refreshes, swaps; never token values
+  ~/proxy-data/vault.jsonl             sign-ins, refreshes, swaps, deliveries; never token values
+
+Clients (option clientAuth=1 when the proxy was made)
+  Each client needs a name and token of its own; a proxy-client made with
+  clientAuth=1 enrols itself when it first starts. Others get 407.
+  sandbox exec ${localWorkspaceFolderBasename} vault clients          the enrolled names
+  sandbox exec ${localWorkspaceFolderBasename} vault unenroll NAME    end NAME's token, at once
+  sandbox exec ${localWorkspaceFolderBasename} vault grant NAME       give NAME the vault's sign-in
+  sandbox exec ${localWorkspaceFolderBasename} vault entries          the sign-ins, without tokens
+  ~/proxy-data/clients.json            token hashes: private
+  ~/proxy-data/clients.jsonl           refused connections; never token values
 
 Every sandbox also has: sandbox enter, sandbox inspect, sandbox exec NAME COMMAND.
