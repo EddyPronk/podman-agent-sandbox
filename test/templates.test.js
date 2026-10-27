@@ -360,7 +360,7 @@ test('proxy-client: the proxy settings come from proxy.env, which initializeComm
     assert.match(config.initializeCommand, /sh \.devcontainer\/proxy-env\.sh "\$\{localWorkspaceFolderBasename\}" "1"$/);
     assert.ok(config.runArgs.includes('--env-file=${localWorkspaceFolder}/proxy.env'));
     assert.ok(!('HTTPS_PROXY' in config.containerEnv), 'not also in containerEnv');
-    assert.match(config.postCreateCommand, /proxy-credentials fetch \|\| true$/);
+    assert.match(config.postCreateCommand, /; proxy-credentials fetch \|\| true;/);
     assert.ok(existsSync(join(dest, '.devcontainer', 'proxy-credentials')));
 });
 
@@ -399,6 +399,45 @@ test('proxy-env.sh: an unexpected answer from the proxy writes nothing', () => {
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /unexpected answer/);
     assert.ok(!existsSync(join(dir, 'proxy.env')));
+});
+
+test('claude templates: trustWorkspace (default 1) has postCreateCommand trust the workspace folder', () => {
+    for (const name of ['claude', 'claude-containers', 'proxy-client']) {
+        const command = (given) => {
+            const dest = join(mkdtempSync(join(tmpdir(), 'sandbox-test-')), name);
+            applyTemplate(name, dest, given);
+            assert.ok(existsSync(join(dest, '.devcontainer', 'trust-workspace')), name);
+            const config = JSON.parse(readFileSync(join(dest, '.devcontainer', 'devcontainer.json'), 'utf8'));
+            return config.postCreateCommand;
+        };
+        assert.ok(command({}).endsWith('; [ "1" != 1 ] || trust-workspace "${containerWorkspaceFolder}"'), name);
+        assert.ok(command({ trustWorkspace: '0' }).endsWith('; [ "0" != 1 ] || trust-workspace "${containerWorkspaceFolder}"'), name);
+        assert.throws(() => command({ trustWorkspace: 'yes' }), /option 'trustWorkspace' must be one of 0, 1/);
+    }
+});
+
+test('trust-workspace records the folder as trusted in ~/.claude.json, keeping what is there', () => {
+    const home = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
+    const script = fileURLToPath(new URL('../templates/claude/.devcontainer/trust-workspace', import.meta.url));
+    const run = (...args) => spawnSync('sh', [script, ...args], { encoding: 'utf8', env: { ...process.env, HOME: home } });
+    const config = () => JSON.parse(readFileSync(join(home, '.claude.json'), 'utf8'));
+
+    assert.equal(run('/workspace').status, 0);
+    assert.deepEqual(config().projects['/workspace'], { hasTrustDialogAccepted: true });
+    assert.equal(statSync(join(home, '.claude.json')).mode & 0o777, 0o600);
+
+    writeFileSync(join(home, '.claude.json'), JSON.stringify({
+        hasCompletedOnboarding: true, projects: { '/home/u/project': { allowedTools: ['x'] } },
+    }));
+    assert.equal(run('/home/u/project').status, 0);
+    assert.equal(config().hasCompletedOnboarding, true);
+    assert.deepEqual(config().projects['/home/u/project'], { allowedTools: ['x'], hasTrustDialogAccepted: true });
+
+    assert.equal(run().status, 2, 'no folder: usage');
+    for (const name of ['claude-containers', 'proxy-client']) {
+        const copy = fileURLToPath(new URL(`../templates/${name}/.devcontainer/trust-workspace`, import.meta.url));
+        assert.equal(readFileSync(copy, 'utf8'), readFileSync(script, 'utf8'), `${name}'s copy is the same`);
+    }
 });
 
 test('template metadata without an id, or with malformed options, is refused with a message', () => {

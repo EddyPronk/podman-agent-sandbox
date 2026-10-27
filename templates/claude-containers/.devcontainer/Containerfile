@@ -28,6 +28,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         uidmap \
     && rm -rf /var/lib/apt/lists/*
 
+# Marks the workspace folder trusted for Claude Code (option trustWorkspace); see its header.
+COPY trust-workspace /usr/local/bin/trust-workspace
+RUN chmod 755 /usr/local/bin/trust-workspace
+
 # Subordinate IDs for the user, so the inner podman can map a range: every ID this sandbox has
 # besides the user's own and 0, in ranges that fit the ID map the sandbox gets at runtime
 # (subid-ranges.sh; that also makes this template work in a sandbox made from it). The user only

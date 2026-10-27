@@ -188,6 +188,13 @@ isolated](docs/security-model.md#no-way-to-gain-rights) says how to add them.
 `mitm-proxy` and `proxy-client` work as a pair: [Your project behind the egress
 proxy](docs/behind-the-proxy.md).
 
+In `claude`, `claude-containers` and `proxy-client`, Claude Code trusts the workspace folder from
+the start (`/workspace`, or with `--workspace` the project's own path): it doesn't ask "Do you trust
+this folder?", which a session started without a terminal (such as `claude --remote-control`)
+can't answer. The sandbox is what contains what Claude Code runs there. `--option trustWorkspace=0`
+keeps the question. Since 0.9.0; in a sandbox made earlier, answer it once, or run
+`trust-workspace DIR` in a sandbox that has it.
+
 `claude`, `offline` and `proxy-client` are built on `debian:trixie-slim` unless you choose another base image with
 `--image` (`sandbox templates` lists some):
 
