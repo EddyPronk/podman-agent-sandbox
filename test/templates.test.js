@@ -403,6 +403,16 @@ test('proxy-env.sh: an unexpected answer from the proxy writes nothing', () => {
     assert.ok(!existsSync(join(dir, 'proxy.env')));
 });
 
+test('every bundled template with Node.js pins its major version, not whatever lts is today', () => {
+    // lts moved to 26 in October 2026, whose binary needs libatomic, which the slim images lack:
+    // every build failed until the templates said which Node.js they want.
+    for (const { id } of listTemplates()) {
+        const config = JSON.parse(readFileSync(new URL(`../templates/${id}/.devcontainer/devcontainer.json`, import.meta.url), 'utf8'));
+        const node = config.features?.['ghcr.io/devcontainers/features/node:1'];
+        if (node) assert.equal(node.version, '24', id);
+    }
+});
+
 test('claude templates: trustWorkspace (default 1) has postCreateCommand trust the workspace folder', () => {
     for (const name of ['claude', 'claude-containers', 'proxy-client']) {
         const command = (given) => {
