@@ -22,7 +22,7 @@
     "AGENT_MITM_PROXY_CLIENT_AUTH": "${templateOption:clientAuth}"
   },
   "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/",
-  "postStartCommand": "/opt/agent-mitm-proxy/scripts/start-proxy.sh",
+  "postStartCommand": "/opt/agent-mitm-proxy/scripts/start-proxy.sh && /opt/agent-mitm-proxy/scripts/start-gatekeeper.sh",
   "mounts": [
     "type=volume,source=${localWorkspaceFolderBasename}-home,target=/home/${localEnv:USER},U=true",
     "type=volume,source=agent-proxy-ca,target=/proxy-ca,U=true",

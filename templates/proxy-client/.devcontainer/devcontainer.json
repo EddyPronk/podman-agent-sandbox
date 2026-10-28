@@ -38,7 +38,7 @@
     "DISABLE_AUTOUPDATER": "1",
     "NVM_SYMLINK_CURRENT": "false"
   },
-  "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/; proxy-credentials fetch || true; [ \"${templateOption:trustWorkspace}\" != 1 ] || trust-workspace \"${containerWorkspaceFolder}\"",
+  "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/; proxy-credentials fetch || true; proxy-gatekeeper connect || true; [ \"${templateOption:trustWorkspace}\" != 1 ] || trust-workspace \"${containerWorkspaceFolder}\"",
   "mounts": [
     "type=volume,source=${localWorkspaceFolderBasename}-home,target=/home/${localEnv:USER},U=true",
     "type=volume,source=agent-proxy-ca,target=/proxy-ca,readonly",

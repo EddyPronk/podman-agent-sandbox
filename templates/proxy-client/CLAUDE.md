@@ -8,5 +8,7 @@ and plain HTTP returns *Blocked by sandbox egress allowlist*. WebFetch is affect
 The proxy intercepts TLS (its CA is in `/proxy-ca/ca-cert.pem`, trusted through `CURL_CA_BUNDLE` and
 `NODE_EXTRA_CA_CERTS`) and logs the decrypted traffic for the owner.
 
-When a task needs a blocked host, don't work around the proxy: say which host and why, and the
-owner can add it to the proxy's `allowlist.txt`.
+When a task needs a blocked host, don't work around the proxy. If you have the `request_allowlist`
+tool (MCP server `allowlist`), ask with it: the host, and an honest, specific reason. The owner
+approves or rejects it on their phone, and `get_request_status` tells you which. Otherwise, say which
+host and why, and the owner can add it to the proxy's `allowlist.txt`.

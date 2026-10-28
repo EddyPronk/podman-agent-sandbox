@@ -14,7 +14,21 @@ Allowing a host
   approve never offers IP addresses, or names that resolve to private
   addresses (such as cloud metadata): the proxy refuses those even when listed.
   It asks only when you run it at a terminal. Client sandboxes can't run it:
-  they reach the proxy only on port 8899.
+  they reach only the proxy's ports (8899, and 8900 for the gatekeeper).
+
+Approving from your phone (the gatekeeper; set up once, then it starts with the proxy)
+  An agent asks for a host (MCP tool request_allowlist), you get a Buzz DM, your
+  thumbs-up adds it. The gatekeeper is an identity of its own on your Buzz relay:
+  sandbox exec ${localWorkspaceFolderBasename} gatekeeper init --relay wss://NAME.communities.buzz.xyz
+        a new key, made here; prints its npub
+  Attest that npub with your own key, on your own machine (NIP-OA), then:
+  sandbox exec ${localWorkspaceFolderBasename} gatekeeper attest < auth-tag.json
+  sandbox exec ${localWorkspaceFolderBasename} gatekeeper dm DM_ID      your DM with that npub
+  sandbox exec ${localWorkspaceFolderBasename} gatekeeper status       set up? running? expiry?
+  sandbox exec ${localWorkspaceFolderBasename} /opt/agent-mitm-proxy/scripts/start-gatekeeper.sh
+        start it now (it also starts with the proxy)
+  gatekeeper import-key --relay URL < key-file keeps an identity you already have.
+  In a proxy-client: proxy-gatekeeper connect (done when it's made, if it runs).
 
 Logs, inside (sandbox exec ${localWorkspaceFolderBasename} tail -f ~/proxy-data/...)
   ~/proxy-data/denied.jsonl            refused connections
@@ -22,6 +36,8 @@ Logs, inside (sandbox exec ${localWorkspaceFolderBasename} tail -f ~/proxy-data/
   ~/proxy-data/decrypted-traffic.jsonl request and response bodies (JSON as JSON), with the
                                        credentials and identity of Claude Code's endpoints
                                        redacted; what the agent sends is not: sensitive
+  ~/proxy-data/gatekeeper.log          the gatekeeper's own log
+  ~/proxy-data/allowlist-requests.jsonl  the gatekeeper's requests and your decisions
 
 Phantom tokens (unless the proxy was made with credentialVault=0)
   Claude Code's OAuth tokens stay in the proxy's credential vault; clients sign

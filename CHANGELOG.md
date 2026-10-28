@@ -16,10 +16,17 @@ again; `sandbox --version` shows what you have.
   stays in the proxy's vault, and a sandbox gets tokens that work only through the proxy, so an
   agent can't take your sign-in with it. Only the first sandbox has to sign in. To keep the real
   tokens in the sandboxes, make the proxy with `--option credentialVault=0`.
+- **Approve hosts from your phone.** An agent behind the egress proxy can ask for a host it needs
+  while it works; you get a DM on Buzz, and your 👍 adds it to the allowlist. Set up the proxy's
+  gatekeeper once with `sandbox exec proxy gatekeeper init` (its key is made in the proxy and stays
+  there); from then on it starts with the proxy, and new sandboxes behind it can ask.
+- **`sandbox exec proxy vault …` works.** Since 0.8.3, the help and the guide showed it, but the
+  proxy didn't have the command on its path.
 
 Sandboxes made earlier still ask once; answer it, or make the sandbox anew. A proxy made earlier
-keeps the setting it was made with; make it anew to get phantom tokens (its certificate and
-allowlist stay).
+keeps the setting it was made with, and has neither the gatekeeper nor `vault` on its path; make it
+anew to get them (its certificate and allowlist stay). A sandbox made earlier behind the proxy can't
+ask; make it anew.
 
 ## 0.8.3 (2026-10-28)
 

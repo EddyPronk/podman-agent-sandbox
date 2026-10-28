@@ -23,6 +23,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY proxy-credentials /usr/local/bin/proxy-credentials
 RUN chmod 755 /usr/local/bin/proxy-credentials
 
+# Gives Claude Code the proxy's gatekeeper (MCP), to ask for blocked hosts; see its header.
+COPY proxy-gatekeeper /usr/local/bin/proxy-gatekeeper
+RUN chmod 755 /usr/local/bin/proxy-gatekeeper
+
 # Marks the workspace folder trusted for Claude Code (option trustWorkspace); see its header.
 COPY trust-workspace /usr/local/bin/trust-workspace
 RUN chmod 755 /usr/local/bin/trust-workspace
