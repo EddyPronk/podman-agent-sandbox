@@ -28,7 +28,7 @@ each one. What the agent sends as content, such as a key pasted into a prompt, i
 so the log is still sensitive. A proxy made before 0.8.1 builds agent-mitm-proxy 1.1.0, without the
 redaction; one made before 0.8.2 builds 1.2.0, without the credential vault (step 4); one made before
 0.8.3 builds 1.3.0, without the credentials fetch (step 4) and client names (step 5). To bring it
-up to date and keep its CA (in `proxy-home`), make it anew under the same name: `sandbox rm proxy`,
+up to date and keep its CA (in `proxy-home`), recreate it under the same name: `sandbox rm proxy`,
 move `~/sandboxes/proxy` aside (copy its `allowlist.txt` back if you changed it),
 `sandbox new proxy --template mitm-proxy`.
 
@@ -91,8 +91,8 @@ vault yet, it says so, and you sign in once with `/login`.
 The real tokens are in the proxy's home volume (`~/proxy-data/credential-vault.json`, private), and
 `~/proxy-data/vault.jsonl` logs what the vault did, without token values. The vault follows
 Claude Code's sign-in, which Anthropic doesn't document: if that changes, the symptom is a 401 in
-Claude Code; make the proxy anew with `credentialVault=0` meanwhile. agent-mitm-proxy's README has
-the details. A proxy made before 0.9.0 without the option gets the vault by being made anew, as in
+Claude Code; recreate the proxy with `credentialVault=0` meanwhile. agent-mitm-proxy's README has
+the details. A proxy made before 0.9.0 without the option gets the vault by being recreated, as in
 step 1 (its CA stays).
 
 ## 5. A name and token per client
@@ -112,7 +112,7 @@ sandbox new your-project --template proxy-client --option clientAuth=1 --workspa
   the sandbox folder (mode 0600). The proxy must be running then. The client is also granted the
   vault's sign-in, so it starts signed in.
 - **Anything else gets 407**, including clients made without the option, or before 0.8.3: make
-  them anew with it (`sandbox rm NAME`, move the folder aside, `sandbox new … --option clientAuth=1`).
+  recreate them with it (`sandbox rm NAME`, move the folder aside, `sandbox new … --option clientAuth=1`).
 - **In the proxy:** `sandbox exec proxy vault clients` lists the enrolled names; `vault unenroll
   NAME` ends a client's token at once, open connections too; `vault grant NAME` gives it the
   sign-in; `vault entries` lists the sign-ins, without tokens.
@@ -149,11 +149,11 @@ sandbox exec proxy gatekeeper status
   before the attestation expires: attest again then.
 - **Sandboxes:** a `proxy-client` made while the gatekeeper runs gets it as Claude Code's MCP server
   `allowlist`, and its `CLAUDE.md` tells the agent to ask with it. In one made before the gatekeeper
-  ran, run `proxy-gatekeeper connect` in it, and start Claude Code anew; one made before 0.9.0 has
-  neither, and is made anew.
+  ran, run `proxy-gatekeeper connect` in it, and restart Claude Code; one made before 0.9.0 has
+  neither: recreate it.
 - **Any sandbox on `agent-proxy-net` can ask,** with or without `clientAuth`, and the DM doesn't say
   which one asked. Asking is all it can do: the limits are three open requests and ten an hour, and
   never IP addresses or private ones.
 
-A proxy made before 0.9.0 builds agent-mitm-proxy 1.4.0, without the `gatekeeper` command; make it
-anew as in step 1.
+A proxy made before 0.9.0 builds agent-mitm-proxy 1.4.0, without the `gatekeeper` command; recreate
+it as in step 1.

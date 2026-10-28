@@ -5,17 +5,6 @@ template changes reach only sandboxes made after the release; where that matters
 what to do about sandboxes you already have. To update, run the [one-line install](INSTALL.md)
 again; `sandbox --version` shows what you have.
 
-## 0.9.1 (Unreleased)
-
-- **New sandboxes build again.** Node.js 26 became the long-term-support release this week, and the
-  templates installed whatever that was; Node.js 26 doesn't run on the slim base images, so making a
-  `claude`, `claude-containers` or `proxy-client` sandbox failed while building. The templates now
-  install Node.js 24.
-
-A sandbox made earlier keeps running with the Node.js it was built with. Its container can't be made
-again (after `sandbox rm`) until you add `"version": "24"` to the Node.js feature in its
-`.devcontainer/devcontainer.json`, next to `"pnpmVersion"`, or make the sandbox anew.
-
 ## 0.9.0 (2026-10-29)
 
 - **Claude Code starts without asking whether to trust your project.** In a sandbox, the sandbox is
@@ -34,10 +23,11 @@ again (after `sandbox rm`) until you add `"version": "24"` to the Node.js featur
 - **`sandbox exec proxy vault …` works.** Since 0.8.3, the help and the guide showed it, but the
   proxy didn't have the command on its path.
 
-Sandboxes made earlier still ask once; answer it, or make the sandbox anew. A proxy made earlier
-keeps the setting it was made with, and has neither the gatekeeper nor `vault` on its path; make it
-anew to get them (its certificate and allowlist stay). A sandbox made earlier behind the proxy can't
-ask; make it anew.
+Sandboxes made earlier still ask once; answer it, or recreate the sandbox. A proxy made earlier
+keeps the setting it was made with, and has neither the gatekeeper nor `vault` on its path; recreate
+it to get them (its certificate and allowlist stay). A sandbox made earlier behind the proxy can't
+ask; recreate it. [Your project behind the egress proxy](docs/behind-the-proxy.md), step 1, says how
+to recreate the proxy.
 
 ## 0.8.3 (2026-10-28)
 
@@ -50,7 +40,7 @@ An early release of work in progress behind the egress proxy, to try it out:
   cut one off on its own.
 
 Not finished: making sandboxes this way is still manual in places, and existing sandboxes need to
-be made anew to take part. [Your project behind the egress proxy](docs/behind-the-proxy.md),
+be recreated to take part. [Your project behind the egress proxy](docs/behind-the-proxy.md),
 steps 4 and 5, has the details.
 
 ## 0.8.2 (2026-10-27)
@@ -64,14 +54,14 @@ steps 4 and 5, has the details.
 - **`sandbox rm` says which kept volume is the sandbox's own** (its home, safe to remove) and which
   others still use, so you don't delete one that breaks other sandboxes.
 
-To get the credential vault, make the proxy anew with the option; its certificate and allowlist stay.
+To get the credential vault, recreate the proxy with the option; its certificate and allowlist stay.
 
 ## 0.8.1 (2026-10-20)
 
 - **The egress proxy's traffic log no longer records your sign-in.** Claude Code's tokens, account
   ids, email address and name are blanked out before anything is logged.
 
-Make the proxy anew to get this; its certificate and allowlist stay.
+Recreate the proxy to get this; its certificate and allowlist stay.
 
 ## 0.8.0 (2026-10-20)
 
@@ -132,8 +122,8 @@ Make the proxy anew to get this; its certificate and allowlist stay.
 - **New documentation:** installing, the security model, VS Code, and a project behind the egress
   proxy.
 
-Sandboxes made earlier have a writable config inside, and `sandbox inspect` warns about it; make
-them anew.
+Sandboxes made earlier have a writable config inside, and `sandbox inspect` warns about it;
+recreate them.
 
 ## 0.5.2 (2026-10-09)
 
