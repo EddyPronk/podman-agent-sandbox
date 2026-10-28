@@ -320,12 +320,14 @@ test('claude-containers: subordinate ID ranges fit the map keep-id will give the
         ['1000:1:998', '1000:999:1', '1000:1001:64535']);
 });
 
-test('mitm-proxy: approve on PATH, and a HELP that names it and the allowlist', () => {
+test('mitm-proxy: approve, vault and gatekeeper on PATH, and a HELP that names them and the allowlist', () => {
     const dir = new URL('../templates/mitm-proxy/.devcontainer/', import.meta.url);
     const containerfile = readFileSync(new URL('Containerfile', dir), 'utf8');
-    assert.match(containerfile, /ln -s \/opt\/agent-mitm-proxy\/venv\/bin\/approve \/usr\/local\/bin\/approve/);
+    assert.match(containerfile, /for command in approve vault gatekeeper; do\s*\\\s*ln -s \/opt\/agent-mitm-proxy\/venv\/bin\/\$command \/usr\/local\/bin\/\$command;/);
     const help = readFileSync(new URL('HELP', dir), 'utf8');
-    assert.match(help, /sandbox exec \$\{localWorkspaceFolderBasename\} approve/);
+    for (const command of ['approve', 'vault clients', 'gatekeeper init']) {
+        assert.ok(help.includes(`sandbox exec \${localWorkspaceFolderBasename} ${command}`), command);
+    }
     assert.match(help, /\$\{localWorkspaceFolder\}\/allowlist\.txt/);
 });
 
@@ -480,4 +482,51 @@ test('null in template metadata and in seccompAllow reads as unset', () => {
     mkdirSync(join(options, 'demo', '.devcontainer'), { recursive: true });
     writeFileSync(join(options, 'demo', 'devcontainer-template.json'), JSON.stringify({ id: 'demo', options: null }));
     assert.deepEqual(listTemplates(options)[0].options, null);
+});
+
+test('mitm-proxy: the gatekeeper starts after the proxy', () => {
+    const dest = join(mkdtempSync(join(tmpdir(), 'sandbox-test-')), 'proxy');
+    applyTemplate('mitm-proxy', dest, {});
+    const config = JSON.parse(readFileSync(join(dest, '.devcontainer', 'devcontainer.json'), 'utf8'));
+    assert.equal(config.postStartCommand,
+        '/opt/agent-mitm-proxy/scripts/start-proxy.sh && /opt/agent-mitm-proxy/scripts/start-gatekeeper.sh');
+});
+
+test('proxy-client: Claude Code gets the gatekeeper when the container is made', () => {
+    const dest = join(mkdtempSync(join(tmpdir(), 'sandbox-test-')), 'client');
+    applyTemplate('proxy-client', dest, {});
+    const config = JSON.parse(readFileSync(join(dest, '.devcontainer', 'devcontainer.json'), 'utf8'));
+    assert.match(config.postCreateCommand, /; proxy-gatekeeper connect \|\| true;/);
+    assert.ok(existsSync(join(dest, '.devcontainer', 'proxy-gatekeeper')));
+    assert.match(readFileSync(join(dest, 'CLAUDE.md'), 'utf8'), /request_allowlist/);
+});
+
+/** Run proxy-gatekeeper connect in DIR, with stand-ins: curl prints STATUS, claude knows the server if HAS. */
+function proxyGatekeeper(dir, status, has = false) {
+    const bin = join(dir, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'curl'), `#!/bin/sh\nprintf '%s' '${status}'\n[ '${status}' != 000 ]\n`, { mode: 0o755 });
+    writeFileSync(join(bin, 'claude'), `#!/bin/sh\necho "$@" >>"${join(dir, 'claude-calls')}"\n`
+        + `[ "$2" != get ] || ${has ? 'exit 0' : 'exit 1'}\n`, { mode: 0o755 });
+    const script = fileURLToPath(new URL('../templates/proxy-client/.devcontainer/proxy-gatekeeper', import.meta.url));
+    return spawnSync('sh', [script, 'connect'], { cwd: dir, encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } });
+}
+
+test('proxy-gatekeeper: adds the MCP server only when the gatekeeper answers, and only once', () => {
+    const calls = (dir) => existsSync(join(dir, 'claude-calls')) ? readFileSync(join(dir, 'claude-calls'), 'utf8') : '';
+    const none = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
+    const unreachable = proxyGatekeeper(none, '000');
+    assert.equal(unreachable.status, 1);
+    assert.match(unreachable.stderr, /no gatekeeper at http:\/\/proxy:8900\/mcp/);
+    assert.equal(calls(none), '', 'Claude Code untouched');
+
+    const fresh = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
+    assert.equal(proxyGatekeeper(fresh, '400').status, 0);
+    assert.match(calls(fresh), /^mcp add --scope user --transport http allowlist http:\/\/proxy:8900\/mcp$/m);
+
+    const known = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
+    const again = proxyGatekeeper(known, '400', true);
+    assert.equal(again.status, 0);
+    assert.match(again.stdout, /already has/);
+    assert.doesNotMatch(calls(known), /mcp add/);
 });

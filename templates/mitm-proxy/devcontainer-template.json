@@ -7,8 +7,8 @@
   "options": {
     "ref": {
       "type": "string",
-      "default": "5af7a27ca4f6f89ee15b1590a481ef6a99f37def",
-      "description": "agent-mitm-proxy commit (or tag) to build; the default is v1.4.0's commit. A full commit hash pins exactly what runs; a tag can be moved"
+      "default": "113dceb0e2e00bce26a368afbf9d72e463a0fa83",
+      "description": "agent-mitm-proxy commit (or tag) to build; the default is v1.5.0's commit. A full commit hash pins exactly what runs; a tag can be moved"
     },
     "credentialVault": {
       "type": "string",

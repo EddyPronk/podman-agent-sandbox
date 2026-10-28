@@ -119,3 +119,41 @@ sandbox new your-project --template proxy-client --option clientAuth=1 --workspa
 - The token is a credential for the proxy, and the sandbox can read it in its own environment: an
   agent can use the proxy as that sandbox, as before, but not as another one, and nothing else on
   the network can use it at all.
+
+## 6. Approve hosts from your phone
+
+With step 3, a refused host waits until you run `approve` or edit the allowlist. With the proxy's
+**gatekeeper**, the agent asks while it works: it calls `request_allowlist` with the host and why,
+you get a DM on Buzz, and your 👍 adds the host (👎 refuses it). The agent sees
+the answer with `get_request_status`, and carries on.
+
+The gatekeeper is an identity of its own on your Buzz relay: a key that you attest with yours
+(NIP-OA), so the relay admits it as your agent. Set it up once, in the proxy:
+
+```sh
+sandbox exec proxy gatekeeper init --relay wss://NAME.communities.buzz.xyz   # prints its npub
+# on your own machine, with your own key: an attestation of that npub (NIP-OA, e.g. 90 days)
+sandbox exec proxy gatekeeper attest < auth-tag.json
+sandbox exec proxy gatekeeper dm DM_ID       # your DM with the npub, opened in the Buzz app
+sandbox exec proxy /opt/agent-mitm-proxy/scripts/start-gatekeeper.sh
+sandbox exec proxy gatekeeper status
+```
+
+- **The key is made in the proxy and stays there** (`~/proxy-data/gatekeeper/`, private); only its
+  npub is printed. To keep an identity you already have: `gatekeeper import-key --relay URL <
+  key-file`, instead of `init`.
+- **Only your reactions count:** `attest` takes your pubkey from the attestation, and a reaction
+  must carry your signature. Someone with the gatekeeper's key could send DMs as it, but couldn't
+  approve anything.
+- **It starts with the proxy** from then on. `status` says whether it runs, and warns two weeks
+  before the attestation expires: attest again then.
+- **Sandboxes:** a `proxy-client` made while the gatekeeper runs gets it as Claude Code's MCP server
+  `allowlist`, and its `CLAUDE.md` tells the agent to ask with it. In one made before the gatekeeper
+  ran, run `proxy-gatekeeper connect` in it, and start Claude Code anew; one made before 0.9.0 has
+  neither, and is made anew.
+- **Any sandbox on `agent-proxy-net` can ask,** with or without `clientAuth`, and the DM doesn't say
+  which one asked. Asking is all it can do: the limits are three open requests and ten an hour, and
+  never IP addresses or private ones.
+
+A proxy made before 0.9.0 builds agent-mitm-proxy 1.4.0, without the `gatekeeper` command; make it
+anew as in step 1.

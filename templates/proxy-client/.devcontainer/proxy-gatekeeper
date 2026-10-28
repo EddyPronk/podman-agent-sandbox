@@ -1,0 +1,21 @@
+#!/bin/sh
+# proxy-gatekeeper connect: gives Claude Code the egress proxy's gatekeeper, as the MCP server
+# "allowlist" (user scope), so the agent can ask the owner for a blocked host (request_allowlist),
+# who approves or rejects it on Buzz. Needs a proxy whose gatekeeper is set up and running
+# (`gatekeeper status` in the proxy, agent-mitm-proxy 1.5.0 or later); without one it says so and
+# changes nothing: run it again once there is.
+set -eu
+[ "${1:-}" = connect ] || { echo "usage: proxy-gatekeeper connect" >&2; exit 2; }
+url=http://proxy:8900/mcp
+# Any answer will do; an empty POST gets one at once (a GET would open an event stream).
+status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -X POST \
+    -H 'Content-Type: application/json' -d '{}' "$url") || status=000
+if [ "$status" = 000 ]; then
+    echo "proxy-gatekeeper: no gatekeeper at $url (not set up in the proxy?); run this again once it runs" >&2
+    exit 1
+fi
+if claude mcp get allowlist >/dev/null 2>&1; then
+    echo "proxy-gatekeeper: Claude Code already has the MCP server 'allowlist'"
+    exit 0
+fi
+claude mcp add --scope user --transport http allowlist "$url"
