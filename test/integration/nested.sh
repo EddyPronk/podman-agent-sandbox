@@ -74,15 +74,14 @@ fi
 # enter with no input: builds and starts the container, the shell exits at once, the container stays.
 # Its postCreateCommand installs the released sandbox of this version (if there is one).
 sandbox enter "$N" </dev/null >"$LOG/up.log" 2>&1 || die "sandbox enter $N failed" "$LOG/up.log"
-# The build under test, where install.sh puts it (npm's prefix, or ~/.local if that isn't writable),
-# so it replaces the release instead of sitting next to it.
+# The build under test, where install.sh puts it (npm's prefix, or ~/.local if that isn't writable,
+# for this install only), so it replaces the release instead of sitting next to it.
 { podman cp "$TARBALL" "$N:/tmp/podman-agent-sandbox.tgz" \
     && podman cp "$here/proxy-network.sh" "$N:/tmp/proxy-network.sh" \
     && podman cp "$here/inplace.sh" "$N:/tmp/inplace.sh" \
     && podman exec -u "$U" "$N" bash -lc \
-        'prefix=$(npm config get prefix); if [ ! -w "$prefix/lib/node_modules" ]; then
-             npm config set prefix ~/.local --location=user; mkdir -p ~/.local/bin; fi
-         npm install -g --no-fund --no-audit /tmp/podman-agent-sandbox.tgz'
+        'prefix=$(npm config get prefix); if [ ! -w "$prefix/lib/node_modules" ]; then prefix=~/.local; fi
+         npm install -g --prefix "$prefix" --no-fund --no-audit /tmp/podman-agent-sandbox.tgz'
 } >"$LOG/install.log" 2>&1 || die "installing $TARBALL inside $N failed" "$LOG/install.log"
 
 failed=0

@@ -34,18 +34,20 @@ command -v git >/dev/null 2>&1 \
   || die "git not found. On Debian 13: sudo apt install git"
 
 # npm install -g writes to $prefix/lib/node_modules and $prefix/bin. Debian's npm uses
-# /usr/local, which needs root; switch to ~/.local then, rather than using sudo.
+# /usr/local, which needs root, and so does nvm's folder in a sandbox's image; install in ~/.local
+# then, rather than using sudo. Only for this install (--prefix): a prefix saved in ~/.npmrc makes
+# nvm refuse to start at every login ("…has a `globalconfig` and/or a `prefix` setting, which are
+# incompatible with nvm"). Running this again finds ~/.local again the same way.
 prefix=$(npm config get prefix)
 dir=$prefix/lib/node_modules
 while [ ! -e "$dir" ]; do dir=$(dirname "$dir"); done
 if [ ! -w "$dir" ]; then
   echo "npm installs global packages in $prefix, which you can't write to; using ~/.local instead"
-  npm config set prefix "$HOME/.local" --location=user
   prefix=$HOME/.local
 fi
 
 echo "Installing podman-agent-sandbox ${WHAT} ..."
-npm install -g --no-fund --no-audit "$URL"
+npm install -g --prefix "$prefix" --no-fund --no-audit "$URL"
 
 # Compare resolved paths: PATH can reach $prefix/bin through a symlink, e.g. ~/.local/opt/node/bin
 # when npm reports ~/.local/opt/node-v24.15.0.
