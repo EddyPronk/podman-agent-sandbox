@@ -23,7 +23,7 @@ Logs, inside (sandbox exec ${localWorkspaceFolderBasename} tail -f ~/proxy-data/
                                        credentials and identity of Claude Code's endpoints
                                        redacted; what the agent sends is not: sensitive
 
-Phantom tokens (option credentialVault=1 when the proxy was made)
+Phantom tokens (unless the proxy was made with credentialVault=0)
   Claude Code's OAuth tokens stay in the proxy's credential vault; clients sign
   in as usual but hold only phantom tokens (agent-mitm-proxy-oat-..., -ort-...),
   swapped for the real tokens on the way to Anthropic, worthless anywhere else.

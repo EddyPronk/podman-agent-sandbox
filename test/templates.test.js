@@ -329,15 +329,15 @@ test('mitm-proxy: approve on PATH, and a HELP that names it and the allowlist', 
     assert.match(help, /\$\{localWorkspaceFolder\}\/allowlist\.txt/);
 });
 
-test('mitm-proxy: credentialVault reaches the proxy as AGENT_MITM_PROXY_CREDENTIAL_VAULT, off by default', () => {
+test('mitm-proxy: credentialVault reaches the proxy as AGENT_MITM_PROXY_CREDENTIAL_VAULT, on by default', () => {
     const env = (given) => {
         const dest = join(mkdtempSync(join(tmpdir(), 'sandbox-test-')), 'proxy');
         applyTemplate('mitm-proxy', dest, given);
         const config = JSON.parse(readFileSync(join(dest, '.devcontainer', 'devcontainer.json'), 'utf8'));
         return config.containerEnv.AGENT_MITM_PROXY_CREDENTIAL_VAULT;
     };
-    assert.equal(env({}), '0');
-    assert.equal(env({ credentialVault: '1' }), '1');
+    assert.equal(env({}), '1');
+    assert.equal(env({ credentialVault: '0' }), '0');
     assert.throws(() => env({ credentialVault: 'yes' }), /option 'credentialVault' must be one of 0, 1, not 'yes'/);
 });
 

@@ -12,8 +12,14 @@ again; `sandbox --version` shows what you have.
   choice you'd made. It also blocked sessions started without a terminal, such as
   `claude --remote-control`, which waited for an answer nobody could give. To keep the question,
   make the sandbox with `--option trustWorkspace=0`.
+- **Sandboxes behind the egress proxy hold phantom tokens by default.** Claude Code's real sign-in
+  stays in the proxy's vault, and a sandbox gets tokens that work only through the proxy, so an
+  agent can't take your sign-in with it. Only the first sandbox has to sign in. To keep the real
+  tokens in the sandboxes, make the proxy with `--option credentialVault=0`.
 
-Sandboxes made earlier still ask once; answer it, or make the sandbox anew.
+Sandboxes made earlier still ask once; answer it, or make the sandbox anew. A proxy made earlier
+keeps the setting it was made with; make it anew to get phantom tokens (its certificate and
+allowlist stay).
 
 ## 0.8.3 (2026-10-28)
 

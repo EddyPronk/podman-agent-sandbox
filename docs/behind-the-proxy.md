@@ -68,11 +68,9 @@ Claude Code keeps its OAuth tokens in `~/.claude/.credentials.json`, in the sand
 where the agent and anything it runs can read them: enough to use your account from anywhere, for
 weeks. With **phantom tokens**, the sandbox holds only stand-ins: tokens that look like Claude
 Code's, but that only the proxy can turn into the real ones. The real tokens stay in the proxy's
-**credential vault**. Choose it when you make the proxy:
-
-```sh
-sandbox new proxy --template mitm-proxy --option credentialVault=1
-```
+**credential vault**. A proxy made since 0.9.0 does this by default; one made earlier needed
+`--option credentialVault=1`. To keep the real tokens in the sandboxes instead, make the proxy with
+`--option credentialVault=0`.
 
 Nothing changes in the client sandboxes: Claude Code signs in as usual (`/login`), but stores
 phantom tokens (`agent-mitm-proxy-oat-…`/`agent-mitm-proxy-ort-…`), and the proxy swaps them for
@@ -93,8 +91,9 @@ vault yet, it says so, and you sign in once with `/login`.
 The real tokens are in the proxy's home volume (`~/proxy-data/credential-vault.json`, private), and
 `~/proxy-data/vault.jsonl` logs what the vault did, without token values. The vault follows
 Claude Code's sign-in, which Anthropic doesn't document: if that changes, the symptom is a 401 in
-Claude Code; make the proxy anew without the option meanwhile. agent-mitm-proxy's README has the
-details. An existing proxy gets the option by being made anew, as in step 1 (its CA stays).
+Claude Code; make the proxy anew with `credentialVault=0` meanwhile. agent-mitm-proxy's README has
+the details. A proxy made before 0.9.0 without the option gets the vault by being made anew, as in
+step 1 (its CA stays).
 
 ## 5. A name and token per client
 
@@ -103,7 +102,7 @@ phantom tokens and use your account through it: fine for one person whose sandbo
 them apart, make the proxy and each client with `clientAuth=1`:
 
 ```sh
-sandbox new proxy --template mitm-proxy --option credentialVault=1 --option clientAuth=1
+sandbox new proxy --template mitm-proxy --option clientAuth=1
 sandbox new your-project --template proxy-client --option clientAuth=1 --workspace ~/development/your-project
 ```
 
