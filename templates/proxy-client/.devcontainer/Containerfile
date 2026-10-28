@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         procps \
     && rm -rf /var/lib/apt/lists/*
 
-# Fetches Claude Code's credentials file (placeholders) from the proxy's vault; see its header.
+# Fetches Claude Code's credentials file (phantom tokens) from the proxy's vault; see its header.
 COPY proxy-credentials /usr/local/bin/proxy-credentials
 RUN chmod 755 /usr/local/bin/proxy-credentials
 

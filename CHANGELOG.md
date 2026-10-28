@@ -33,7 +33,7 @@ steps 4 and 5, has the details.
 
 - **Claude Code's sign-in can stay out of your sandboxes.** Made with
   `--option credentialVault=1`, the egress proxy keeps Claude Code's tokens, and sandboxes behind it
-  hold only stand-ins that are useless anywhere else. An agent can still use your account through
+  hold only phantom tokens, useless anywhere else. An agent can still use your account through
   the proxy, but it can't take the sign-in with it.
 - **`sandbox inspect` and `sandbox list` show a VM sandbox as its VM**, with its state, how it
   was started, and the image it runs.
