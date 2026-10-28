@@ -23,11 +23,11 @@ Logs, inside (sandbox exec ${localWorkspaceFolderBasename} tail -f ~/proxy-data/
                                        credentials and identity of Claude Code's endpoints
                                        redacted; what the agent sends is not: sensitive
 
-Credential vault (option credentialVault=1 when the proxy was made)
-  Claude Code's OAuth tokens stay in the proxy; clients sign in as usual but hold
-  only placeholders (agent-mitm-proxy-oat-..., -ort-...), swapped for the real
-  tokens on the way to Anthropic.
-  A new proxy-client fetches its credentials file (the placeholders) from the
+Phantom tokens (unless the proxy was made with credentialVault=0)
+  Claude Code's OAuth tokens stay in the proxy's credential vault; clients sign
+  in as usual but hold only phantom tokens (agent-mitm-proxy-oat-..., -ort-...),
+  swapped for the real tokens on the way to Anthropic, worthless anywhere else.
+  A new proxy-client fetches its credentials file (the phantom tokens) from the
   proxy, so only the first one has to sign in.
   ~/proxy-data/credential-vault.json   the real tokens: private
   ~/proxy-data/vault.jsonl             sign-ins, refreshes, swaps, deliveries; never token values

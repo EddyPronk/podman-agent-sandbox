@@ -13,8 +13,8 @@
     "credentialVault": {
       "type": "string",
       "enum": ["0", "1"],
-      "default": "0",
-      "description": "1: keep Claude Code's OAuth tokens in the proxy; clients get placeholders, so no real token is in a client sandbox, and a new client can fetch them without signing in (agent-mitm-proxy 1.3.0 or later; 1.4.0 for the fetch)"
+      "default": "1",
+      "description": "1: keep Claude Code's OAuth tokens in the proxy's vault; clients get phantom tokens, so no real token is in a client sandbox, and a new client can fetch them without signing in (agent-mitm-proxy 1.3.0 or later; 1.4.0 for the fetch). 0: clients hold the real tokens"
     },
     "clientAuth": {
       "type": "string",

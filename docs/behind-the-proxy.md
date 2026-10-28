@@ -66,39 +66,43 @@ logs record the burst once. To allow more:
 
 Claude Code keeps its OAuth tokens in `~/.claude/.credentials.json`, in the sandbox's home volume,
 where the agent and anything it runs can read them: enough to use your account from anywhere, for
-weeks. With the credential vault, the proxy keeps the tokens, and the sandbox holds only
-placeholders. Choose it when you make the proxy:
-
-```sh
-sandbox new proxy --template mitm-proxy --option credentialVault=1
-```
+weeks. With **phantom tokens**, the sandbox holds only stand-ins: tokens that look like Claude
+Code's, but that only the proxy can turn into the real ones. The real tokens stay in the proxy's
+**credential vault**. A proxy made since 0.9.0 does this by default; one made earlier needed
+`--option credentialVault=1`. To keep the real tokens in the sandboxes instead, make the proxy with
+`--option credentialVault=0`.
 
 Nothing changes in the client sandboxes: Claude Code signs in as usual (`/login`), but stores
-`agent-mitm-proxy-oat-…`/`agent-mitm-proxy-ort-…` placeholders, and the proxy swaps them for the real
-tokens on the way to Anthropic (only to Anthropic's own hosts). A client that signed in before is
-taken over at its next refresh. The agent can still *use* your account through the proxy, as
-before; it just can't take a credential with it.
+phantom tokens (`agent-mitm-proxy-oat-…`/`agent-mitm-proxy-ort-…`), and the proxy swaps them for
+the real tokens on the way to Anthropic (only to Anthropic's own hosts). Anywhere else, a phantom
+token is worthless. A client that signed in before is taken over at its next refresh. The agent can
+still *use* your account through the proxy, as before; it just can't take a credential with it.
+
+The name is borrowed from the [phantom token
+pattern](https://curity.io/resources/learn/phantom-token-pattern) of OAuth gateways, and other
+agent sandboxes use it for the same idea.
 
 **Only one sign-in.** Once one client has signed in, the next ones don't need to: a `proxy-client`
-made since 0.8.3 fetches its credentials file (the placeholders) from the proxy when its container
+made since 0.8.3 fetches its credentials file (the phantom tokens) from the proxy when its container
 is made, and Claude Code starts signed in. In a client made earlier, or after deleting the file,
 run `proxy-credentials fetch` (`--force` replaces a file that's there). Without a sign-in in the
 vault yet, it says so, and you sign in once with `/login`.
 
-The tokens are in the proxy's home volume (`~/proxy-data/credential-vault.json`, private), and
+The real tokens are in the proxy's home volume (`~/proxy-data/credential-vault.json`, private), and
 `~/proxy-data/vault.jsonl` logs what the vault did, without token values. The vault follows
 Claude Code's sign-in, which Anthropic doesn't document: if that changes, the symptom is a 401 in
-Claude Code; make the proxy anew without the option meanwhile. agent-mitm-proxy's README has the
-details. An existing proxy gets the option by being made anew, as in step 1 (its CA stays).
+Claude Code; make the proxy anew with `credentialVault=0` meanwhile. agent-mitm-proxy's README has
+the details. A proxy made before 0.9.0 without the option gets the vault by being made anew, as in
+step 1 (its CA stays).
 
 ## 5. A name and token per client
 
 Without it, any sandbox on `agent-proxy-net` can use the proxy, and, with the vault, fetch the
-placeholders and use your account through it: fine for one person whose sandboxes all may. To tell
+phantom tokens and use your account through it: fine for one person whose sandboxes all may. To tell
 them apart, make the proxy and each client with `clientAuth=1`:
 
 ```sh
-sandbox new proxy --template mitm-proxy --option credentialVault=1 --option clientAuth=1
+sandbox new proxy --template mitm-proxy --option clientAuth=1
 sandbox new your-project --template proxy-client --option clientAuth=1 --workspace ~/development/your-project
 ```
 
