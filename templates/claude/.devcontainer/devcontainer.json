@@ -10,6 +10,7 @@
   },
   "features": {
     "ghcr.io/devcontainers/features/node:1": {
+      "version": "24",
       "nodeGypDependencies": false,
       "pnpmVersion": "none"
     },

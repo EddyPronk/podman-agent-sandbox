@@ -5,7 +5,18 @@ template changes reach only sandboxes made after the release; where that matters
 what to do about sandboxes you already have. To update, run the [one-line install](INSTALL.md)
 again; `sandbox --version` shows what you have.
 
-## 0.9.0 (Unreleased)
+## 0.9.1 (Unreleased)
+
+- **New sandboxes build again.** Node.js 26 became the long-term-support release this week, and the
+  templates installed whatever that was; Node.js 26 doesn't run on the slim base images, so making a
+  `claude`, `claude-containers` or `proxy-client` sandbox failed while building. The templates now
+  install Node.js 24.
+
+A sandbox made earlier keeps running with the Node.js it was built with. Its container can't be made
+again (after `sandbox rm`) until you add `"version": "24"` to the Node.js feature in its
+`.devcontainer/devcontainer.json`, next to `"pnpmVersion"`, or make the sandbox anew.
+
+## 0.9.0 (2026-10-29)
 
 - **Claude Code starts without asking whether to trust your project.** In a sandbox, the sandbox is
   what contains what Claude Code runs, so the "Do you trust this folder?" question only repeated a
