@@ -13,7 +13,7 @@ import {
 import { checkExportable, exportedConfig } from './export.js';
 import { table } from './inspect.js';
 import { cmdNew } from './new.js';
-import { listRemoved, listSandboxes, loadSandbox } from './sandbox.js';
+import { listAll, listSandboxes, loadSandbox } from './sandbox.js';
 import type { StagedConfig } from './inplace.js';
 import type { Kind } from './state.js';
 import { listTemplates } from './templates.js';
@@ -84,10 +84,12 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        Without a container (after sandbox rm): what's left, its
                        config and the volumes it keeps, with their size. Of a
                        VM sandbox: its VM, then the container it was made from
-  sandbox list [--removed]
-                       list sandboxes, one row each (a VM sandbox's is its VM's;
-                       COMMENT says vm); --removed: sandboxes in $SANDBOX_DIR
-                       without a container, and their kept volumes
+  sandbox list [--all]
+                       list the sandboxes that have a container (running or
+                       not), one row each (a VM sandbox's is its VM's; COMMENT
+                       says vm). Not listed: a sandbox made with sandbox new but
+                       not entered yet, or removed with sandbox rm; --all lists
+                       those too, from $SANDBOX_DIR, with their kept volumes
   sandbox stop [--force] NAME
                        stop NAME (a VM at once); --force also stops a container
                        sandbox didn't make
@@ -355,8 +357,9 @@ function cmdInspect(args: string[]): void {
 }
 
 function cmdList(args: string[]): void {
-    const { values } = parseArgs({ args, options: { removed: { type: 'boolean' } } });
-    console.log(values.removed ? listRemoved() : listSandboxes());
+    const { values } = parseArgs({ args, options: { all: { type: 'boolean' }, removed: { type: 'boolean' } } });
+    if (values.removed) throw new SandboxError('--removed is now --all (since 0.10.0): sandbox list --all');
+    console.log(values.all ? listAll() : listSandboxes());
 }
 
 /** NAME and the options of `sandbox SUB [--force] NAME`. */

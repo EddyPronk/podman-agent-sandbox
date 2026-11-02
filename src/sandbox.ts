@@ -558,11 +558,18 @@ export function listSandboxes(): string {
 }
 
 /**
- * sandbox list --removed: config folders in $SANDBOX_DIR that no container or VM uses (removed with
- * sandbox rm, or never entered), with the volumes they keep. Sandboxes whose config folder is
- * elsewhere can't be found once their container is gone.
+ * sandbox list --all: listSandboxes, then the sandboxes without a container (listWithoutContainer).
  */
-export function listRemoved(): string {
+export function listAll(): string {
+    return `${listSandboxes()}\n\n${listWithoutContainer()}`;
+}
+
+/**
+ * The second part of sandbox list --all: config folders in $SANDBOX_DIR that no container or VM uses
+ * (made with sandbox new and not entered yet, or removed with sandbox rm), with the volumes they keep.
+ * Sandboxes whose config folder is elsewhere can't be found once their container is gone.
+ */
+export function listWithoutContainer(): string {
     const result = podman(['ps', '-a', '--format', `{{.Label "devcontainer.local_folder"}}\t{{.Label "${VM_OF_LABEL}"}}`]);
     if (result.status !== 0) throw new SandboxError(result.stderr.trim());
     const used = new Set<string>();
@@ -584,7 +591,10 @@ export function listRemoved(): string {
         const kind = readRecord(basename(folder))?.kind === 'vm' ? 'VM' : 'container';
         rows.push([basename(folder), kind, settings?.workspace ?? folder, kept.join(', ') || 'none']);
     }
-    return rows.length > 1 ? table(rows) : `no removed sandboxes in ${dir}`;
+    const what = `without a container in ${dir} (not entered yet, or removed with sandbox rm)`;
+    return rows.length > 1
+        ? `Sandboxes ${what}; sandbox enter NAME creates its container:\n${table(rows)}`
+        : `No sandboxes ${what}.`;
 }
 
 /**

@@ -117,8 +117,8 @@ sandbox enter --vm sandbox_with_claude              # the same in a KVM microVM,
 sandbox exec sandbox_with_claude git status         # run one command in it (start it if needed), like ssh
 sandbox help sandbox_with_claude                    # what this sandbox offers (from its template)
 sandbox inspect sandbox_with_claude                 # the podman run command that made it, and what it runs with
-sandbox list
-sandbox list --removed                              # sandboxes without a container, and the volumes they keep
+sandbox list                                        # the sandboxes that have a container, running or not
+sandbox list --all                                  # also those without one: not entered yet, or removed
 sandbox stop sandbox_with_claude
 sandbox rm sandbox_with_claude                      # removes the container; the home volume is kept
 sandbox build sandbox_with_claude [--no-cache]      # rebuild the image, showing the full log
@@ -140,6 +140,14 @@ and without those checks. Use `sandbox exec`.
 Sandboxes live in `~/sandboxes`; set `SANDBOX_DIR` to use another folder. A sandbox that
 already has a container is found through the container's `devcontainer.local_folder` label,
 wherever its folder is.
+
+`sandbox list` shows the sandboxes that have a container (or a VM), whatever its state: running,
+exited or created. A sandbox is in two places, its config folder and its container, and `list` goes by
+the container. So it doesn't show one that has only its config folder: one you made with
+`sandbox new` and haven't entered yet (`new` only copies the template; the first `enter` or `exec`
+builds the image and creates the container), or one removed with `sandbox rm`. `sandbox list --all`
+shows those too, in a second table, with the volumes they keep; it finds them in `$SANDBOX_DIR`
+only.
 
 `stop` and `rm` only act on sandboxes, so they can't remove a container made with `podman` or other
 tools by mistake. A sandbox's container has the label `podman-agent-sandbox` (the templates add
@@ -165,7 +173,7 @@ the VM, as Podman set it up (nothing can be read inside a VM), then the containe
 
 After `sandbox rm`, the container is gone but its config folder and volumes stay: `sandbox inspect
 NAME` then shows what's left (the workspace, an `--inplace` config's trust, each volume with its
-size and how to remove it), and `sandbox list --removed` lists every such sandbox in
+size and how to remove it), and `sandbox list --all` lists every such sandbox in
 `$SANDBOX_DIR`.
 
 ### Templates
