@@ -28,7 +28,7 @@
 #   V11  claude-containers (custom seccomp profile on the VM's host process): the VM starts, or the
 #        failure removes it (R5); NOTE says which
 #   V12  rm removes the VM and the container, the kept volume listed once
-#   V13  new --vm: plain enter makes the VM; after rm it stays a VM sandbox (list --removed says so,
+#   V13  new --vm: plain enter makes the VM; after rm it stays a VM sandbox (list --all says so,
 #        exec refuses, plain enter makes the VM again); after rm, enter --container makes it a container
 # Removes what it made at the end. Each test's output is in LOG_DIR (default ./vm-test-logs).
 # Exit status: the number of failed tests.
@@ -242,7 +242,7 @@ run "V13 new --vm: plain enter makes the VM; a VM sandbox after rm; --container 
     echo "$out" | grep -q "K=[0-9]" && ! echo "$out" | grep -q "K=$HOST_KERNEL" || { echo "not in a VM"; exit 1; }
     [ "$(state v13-vm)" = exited ]
     $SB rm v13 | grep -q "v13 stays a VM sandbox"
-    $SB list --removed | grep -qE "^v13 +VM "
+    $SB list --all | grep -qE "^v13 +VM "
     out=$($SB exec v13 true 2>&1) && { echo "exec ran after rm"; exit 1; }
     echo "$out" | grep -q "v13 is a VM sandbox"
     plain v13 "exit\n" > "$LOG/V13-again.log"

@@ -5,6 +5,14 @@ template changes reach only sandboxes made after the release; where that matters
 what to do about sandboxes you already have. To update, run the [one-line install](INSTALL.md)
 again; `sandbox --version` shows what you have.
 
+## 0.10.0 (unreleased)
+
+- **`sandbox list --removed` is now `sandbox list --all`.** Plain `sandbox list` shows only the
+  sandboxes that have a container, so one made with `sandbox new` and not entered yet was missing
+  from it, which looked as if `new` had failed. `--all` shows those too, after the others, and says
+  that `sandbox enter NAME` creates them; `--removed` is refused with a pointer to `--all`. The help
+  and the README now say what plain `list` leaves out.
+
 ## 0.9.0 (2026-10-29)
 
 - **Claude Code starts without asking whether to trust your project.** In a sandbox, the sandbox is

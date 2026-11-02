@@ -220,7 +220,7 @@ test('a VM sandbox: plain enter goes the VM way; enter --container and exec refu
     }
 });
 
-test('a VM sandbox stays one after rm: rm says so, exec refuses, inspect and list --removed show it', () => {
+test('a VM sandbox stays one after rm: rm says so, exec refuses, inspect and list --all show it', () => {
     const rm = runWith({ folders: ['x'], records: { x: 'vm' } }, [sandbox('x', 'exited'), vmOf('x', 'exited')], 'rm', 'x');
     assert.equal(rm.status, 0, rm.stderr);
     assert.match(rm.stdout, /x stays a VM sandbox: 'sandbox enter x' makes its VM again \('sandbox enter --container x' makes it a container\)/);
@@ -236,9 +236,29 @@ test('a VM sandbox stays one after rm: rm says so, exec refuses, inspect and lis
     assert.equal(inspect.status, 0, inspect.stderr);
     assert.match(inspect.stdout, /sandbox enter x creates its VM from its config/);
     assert.match(inspect.stdout, /# x is a VM sandbox: 'sandbox enter x' makes its VM$/m);
-    const list = runWith({ folders: ['x', 'y'], records: { x: 'vm' } }, [], 'list', '--removed');
-    const rows = list.stdout.trim().split('\n').map((line) => line.split(/\s{2,}/).slice(0, 2));
+    const list = runWith({ folders: ['x', 'y'], records: { x: 'vm' } }, [], 'list', '--all');
+    const rows = list.stdout.trim().split('\n\n')[1].split('\n').slice(1).map((line) => line.split(/\s{2,}/).slice(0, 2));
     assert.deepEqual(rows, [['NAME', 'KIND'], ['x', 'VM'], ['y', 'container']]);
+});
+
+test('list --all: the sandboxes with a container, then those without; plain list leaves those out', () => {
+    const local = (c, folder) => ({ ...c, Config: { ...c.Config, Labels: { ...c.Config.Labels, 'devcontainer.local_folder': folder } } });
+    // a has a container (its folder elsewhere); new was made with sandbox new, not entered yet.
+    const all = runWith({ folders: ['new'] }, [local(sandbox('a', 'running'), '/s/a')], 'list', '--all');
+    assert.equal(all.status, 0, all.stderr);
+    const [withContainer, without] = all.stdout.trimEnd().split('\n\n');
+    assert.deepEqual(withContainer.split('\n').map((line) => line.split(/\s{2,}/)[0]), ['NAME', 'a']);
+    assert.match(without, new RegExp(`^Sandboxes without a container in ${all.sandboxDir} \\(not entered yet, or removed with sandbox rm\\); sandbox enter NAME creates its container:\\nNAME +KIND +WORKSPACE +KEPT VOLUMES\\nnew +container +`));
+    const plain = runWith({ folders: ['new'] }, [local(sandbox('a', 'running'), '/s/a')], 'list');
+    assert.doesNotMatch(plain.stdout, /new/);
+    const none = run([], 'list', '--all');
+    assert.match(none.stdout, /\n\nNo sandboxes without a container in .* \(not entered yet, or removed with sandbox rm\)\.\n$/);
+});
+
+test('list --removed is refused, naming --all', () => {
+    const result = run([], 'list', '--removed');
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /--removed is now --all \(since 0\.10\.0\): sandbox list --all/);
 });
 
 test('enter --container after rm forgets that it was a VM sandbox', () => {

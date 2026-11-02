@@ -105,7 +105,7 @@ gone.
   stays a VM sandbox.
 - `sandbox list` shows a VM sandbox in one row, with its VM's state and `vm` under COMMENT (and
   `container running` when the normal container runs, which keeps the VM from starting);
-  `sandbox list --removed` shows each removed sandbox's kind.
+  `sandbox list --all` shows each removed sandbox's kind.
 - `sandbox inspect NAME` shows the VM: the command that created it and what it runs with, `runtime krun`
   and the guest's memory included, then a line on the normal container it was made from. The VM's
   command names its image by ID, so a later `sandbox build` doesn't change what it runs; a line under
