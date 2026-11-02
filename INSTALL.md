@@ -11,8 +11,9 @@ curl -fsSL https://raw.githubusercontent.com/EddyPronk/podman-agent-sandbox/main
 
 [`install.sh`](install.sh):
 1. checks the prerequisites;
-2. points npm at `~/.local` if it can't write to npm's global folder (see
-   [Manual install](#manual-install) for why);
+2. installs in `~/.local` if it can't write to npm's global folder (see
+   [Manual install](#manual-install) for why), for this install only: it doesn't change npm's
+   settings;
 3. installs the release tarball, built by CI with `npm pack`, with `npm install -g`.
 
 - **Update:** run it again; it installs the latest release.
@@ -44,6 +45,9 @@ in `~/.npmrc`):
 ```sh
 npm config set prefix "$HOME/.local" --location=user
 ```
+
+Not with Node.js from nvm: nvm refuses to start with a `prefix` in `~/.npmrc`. Give it to the
+install instead: `npm install -g --prefix "$HOME/.local" …`.
 
 Then:
 
