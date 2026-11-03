@@ -11,6 +11,7 @@ import {
 } from './inplace.js';
 import type { StagedConfig } from './inplace.js';
 import { table } from './inspect.js';
+import { FEATURES_FILE, parseFeatureArgs, writeFeatures } from './features.js';
 import { SECCOMP_RUN_ARG } from './seccomp.js';
 import { removeRecord, writeRecord } from './state.js';
 import {
@@ -35,6 +36,7 @@ interface NewValues {
     inplace?: boolean;
     yes?: boolean;
     vm?: boolean;
+    feature?: string[];
 }
 
 /** Everything --workspace adds, checked (planWorkspace). HIDE and READONLY are relative to WORKSPACE. */
@@ -61,15 +63,21 @@ export function cmdNew(args: string[]): void {
             inplace: { type: 'boolean' },
             yes: { type: 'boolean', short: 'y' },
             vm: { type: 'boolean' },
+            feature: { type: 'string', short: 'f', multiple: true },
         },
     });
-    const usage = 'sandbox new NAME --template TEMPLATE [--image IMAGE] [--option KEY=VALUE ...] [--vm]\n'
+    const usage = 'sandbox new NAME --template TEMPLATE [--image IMAGE] [--option KEY=VALUE ...] [--feature REF ...] [--vm]\n'
         + '       sandbox new [NAME] --template TEMPLATE --workspace PATH [--image IMAGE] [--hide PATH ...] [--readonly PATH ...] [--vm]\n'
         + '       sandbox new [NAME] --workspace PATH --inplace [--template TEMPLATE] [--yes] [--hide PATH ...] [--readonly PATH ...] [--vm]';
     const workspace = values.workspace === undefined ? null : resolveWorkspace(values.workspace);
     if ((values.hide || values.readonly) && !workspace) throw new SandboxError('--hide and --readonly need --workspace');
     if (values.inplace && !workspace) throw new SandboxError('--inplace needs --workspace: the project whose .devcontainer to use');
     if (values.yes && !values.inplace) throw new SandboxError('--yes goes with --inplace');
+    if (values.feature && values.inplace) {
+        throw new SandboxError('--feature can\'t go with --inplace yet: add the Feature to the project\'s devcontainer.json');
+    }
+    // Checked before anything is made.
+    const features = parseFeatureArgs(values.feature ?? []);
     if (positionals.length > 1 || (positionals.length === 0 && !workspace)) throw new SandboxError(`usage: ${usage}`);
     if (!values.template && !values.inplace) {
         const hint = workspace && hasMarker(workspace)
@@ -99,6 +107,7 @@ export function cmdNew(args: string[]): void {
     const template = applyTemplate(values.template, dest, given);
     try {
         if (plan) applyWorkspace(dest, plan);
+        if (Object.keys(features).length) writeFeatures(dest, features);
         if (values.vm) checkVm(name, readConfig(configFile(dest)), dest);
     } catch (err) {
         rmSync(dest, { recursive: true, force: true });
@@ -113,6 +122,7 @@ export function cmdNew(args: string[]): void {
     } else {
         console.log(`created ${dest} from template '${values.template}'`);
     }
+    for (const ref of Object.keys(features)) console.log(`with Feature ${ref} (in .devcontainer/${FEATURES_FILE})`);
     console.log(nextStep(name, values.vm));
     warnImage(name, template, given);
     if (plan) warnSecrets(name, dest, plan);

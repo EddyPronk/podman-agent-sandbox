@@ -46,6 +46,15 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        you confirm it (--yes: without asking). sandbox keeps
                        the copy you trusted in $SANDBOX_DIR/NAME and runs only
                        that; PATH/.devcontainer is read-only inside
+  sandbox new ... --feature REF[=OPTIONS]
+                       any of the above but --inplace, with a published Dev
+                       Container Feature added (repeatable), e.g. --feature
+                       ghcr.io/devcontainers/features/aws-cli:1, or with
+                       options: REF='{"version": "3.13"}'. Kept next to the
+                       config (.devcontainer/sandbox-features.json), added at
+                       every build. Installed as root when the image is built;
+                       run sandbox inspect NAME afterwards: a Feature may ask
+                       for rights the sandbox otherwise drops
   sandbox new ... --vm any of the above, as a VM sandbox: sandbox enter makes
                        a VM (krun) instead of a container; refused when the
                        machine or the config can't (see docs/microvm.md)

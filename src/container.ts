@@ -1,6 +1,7 @@
 // A sandbox's normal container: the one the Dev Containers CLI makes and starts (devcontainer up), and
 // runs commands in (devcontainer exec). The bottom layer under sandbox.ts: it does what it's told,
 // without knowing about the sandbox's other states; the checks before a start are sandbox.ts's.
+import { featureArgs } from './features.js';
 import {
     SANDBOX_LABEL, SandboxError, dc, exitStatus, folderOf, podman, sandboxReason, unlabelledHint,
 } from './devcontainer.js';
@@ -108,7 +109,7 @@ export class Container {
         if (this.state === 'running') return;
         const create = !this.exists;
         console.error(`sandbox: ${create ? 'creating' : 'starting'} ${this.name} ...`);
-        const up = dc('up', ['--workspace-folder', this.dir], create
+        const up = dc('up', ['--workspace-folder', this.dir, ...featureArgs(this.dir)], create
             ? { stdio: ['ignore', 2, 2] }
             : { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
         if (up.status !== 0) {
