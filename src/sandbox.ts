@@ -6,7 +6,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { agentArgs } from './agent.js';
+import { featureArgs } from './features.js';
 import { Container, describeInfo, inspectContainer, isActive } from './container.js';
 import type { PodmanInfo } from './container.js';
 import {
@@ -231,7 +231,7 @@ export class Sandbox {
         const inplace = checkTrusted(this.name, dir);
         if (inplace) writeEffective(dir, inplace);
         checkConfigVersion(dir);
-        const result = dc('build', ['--workspace-folder', dir, ...agentArgs(dir), ...args]);
+        const result = dc('build', ['--workspace-folder', dir, ...featureArgs(dir), ...args]);
         if (result.status !== 0) return exitStatus(result);
         if (this.made()) {
             console.error(`sandbox: ${this.name} still runs the old image${this.vm ? ' (its VM too)' : ''}; use `
@@ -494,7 +494,7 @@ export class Sandbox {
  * { merged, workdir }. WORKDIR: the folder the shell starts in, the config's workspaceFolder.
  */
 function readConfiguration(dir: string): Configuration {
-    const result = dc('read-configuration', ['--workspace-folder', dir, '--include-merged-configuration', ...agentArgs(dir)],
+    const result = dc('read-configuration', ['--workspace-folder', dir, '--include-merged-configuration', ...featureArgs(dir)],
         { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
     if (result.status !== 0) {
         throw new SandboxError(`can't read the config in ${dir}: ${String(result.stderr).trim().split('\n').pop()}`);
