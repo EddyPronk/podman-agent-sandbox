@@ -110,6 +110,7 @@ sandbox new sandbox_with_claude --template claude   # create ~/sandboxes/sandbox
 sandbox new sandbox_with_ubuntu --template claude --image docker.io/library/ubuntu:26.04   # on another base image
 sandbox new --template claude --workspace ~/src/app # around an existing folder
 sandbox new --workspace ~/src/app --inplace         # from the project's own .devcontainer
+sandbox new aws --template offline --feature ghcr.io/devcontainers/features/aws-cli:1   # with a Dev Container Feature
 sandbox trust app                                   # confirm a change in the project's config
 sandbox export app                                  # write a --workspace sandbox's config into its project
 sandbox enter sandbox_with_claude                   # build and start if needed, open a shell
@@ -175,6 +176,40 @@ After `sandbox rm`, the container is gone but its config folder and volumes stay
 NAME` then shows what's left (the workspace, an `--inplace` config's trust, each volume with its
 size and how to remove it), and `sandbox list --all` lists every such sandbox in
 `$SANDBOX_DIR`.
+
+### Adding tools: `--feature`
+
+`sandbox new NAME --template TEMPLATE --feature REF` adds a published
+[Dev Container Feature](https://containers.dev/features) to the sandbox, by its reference, without
+changing the template. Repeat it for more, and give options as JSON after `=`:
+
+```sh
+sandbox new py --template claude \
+  --feature 'ghcr.io/devcontainers/features/python:1={"version": "os-provided"}' \
+  --feature ghcr.io/devcontainers/features/aws-cli:1
+```
+
+The Features are kept next to the config, in `.devcontainer/sandbox-features.json` (read-only inside
+the sandbox, so what runs there can't change them), and added to every build. Edit that file to
+add or remove one later, then `sandbox rm NAME` and `sandbox enter NAME` to build it again. It
+doesn't go with `--inplace` yet: add the Feature to the project's `devcontainer.json` instead.
+
+Things to know:
+
+- **A Feature runs as root while the image is built**, with the network of the machine (not the
+  sandbox's), and `:1` follows its latest 1.x release: it's code you choose to trust, like the base
+  image. Pin it (`python:1.7.1`) to change it only when you do.
+- **A Feature can ask for rights the sandbox drops**, such as `privileged` or extra capabilities
+  (`docker-in-docker` does). Run `sandbox inspect NAME` after the first build and check its
+  capabilities, new privileges and mounts. `sandbox` doesn't check a Feature's requests itself yet.
+  Plain install scripts (language runtimes, CLIs, `apt-packages`) ask for none of this.
+- **On Podman, Features are installed again at every build**, also when nothing changed
+  ([buildah#5243](https://github.com/containers/buildah/issues/5243)): `sandbox enter` after
+  `sandbox rm` takes as long as the first build. A Feature that compiles (`python:1` with a version
+  such as `3.13`) makes that slow; one that installs packages (`"version": "os-provided"`) is quick.
+  `sandbox stop` and a later `enter` don't build.
+- **Downloads at run time go through the sandbox's network**: none for `offline`, the proxy's
+  allowlist for `proxy-client`.
 
 ### Templates
 

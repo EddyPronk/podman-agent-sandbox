@@ -12,6 +12,12 @@ again; `sandbox --version` shows what you have.
   from it, which looked as if `new` had failed. `--all` shows those too, after the others, and says
   that `sandbox enter NAME` creates them; `--removed` is refused with a pointer to `--all`. The help
   and the README now say what plain `list` leaves out.
+- **Add tools with `sandbox new … --feature REF`.** Any published Dev Container Feature, by its
+  reference, with options as JSON after `=`; repeatable, e.g. `--feature
+  ghcr.io/devcontainers/features/aws-cli:1`. The template stays as it is: the Features are kept in
+  `.devcontainer/sandbox-features.json` and added at every build. On Podman every build installs
+  them again, so prefer Features that install packages over ones that compile (README, "Adding
+  tools").
 
 ## 0.9.0 (2026-10-29)
 
