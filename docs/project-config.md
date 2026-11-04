@@ -111,7 +111,7 @@ The config is an ordinary dev container config, so the Dev Container CLI
 start it too. They run the project's files as they are:
 - no check;
 - no read-only git hooks and config;
-- no generated seccomp profile, so containers inside (`claude-containers`) fail.
+- no generated seccomp profile, so containers inside (`nested-containers`) fail.
 
 The CLI writes a `devcontainer-lock.json` into `.devcontainer/` (the Features' exact versions).
 That's worth committing, and `sandbox` asks you to confirm it like any other change.

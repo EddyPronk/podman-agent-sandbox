@@ -307,7 +307,7 @@ export function parseVscodeProbe(text: string): VscodeProbe {
 }
 
 /**
- * Podman inside a sandbox (claude-containers and the like): where its storage is, how much is on
+ * Podman inside a sandbox (nested-containers and the like): where its storage is, how much is on
  * disk, and podman's own summary. Exit 3: no podman inside. `podman unshare du`: plain du can't read
  * the files that inner containers' users own, and counts far too little.
  */
@@ -492,7 +492,7 @@ export function audit(info: PodmanInfo, {
         : 'allowed: setuid and file-capability programs gain rights']);
     if (!noNewPrivs) unhardened.push('no-new-privileges off');
     if (unhardened.length && nested) {
-        notes.push(`${unhardened.join(', ')}: expected for a sandbox that runs podman inside, like claude-containers`);
+        notes.push(`${unhardened.join(', ')}: expected for a sandbox that runs podman inside, like nested-containers`);
     } else if (unhardened.length && sandbox) {
         warnings.push(`${unhardened.join(', ')}: setuid and file-capability programs can gain rights. The templates `
             + 'since 0.5.2 add --cap-drop=all and --security-opt=no-new-privileges to runArgs (then sandbox rm, sandbox enter)');

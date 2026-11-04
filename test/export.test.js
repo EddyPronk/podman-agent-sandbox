@@ -48,7 +48,7 @@ test('export writes the config with the user\'s edits and without this machine\'
     { skip: noGit }, () => {
         const dir = tempDir();
         const root = project();
-        const made = sandbox(['new', 'ex', '--template', 'claude-containers', '--workspace', root,
+        const made = sandbox(['new', 'ex', '--template', 'nested-containers', '--workspace', root,
             '--hide', '.env', '--readonly', 'docs'], dir);
         assert.equal(made.status, 0, made.stderr);
         // The user's own edit in the sandbox's config, as for agent-mitm-proxy (Python, uv).
@@ -75,8 +75,13 @@ test('export writes the config with the user\'s edits and without this machine\'
         assert.match(readFileSync(join(root, '.devcontainer', 'Containerfile'), 'utf8'), /astral-sh\/uv/, 'so is this one');
         assert.ok(config.mounts.includes('type=bind,source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,readonly'));
         assert.deepEqual(config.customizations['podman-agent-sandbox'],
-            { version: 1, minVersion: '0.7.0', policies: [], seccompAllow: ['sethostname', 'setdomainname'] },
+            { version: 1, agent: 'claude-code', minVersion: '0.7.0', policies: [], seccompAllow: ['sethostname', 'setdomainname'] },
             'the template\'s marker goes along, minVersion included');
+        assert.deepEqual(config.features['./agent/claude-code'], { trustWorkspace: true },
+            'the agent is in the project\'s own config, which an --inplace sandbox goes by');
+        assert.ok(existsSync(join(root, '.devcontainer', 'agent', 'claude-code', 'install.sh')), 'with its folder');
+        assert.ok(!existsSync(join(root, '.devcontainer', 'sandbox-features.json')), 'not the record');
+        assert.match(exported.stdout, /left out: sandbox-features\.json and the agent folder as extra Features \(in devcontainer\.json's features now: \.\/agent\/claude-code\)/);
         assert.ok(!existsSync(join(root, '.devcontainer', 'seccomp.json')), 'generated, not committed');
         assert.ok(!config.runArgs.some((arg) => arg.startsWith('--security-opt=seccomp=')),
             'nor the runArg naming it: the Dev Containers CLI on its own can start the committed config');
@@ -102,7 +107,7 @@ test('export writes the config with the user\'s edits and without this machine\'
 test('export of a sandbox from before 0.7.0: seccompAllow comes from the generated profile', { skip: noGit }, () => {
     const dir = tempDir();
     const root = project();
-    assert.equal(sandbox(['new', 'old', '--template', 'claude-containers', '--workspace', root], dir).status, 0);
+    assert.equal(sandbox(['new', 'old', '--template', 'nested-containers', '--workspace', root], dir).status, 0);
     const file = join(dir, 'old', '.devcontainer', 'devcontainer.json');
     const config = json(file);
     delete config.customizations;   // as 0.6.0 made it: no marker, seccompAllow in the template's metadata
@@ -165,10 +170,10 @@ test('export refuses a sandbox without --workspace, and a project that has a .de
 });
 
 test('export refuses a config --inplace would refuse, with a message, before it writes anything', { skip: noGit }, () => {
-    // claude-containers: its generated seccomp.json makes export rewrite runArgs, which crashed on a string.
+    // nested-containers: its generated seccomp.json makes export rewrite runArgs, which crashed on a string.
     const dir = tempDir();
     const root = project();
-    assert.equal(sandbox(['new', 'p', '--template', 'claude-containers', '--workspace', root], dir).status, 0);
+    assert.equal(sandbox(['new', 'p', '--template', 'nested-containers', '--workspace', root], dir).status, 0);
     const file = join(dir, 'p', '.devcontainer', 'devcontainer.json');
     for (const [key, value] of [['runArgs', '--cap-drop=all'], ['capAdd', 'NET_ADMIN']]) {
         const config = json(file);

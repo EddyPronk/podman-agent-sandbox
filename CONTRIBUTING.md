@@ -43,7 +43,7 @@ sandbox-dev new try --template claude
   narrowing.
 - **Integration tests** in `test/integration/` need rootless Podman. They build images, so they take
   minutes:
-  - `nested.sh TARBALL [LOG_DIR]` makes a `claude-containers` sandbox, installs the `npm pack` tarball
+  - `nested.sh TARBALL [LOG_DIR]` makes a `nested-containers` sandbox, installs the `npm pack` tarball
     in it, and runs T1–T22 there. Inside, it runs `proxy-network.sh` for the proxy tests. The `podman`
     workflow runs it on GitHub.
   - `proxy-network.sh` can also run on its own, against a running proxy and client:

@@ -12,6 +12,17 @@ again; `sandbox --version` shows what you have.
   from it, which looked as if `new` had failed. `--all` shows those too, after the others, and says
   that `sandbox enter NAME` creates them; `--removed` is refused with a pointer to `--all`. The help
   and the README now say what plain `list` leaves out.
+- **Choose the agent: `sandbox new … --agent codex`** (or `claude-code`, the default, or `none`).
+  Claude Code is no longer built into the `claude`, `claude-containers` and `proxy-client`
+  templates: it is an agent the package ships as a Feature, with the auto-updater off and the
+  workspace trusted, and the templates have it by default, so `sandbox new --template claude` gives
+  what it did. `--agent codex` gives OpenAI Codex CLI instead (tested in `claude` and
+  `nested-containers`, open network). Its own sandbox (bubblewrap) runs in `nested-containers`, not
+  in `claude` or `proxy-client` (README, "The agent"). `--option trustWorkspace=0` still keeps the
+  trust question. Sandboxes made earlier keep Claude Code as they have it.
+- **`claude-containers` is now `nested-containers`**: containers inside the sandbox, with Claude
+  Code by default or another agent (`sandbox new work --template nested-containers --agent codex`).
+  The old name still works.
 - **Add tools with `sandbox new … --feature REF`.** Any published Dev Container Feature, by its
   reference, with options as JSON after `=`; repeatable, e.g. `--feature
   ghcr.io/devcontainers/features/aws-cli:1`. The template stays as it is: the Features are kept in

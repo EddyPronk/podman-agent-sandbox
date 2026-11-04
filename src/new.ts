@@ -11,11 +11,13 @@ import {
 } from './inplace.js';
 import type { StagedConfig } from './inplace.js';
 import { table } from './inspect.js';
-import { FEATURES_FILE, parseFeatureArgs, writeFeatures } from './features.js';
+import {
+    FEATURES_FILE, checkAgent, chooseAgent, parseFeatureArgs, placeAgent, withFeatures, writeFeatures,
+} from './features.js';
 import { SECCOMP_RUN_ARG } from './seccomp.js';
 import { removeRecord, writeRecord } from './state.js';
 import {
-    applyTemplate, experimentalImage, parseOptionArgs, seccompAllow, TESTED_IMAGES, withImage,
+    applyTemplate, experimentalImage, parseOptionArgs, resolveOptions, seccompAllow, TESTED_IMAGES, withImage,
 } from './templates.js';
 import type { OptionValues, Template } from './templates.js';
 import {
@@ -37,6 +39,7 @@ interface NewValues {
     yes?: boolean;
     vm?: boolean;
     feature?: string[];
+    agent?: string;
 }
 
 /** Everything --workspace adds, checked (planWorkspace). HIDE and READONLY are relative to WORKSPACE. */
@@ -64,9 +67,10 @@ export function cmdNew(args: string[]): void {
             yes: { type: 'boolean', short: 'y' },
             vm: { type: 'boolean' },
             feature: { type: 'string', short: 'f', multiple: true },
+            agent: { type: 'string', short: 'a' },
         },
     });
-    const usage = 'sandbox new NAME --template TEMPLATE [--image IMAGE] [--option KEY=VALUE ...] [--feature REF ...] [--vm]\n'
+    const usage = 'sandbox new NAME --template TEMPLATE [--image IMAGE] [--option KEY=VALUE ...] [--agent AGENT|none] [--feature REF ...] [--vm]\n'
         + '       sandbox new [NAME] --template TEMPLATE --workspace PATH [--image IMAGE] [--hide PATH ...] [--readonly PATH ...] [--vm]\n'
         + '       sandbox new [NAME] --workspace PATH --inplace [--template TEMPLATE] [--yes] [--hide PATH ...] [--readonly PATH ...] [--vm]';
     const workspace = values.workspace === undefined ? null : resolveWorkspace(values.workspace);
@@ -76,8 +80,12 @@ export function cmdNew(args: string[]): void {
     if (values.feature && values.inplace) {
         throw new SandboxError('--feature can\'t go with --inplace yet: add the Feature to the project\'s devcontainer.json');
     }
+    if (values.agent !== undefined && values.inplace && !values.template) {
+        throw new SandboxError('--agent with --inplace needs --template: the project\'s own devcontainer.json names its agent');
+    }
     // Checked before anything is made.
     const features = parseFeatureArgs(values.feature ?? []);
+    checkAgent(values.agent);
     if (positionals.length > 1 || (positionals.length === 0 && !workspace)) throw new SandboxError(`usage: ${usage}`);
     if (!values.template && !values.inplace) {
         const hint = workspace && hasMarker(workspace)
@@ -105,9 +113,14 @@ export function cmdNew(args: string[]): void {
     const plan = workspace && planWorkspace(workspace, values, realConfigDir(dest));
     const given = withImage(parseOptionArgs(values.option ?? []), values.image);
     const template = applyTemplate(values.template, dest, given);
+    let agent: string | null = null;
     try {
         if (plan) applyWorkspace(dest, plan);
-        if (Object.keys(features).length) writeFeatures(dest, features);
+        // The agent: --agent, else the template's default (customizations.podman-agent-sandbox.agent).
+        agent = chooseAgent(dest, values.agent);
+        checkAgent(agent ?? undefined);
+        const extra = { ...features, ...placeAgent(dest, values.agent, agent, resolveOptions(template, given)) };
+        if (Object.keys(extra).length) writeFeatures(dest, extra);
         if (values.vm) checkVm(name, readConfig(configFile(dest)), dest);
     } catch (err) {
         rmSync(dest, { recursive: true, force: true });
@@ -122,6 +135,7 @@ export function cmdNew(args: string[]): void {
     } else {
         console.log(`created ${dest} from template '${values.template}'`);
     }
+    if (agent) console.log(`with agent ${agent} (in .devcontainer/agent/${agent})`);
     for (const ref of Object.keys(features)) console.log(`with Feature ${ref} (in .devcontainer/${FEATURES_FILE})`);
     console.log(nextStep(name, values.vm));
     warnImage(name, template, given);
@@ -212,7 +226,7 @@ function newInplace(name: string, dest: string, workspace: string, values: NewVa
         if (existsSync(config)) {
             throw new SandboxError(`${config} already exists, and --template would write over it; to use it as it is, leave out --template`);
         }
-        template = writeTemplateInto(values.template, workspace, given);
+        template = writeTemplateInto(values.template, workspace, given, values.agent);
     } else if (values.option || values.image) {
         throw new SandboxError('--option and --image fill in a template: with --inplace, they need --template');
     }
@@ -262,7 +276,7 @@ function newInplace(name: string, dest: string, workspace: string, values: NewVa
  * it, but only its .devcontainer, and without what sandbox makes from seccompAllow: the profile
  * (seccomp.json) and the runArg naming it (SECCOMP_RUN_ARG). Returns the template's metadata.
  */
-function writeTemplateInto(spec: string, workspace: string, given: OptionValues): Template {
+function writeTemplateInto(spec: string, workspace: string, given: OptionValues, agentGiven: string | undefined): Template {
     const tmp = mkdtempSync(join(tmpdir(), 'sandbox-template-'));
     try {
         const copy = join(tmp, 'template');
@@ -274,6 +288,15 @@ function writeTemplateInto(spec: string, workspace: string, given: OptionValues)
             const runArgs = config.runArgs ?? [];
             if (isStringList(runArgs)) config.runArgs = runArgs.filter((arg) => arg !== SECCOMP_RUN_ARG);
             writeFileSync(configFile(copy), `${JSON.stringify(config, null, 2)}\n`);
+        }
+        // The agent in the project's config itself, so that the trust prompt shows it and a plain
+        // devcontainer up (or VS Code) builds it too: an --inplace sandbox ignores an agent folder
+        // that its devcontainer.json doesn't name (featureArgs).
+        const agent = chooseAgent(copy, agentGiven);
+        checkAgent(agent ?? undefined);
+        const entry = placeAgent(copy, agentGiven, agent, resolveOptions(template, given));
+        if (agent) {
+            writeFileSync(configFile(copy), `${JSON.stringify(withFeatures(readConfig(configFile(copy)), entry), null, 2)}\n`);
         }
         try {
             cpSync(join(copy, '.devcontainer'), join(workspace, '.devcontainer'),

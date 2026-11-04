@@ -253,9 +253,9 @@ test('new --inplace --template writes the template into the project, with the ma
     { skip: noGit }, () => {
         const dir = tempDir();
         const root = tempDir();
-        const made = sandbox(['new', 'c', '--workspace', root, '--inplace', '--template', 'claude-containers'], dir);
+        const made = sandbox(['new', 'c', '--workspace', root, '--inplace', '--template', 'nested-containers'], dir);
         assert.equal(made.status, 0, made.stderr);
-        assert.match(made.stdout, /wrote .*\.devcontainer from template 'claude-containers': review it, and commit it/);
+        assert.match(made.stdout, /wrote .*\.devcontainer from template 'nested-containers': review it, and commit it/);
         const config = JSON.parse(readFileSync(join(root, '.devcontainer', 'devcontainer.json'), 'utf8'));
         assert.deepEqual(config.customizations['podman-agent-sandbox'].seccompAllow, ['sethostname', 'setdomainname']);
         assert.ok(!existsSync(join(root, '.devcontainer', 'seccomp.json')), 'the profile is generated, not committed');

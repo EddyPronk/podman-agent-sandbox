@@ -1,0 +1,26 @@
+{
+  "id": "claude-code",
+  "version": "1.0.0",
+  "name": "Agent: Claude Code",
+  "description": "Claude Code for a podman-agent-sandbox sandbox: Node.js 24 and Anthropic's Claude Code Feature, the auto-updater off, and the workspace folder trusted from the start",
+  "options": {
+    "trustWorkspace": {
+      "type": "boolean",
+      "default": true,
+      "description": "Claude Code trusts the workspace folder from the start (no \"Do you trust this folder?\" question; the sandbox contains what it runs)"
+    }
+  },
+  "dependsOn": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "24",
+      "nodeGypDependencies": false,
+      "pnpmVersion": "none"
+    },
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+  },
+  "containerEnv": {
+    "DISABLE_AUTOUPDATER": "1",
+    "NVM_SYMLINK_CURRENT": "false"
+  },
+  "postCreateCommand": "/usr/local/share/sandbox-agent/post-create"
+}

@@ -149,7 +149,7 @@ detaching and reattaching, two `enter --vm` at once, a `--workspace` sandbox, th
 - **A `--workspace` sandbox keeps its protection in the VM:** its git repositories' `.git/hooks` and
   `.git/config` are read-only and `--hide` paths read empty, for the user. (Root in the guest wasn't
   reached to try them: `sudo` doesn't work in the VM, next point.)
-- **A custom seccomp profile works:** `claude-containers`' VM starts with its profile (`seccompAllow`) on
+- **A custom seccomp profile works:** `nested-containers`' VM starts with its profile (`seccompAllow`) on
   the VM's host process.
 - **It runs as your UID only with `--userns=keep-id` and a user** (`containerUser` in the config, as in
   every template but `mitm-proxy`): uid 1000 in the guest, files owned by you on the host.
@@ -168,9 +168,9 @@ detaching and reattaching, two `enter --vm` at once, a `--workspace` sandbox, th
 
 Doesn't work:
 
-- **Podman inside the VM** (`claude-containers`): the VM starts, but an inner container doesn't. Rootless
+- **Podman inside the VM** (`nested-containers`): the VM starts, but an inner container doesn't. Rootless
   Podman needs `newuidmap` to set up its user namespace, and in the VM it fails ("write to uid_map
-  failed: Operation not permitted"). Use `claude-containers` as a container.
+  failed: Operation not permitted"). Use `nested-containers` as a container.
 
 ## Limits
 

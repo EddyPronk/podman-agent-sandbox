@@ -9,6 +9,7 @@ import { checkFields } from './inplace.js';
 import type { ProjectConfig } from './inplace.js';
 import { isObject, isStringList } from './json.js';
 import type { JsonObject } from './json.js';
+import { FEATURES_FILE, extraFeatures, withFeatures } from './features.js';
 import { SECCOMP_RUN_ARG } from './seccomp.js';
 import { MARKER, markerOf } from './templates.js';
 import { CONFIG_MOUNT, configFile, isInside, readConfig } from './workspace.js';
@@ -90,6 +91,14 @@ export function exportedConfig(dest: string, settings: Settings, home: string | 
         out.runArgs = (config.runArgs ?? []).filter((arg) => arg !== SECCOMP_RUN_ARG);
     }
     out.customizations = { ...(isObject(config.customizations) ? config.customizations : {}), [MARKER]: marker };
+    // The agent and the --feature Features, kept next to the config here: in the project's own
+    // devcontainer.json, which an --inplace sandbox goes by (the agent folder is written with it).
+    const extra = extraFeatures(dest);
+    if (Object.keys(extra).length) {
+        Object.assign(out, withFeatures(out, extra));
+        if (existsSync(join(dest, '.devcontainer', FEATURES_FILE))) skip.push(FEATURES_FILE);
+        removed.push(`${FEATURES_FILE} and the agent folder as extra Features (in devcontainer.json's features now: ${Object.keys(extra).join(', ')})`);
+    }
     const text = JSON.stringify(out, null, 2);
     const leftovers = text.split('\n').filter((line) => line.includes(workspace) || (home && line.includes(home)))
         .map((line) => line.trim());

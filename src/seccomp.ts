@@ -1,4 +1,4 @@
-// A seccomp profile for templates that run containers inside the sandbox (claude-containers):
+// A seccomp profile for templates that run containers inside the sandbox (nested-containers):
 // the host podman's own default profile, plus a few calls the config names in its devcontainer.json
 // ("customizations": { "podman-agent-sandbox": { "seccompAllow": [...] } }, or in older templates'
 // metadata "x-sandbox"), written to the sandbox's .devcontainer/seccomp.json. Generated at

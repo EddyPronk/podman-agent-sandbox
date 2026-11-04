@@ -52,7 +52,7 @@ export const PACKAGE_VERSION = packageVersion(new URL('../package.json', import.
  * - SANDBOX_UID/SANDBOX_GID: numeric IDs for containerUser; Podman can't resolve $USER by name
  *   before keep-id adds it.
  * - SANDBOX_VERSION: this package's version, so a template that installs sandbox inside the
- *   sandbox (claude-containers) installs the same one.
+ *   sandbox (nested-containers) installs the same one.
  */
 export function childEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
     // getuid and getgid exist on every POSIX system; only Windows lacks them.

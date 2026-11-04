@@ -5,11 +5,15 @@
 // The files are the record: .devcontainer is read-only inside the sandbox, so what runs there can't
 // change what the next build runs as root. The Dev Containers CLI takes a local Feature only from
 // inside .devcontainer (not by absolute path), and a published one by its OCI reference.
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { SandboxError } from './devcontainer.js';
 import { isObject } from './json.js';
 import type { JsonObject } from './json.js';
+import { markerOf } from './templates.js';
+import type { OptionValues } from './templates.js';
+import { readSettings } from './workspace.js';
 
 /** Where the agent's Feature folder goes, inside .devcontainer. */
 export const AGENT_DIR = 'agent';
@@ -49,14 +53,126 @@ export function writeFeatures(dir: string, features: JsonObject): void {
     writeFileSync(join(dir, '.devcontainer', FEATURES_FILE), `${JSON.stringify(features, null, 2)}\n`);
 }
 
-/** All the Features DIR's sandbox gets next to its config: the recorded ones, then the agent. */
-export function extraFeatures(dir: string): JsonObject {
-    const agent = agentOf(dir);
-    return { ...recordedFeatures(dir), ...(agent ? { [`./${AGENT_DIR}/${agent}`]: {} } : {}) };
+/** The --additional-features key of agent NAME. */
+function agentKey(name: string): string {
+    return `./${AGENT_DIR}/${name}`;
 }
 
-/** The devcontainer options that add DIR's extra Features: [] without any. */
+/**
+ * All the Features DIR's sandbox gets next to its config: the recorded ones, and the agent in its
+ * folder (with its options when they're recorded too). A recorded agent whose folder is gone (it was
+ * swapped for another) is left out.
+ */
+export function extraFeatures(dir: string): JsonObject {
+    const agent = agentOf(dir);
+    const out = Object.fromEntries(Object.entries(recordedFeatures(dir))
+        .filter(([ref]) => !ref.startsWith(`./${AGENT_DIR}/`) || (agent !== null && ref === agentKey(agent))));
+    if (agent && !Object.hasOwn(out, agentKey(agent))) out[agentKey(agent)] = {};
+    return out;
+}
+
+/**
+ * CONFIG (a parsed devcontainer.json) with EXTRA ({ REF: options }) in its own "features": for a
+ * config that names its Features itself, as a project's does (--inplace, export). A local agent's
+ * "./agent/NAME" works there too, its folder being inside .devcontainer.
+ */
+export function withFeatures<T extends JsonObject>(config: T, extra: JsonObject): T {
+    const features = isObject(config.features) ? config.features : {};
+    return { ...config, features: { ...features, ...extra } };
+}
+
+/** The agents the package ships, as Features: agents/NAME/devcontainer-feature.json. */
+export const AGENTS_DIR = fileURLToPath(new URL('../agents/', import.meta.url));
+
+/** The names of the agents in ROOT. */
+export function listAgents(root: string = AGENTS_DIR): string[] {
+    return existsSync(root) ? readdirSync(root, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && existsSync(join(root, e.name, 'devcontainer-feature.json')))
+        .map((e) => e.name).sort() : [];
+}
+
+/** Check sandbox new's --agent value GIVEN (a name from ROOT, or none) before anything is made. */
+export function checkAgent(given: string | undefined, root: string = AGENTS_DIR): void {
+    if (given === undefined || given === 'none') return;
+    const agents = listAgents(root);
+    if (!agents.includes(given)) {
+        throw new SandboxError(`--agent ${given}: no such agent; the agents are ${agents.join(', ')}, or none`);
+    }
+}
+
+/**
+ * The agent a new sandbox in config folder DEST (the template just copied there) gets: GIVEN
+ * (--agent; none for no agent), else the template's default, its devcontainer.json's
+ * customizations.podman-agent-sandbox.agent; null for none. The config is only read without GIVEN,
+ * and a template with comments or trailing commas (JSONC, which sandbox otherwise leaves alone) has
+ * no default it can read: refused if it seems to name one, so the agent isn't dropped silently.
+ */
+export function chooseAgent(dest: string, given: string | undefined): string | null {
+    if (given !== undefined) return given === 'none' ? null : given;
+    const file = join(dest, '.devcontainer', 'devcontainer.json');
+    if (!existsSync(file)) return null;
+    const text = readFileSync(file, 'utf8');
+    let config: unknown;
+    try {
+        config = JSON.parse(text);
+    } catch {
+        if (/"agent"\s*:/.test(text)) {
+            throw new SandboxError(`${file} has comments or trailing commas, so sandbox can't read its default `
+                + 'agent: give --agent NAME (or --agent none)');
+        }
+        return null;
+    }
+    const agent = markerOf(config)?.agent;
+    return typeof agent === 'string' ? agent : null;
+}
+
+/**
+ * Give the new sandbox in DEST agent CHOSEN (chooseAgent; null for none) and return its entry for
+ * sandbox-features.json ({} for none). When sandbox decides the agent (--agent GIVEN, none included,
+ * or the template's default), .devcontainer/agent is emptied first: an agent folder the template
+ * brought would otherwise stay next to it (two agents, refused at the next command) or stay despite
+ * --agent none. A template's own agent folder, with neither, is left as the template has it.
+ */
+export function placeAgent(dest: string, given: string | undefined, chosen: string | null, values: OptionValues,
+    root: string = AGENTS_DIR): JsonObject {
+    if (given !== undefined || chosen !== null) rmSync(join(dest, '.devcontainer', AGENT_DIR), { recursive: true, force: true });
+    return chosen ? addAgent(dest, chosen, values, root) : {};
+}
+
+/**
+ * Put agent NAME from ROOT into the config folder DEST (.devcontainer/agent/NAME) and return its entry
+ * for sandbox-features.json: its options, from the template options (VALUES) of the same name, so
+ * that --option trustWorkspace=0 reaches it. A boolean option takes 1/0 or true/false.
+ */
+export function addAgent(dest: string, name: string, values: OptionValues, root: string = AGENTS_DIR): JsonObject {
+    const src = join(root, name);
+    const meta: unknown = JSON.parse(readFileSync(join(src, 'devcontainer-feature.json'), 'utf8'));
+    const declared = isObject(meta) && isObject(meta.options) ? meta.options : {};
+    const options: JsonObject = {};
+    for (const [key, value] of Object.entries(values)) {
+        const option = declared[key];
+        if (!isObject(option)) continue;
+        if (option.type === 'boolean') {
+            if (!['0', '1', 'true', 'false'].includes(value)) {
+                throw new SandboxError(`option '${key}' is a yes/no setting of agent ${name}: 1 or 0`);
+            }
+            options[key] = value === '1' || value === 'true';
+        } else {
+            options[key] = value;
+        }
+    }
+    cpSync(src, join(dest, '.devcontainer', AGENT_DIR, name), { recursive: true });
+    return { [agentKey(name)]: options };
+}
+
+/**
+ * The devcontainer options that add DIR's extra Features: [] without any, and always [] for an
+ * --inplace sandbox. Its config folder holds the trusted copy of the project's .devcontainer, so an
+ * agent folder or sandbox-features.json there came from the project, and the trust prompt (which
+ * shows devcontainer.json) didn't show them: such a config names its Features itself.
+ */
 export function featureArgs(dir: string): string[] {
+    if (readSettings(dir)?.inplace) return [];
     const features = extraFeatures(dir);
     return Object.keys(features).length ? ['--additional-features', JSON.stringify(features)] : [];
 }

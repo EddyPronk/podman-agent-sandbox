@@ -1,6 +1,6 @@
 #!/bin/bash
 # inplace.sh — sandboxes that use their project's own config (sandbox new --inplace, sandbox export),
-# end to end, in a sandbox that runs containers of its own (claude-containers).
+# end to end, in a sandbox that runs containers of its own (nested-containers).
 #
 #   test/integration/inplace.sh [LOG_DIR]
 #

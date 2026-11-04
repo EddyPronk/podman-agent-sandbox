@@ -1,0 +1,29 @@
+{
+  "id": "codex",
+  "version": "1.0.0",
+  "name": "Agent: Codex CLI",
+  "description": "OpenAI's Codex CLI for a podman-agent-sandbox sandbox: the static release binary, pinned by version and SHA-256, ripgrep, and the workspace trusted",
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "0.165.0",
+      "description": "Codex release (tag rust-vVERSION); change the SHA-256s with it"
+    },
+    "sha256Amd64": {
+      "type": "string",
+      "default": "be635d3486a5bd060d0fff582ae6d30160280c31344dd85719707fa920e187f0",
+      "description": "SHA-256 of codex-x86_64-unknown-linux-musl.tar.gz"
+    },
+    "sha256Arm64": {
+      "type": "string",
+      "default": "6522e056d0be7f531da915c9a81ae05bc70811b782542499cc0a9776d3abf5d3",
+      "description": "SHA-256 of codex-aarch64-unknown-linux-musl.tar.gz"
+    },
+    "trustWorkspace": {
+      "type": "boolean",
+      "default": true,
+      "description": "Codex trusts the workspace folder from the start (the sandbox contains what it runs)"
+    }
+  },
+  "postCreateCommand": "/usr/local/share/sandbox-agent/post-create"
+}

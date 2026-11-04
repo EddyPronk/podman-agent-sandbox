@@ -188,13 +188,17 @@ export function findTemplate(spec: string, root: string = TEMPLATES_DIR): { temp
         }
         return { template: readMetadata(join(src, METADATA)), src };
     }
-    const template = listTemplates(root).find((t) => t.id === spec);
+    const id = TEMPLATE_ALIASES[spec] ?? spec;
+    const template = listTemplates(root).find((t) => t.id === id);
     if (!template) {
         const ids = listTemplates(root).map((t) => t.id).join(', ');
         throw new SandboxError(`no template '${spec}' (available: ${ids}; or give a path to a template folder)`);
     }
-    return { template, src: join(root, spec) };
+    return { template, src: join(root, id) };
 }
+
+/** Old template IDs that still work: { OLD: NEW }. claude-containers since 0.10.0 (the agent is a choice). */
+export const TEMPLATE_ALIASES: { [old: string]: string } = { 'claude-containers': 'nested-containers' };
 
 /**
  * The system calls DIR's config adds to the seccomp profile: its devcontainer.json's
