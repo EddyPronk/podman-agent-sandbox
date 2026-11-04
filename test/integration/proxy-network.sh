@@ -1,6 +1,6 @@
 #!/bin/bash
 # proxy-network.sh — the bundled mitm-proxy and proxy-client templates in a sandbox that runs
-# containers of its own (claude-containers): the client's only way out is the proxy.
+# containers of its own (nested-containers): the client's only way out is the proxy.
 #
 #   test/integration/proxy-network.sh [LOG_DIR]
 #

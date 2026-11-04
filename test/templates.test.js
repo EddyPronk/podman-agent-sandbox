@@ -50,8 +50,8 @@ test('no bundled template needs a newer sandbox than the release it ships in', (
         const config = JSON.parse(readFileSync(new URL(`../templates/${id}/.devcontainer/devcontainer.json`, import.meta.url), 'utf8'));
         assert.doesNotThrow(() => checkMinVersion(config, id, version), `${id}`);
     }
-    // claude-containers relies on seccompAllow in the marker (0.7.0): older ones leave podman inside without sethostname.
-    const containers = JSON.parse(readFileSync(new URL('../templates/claude-containers/.devcontainer/devcontainer.json', import.meta.url), 'utf8'));
+    // nested-containers relies on seccompAllow in the marker (0.7.0): older ones leave podman inside without sethostname.
+    const containers = JSON.parse(readFileSync(new URL('../templates/nested-containers/.devcontainer/devcontainer.json', import.meta.url), 'utf8'));
     assert.equal(containers.customizations['podman-agent-sandbox'].minVersion, '0.7.0');
 });
 
@@ -145,14 +145,14 @@ test('every bundled template sets USER and LOGNAME in sandbox enter shells', () 
     }
 });
 
-test('every bundled template but claude-containers drops all capabilities and no-new-privileges', () => {
+test('every bundled template but nested-containers drops all capabilities and no-new-privileges', () => {
     // Nothing in them needs either: they run as the user (keep-id), with no setuid or file-capability
-    // programs. claude-containers can't: nested podman needs newuidmap's file capabilities.
+    // programs. nested-containers can't: nested podman needs newuidmap's file capabilities.
     const hardening = ['--cap-drop=all', '--security-opt=no-new-privileges'];
     for (const { id } of listTemplates()) {
         const config = JSON.parse(readFileSync(new URL(`../templates/${id}/.devcontainer/devcontainer.json`, import.meta.url), 'utf8'));
         for (const arg of hardening) {
-            assert.equal(config.runArgs.includes(arg), id !== 'claude-containers', `${id}: runArgs ${arg}`);
+            assert.equal(config.runArgs.includes(arg), id !== 'nested-containers', `${id}: runArgs ${arg}`);
         }
     }
 });
@@ -268,11 +268,11 @@ test('offline: no network, and no agent or Node.js', () => {
     assert.match(readFileSync(new URL('Containerfile', dir), 'utf8'), /^\s+make \\$/m);
 });
 
-test('claude-containers: the claude template plus podman, and it says it weakens the sandbox', () => {
-    const meta = listTemplates().find((t) => t.id === 'claude-containers');
+test('nested-containers: the claude template plus podman, and it says it weakens the sandbox', () => {
+    const meta = listTemplates().find((t) => t.id === 'nested-containers');
     assert.ok(meta, 'bundled');
     assert.match(meta.description, /weaken/i);
-    const dir = new URL('../templates/claude-containers/.devcontainer/', import.meta.url);
+    const dir = new URL('../templates/nested-containers/.devcontainer/', import.meta.url);
     const config = JSON.parse(readFileSync(new URL('devcontainer.json', dir), 'utf8'));
     assert.deepEqual(config.customizations?.['podman-agent-sandbox']?.seccompAllow, ['sethostname', 'setdomainname'],
         'in the config, so a template written into a project (--inplace) carries it');
@@ -300,10 +300,10 @@ test('claude-containers: the claude template plus podman, and it says it weakens
     assert.match(containerfile, /subid-ranges\.sh "\$SANDBOX_UID" \/proc\/self\/gid_map > \/etc\/subgid/);
 });
 
-test('claude-containers: subordinate ID ranges fit the map keep-id will give the sandbox', () => {
+test('nested-containers: subordinate ID ranges fit the map keep-id will give the sandbox', () => {
     // subid-ranges.sh UID MAPFILE, run at build time on /proc/self/uid_map (or gid_map). Each range
     // must lie inside one extent of the running sandbox's map, or the kernel refuses the inner map.
-    const script = fileURLToPath(new URL('../templates/claude-containers/.devcontainer/subid-ranges.sh', import.meta.url));
+    const script = fileURLToPath(new URL('../templates/nested-containers/.devcontainer/subid-ranges.sh', import.meta.url));
     const ranges = (map) => {
         const dir = mkdtempSync(join(tmpdir(), 'subid-'));
         writeFileSync(join(dir, 'map'), map);
@@ -315,7 +315,7 @@ test('claude-containers: subordinate ID ranges fit the map keep-id will give the
     assert.deepEqual(ranges('         0       1000          1\n         1     100000      65536\n'),
         ['1000:1:999', '1000:1001:64536']);
     // A sandbox in a sandbox: the outer one's own ID (1000) is a hole in its ranges, which splits
-    // the inner map after ID 998 (NESTED: podman inside claude-containers inside claude-containers).
+    // the inner map after ID 998 (NESTED: podman inside nested-containers inside nested-containers).
     assert.deepEqual(ranges('         0       1000          1\n         1          1        999\n      1000       1001      64536\n'),
         ['1000:1:998', '1000:999:1', '1000:1001:64535']);
 });
@@ -414,7 +414,7 @@ test('every bundled template with Node.js pins its major version, not whatever l
 });
 
 test('claude templates: Claude Code is their default agent, not part of the template', () => {
-    for (const name of ['claude', 'claude-containers', 'proxy-client']) {
+    for (const name of ['claude', 'nested-containers', 'proxy-client']) {
         const dir = fileURLToPath(new URL(`../templates/${name}/.devcontainer/`, import.meta.url));
         const config = JSON.parse(readFileSync(join(dir, 'devcontainer.json'), 'utf8'));
         assert.equal(config.customizations['podman-agent-sandbox'].agent, 'claude-code', name);
@@ -542,4 +542,13 @@ test('templates: every file a Containerfile COPYs from its build context is ther
             if (copy) assert.ok(existsSync(join(dir, copy[1])), `${id}: COPY ${copy[1]}`);
         }
     }
+});
+
+test('claude-containers still works: the old name of nested-containers', () => {
+    const dest = join(mkdtempSync(join(tmpdir(), 'sandbox-test-')), 'old');
+    const template = applyTemplate('claude-containers', dest, {});
+    assert.equal(template.id, 'nested-containers');
+    const config = JSON.parse(readFileSync(join(dest, '.devcontainer', 'devcontainer.json'), 'utf8'));
+    assert.deepEqual(config.customizations['podman-agent-sandbox'].seccompAllow, ['sethostname', 'setdomainname']);
+    assert.ok(!listTemplates().some((t) => t.id === 'claude-containers'), 'not listed: the old name only resolves');
 });

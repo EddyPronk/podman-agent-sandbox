@@ -25,7 +25,7 @@
 #        .git/config read-only, hidden paths empty, as the user and as guest root if the image has sudo;
 #        a repo added after the VM was made: enter --vm refuses
 #   V10  a claude-template sandbox in a VM: Claude Code runs
-#   V11  claude-containers (custom seccomp profile on the VM's host process): the VM starts, or the
+#   V11  nested-containers (custom seccomp profile on the VM's host process): the VM starts, or the
 #        failure removes it (R5); NOTE says which
 #   V12  rm removes the VM and the container, the kept volume listed once
 #   V13  new --vm: plain enter makes the VM; after rm it stays a VM sandbox (list --all says so,
@@ -83,7 +83,7 @@ cleanup() {
         $SB rm --force "$n" > /dev/null 2>&1
         podman rm -f "$n" "$n-vm" > /dev/null 2>&1
         podman volume rm "$n-home" > /dev/null 2>&1
-        # The images the Dev Containers CLI built for it (1-2 GB each for claude and claude-containers).
+        # The images the Dev Containers CLI built for it (1-2 GB each for claude and nested-containers).
         podman images --format '{{.Repository}}' | grep -E "^localhost/vsc-$n-[0-9a-f]{64}$" | xargs -r podman rmi > /dev/null 2>&1
     done
     rm -rf "$SANDBOX_DIR" "$WS"
@@ -212,18 +212,18 @@ run "V10 a claude-template sandbox in a VM: Claude Code runs" '
     echo "$out" | grep -qi "claude code"'
 
 # V11 reports what happens rather than passing or failing on it: the docs claim neither yet.
-$SB new vcc --template claude-containers > "$LOG/V11.log" 2>&1
+$SB new vcc --template nested-containers > "$LOG/V11.log" 2>&1
 if out=$(vm vcc "echo K=\$(uname -r)\nexit\n" 2>&1); then
     echo "$out" >> "$LOG/V11.log"
-    printf 'NOTE  V11 claude-containers: the VM starts with the custom seccomp profile (%s)\n' "$(echo "$out" | grep -o "K=[0-9][^ ]*" | head -1)"
+    printf 'NOTE  V11 nested-containers: the VM starts with the custom seccomp profile (%s)\n' "$(echo "$out" | grep -o "K=[0-9][^ ]*" | head -1)"
 else
     echo "$out" >> "$LOG/V11.log"
     if [ "$(state vcc)" = absent ]; then
-        printf 'NOTE  V11 claude-containers: not tested, its container could not be made (see %s)\n' "$LOG/V11.log"
+        printf 'NOTE  V11 nested-containers: not tested, its container could not be made (see %s)\n' "$LOG/V11.log"
     elif [ "$(state vcc-vm)" = absent ]; then
-        printf 'NOTE  V11 claude-containers: the VM fails; it was removed (R5): %s\n' "$(echo "$out" | grep -m1 "sandbox:")"
+        printf 'NOTE  V11 nested-containers: the VM fails; it was removed (R5): %s\n' "$(echo "$out" | grep -m1 "sandbox:")"
     else
-        printf 'FAIL  V11 claude-containers: the VM failed and was left behind (%s)\n' "$(state vcc-vm)"
+        printf 'FAIL  V11 nested-containers: the VM failed and was left behind (%s)\n' "$(state vcc-vm)"
         failed=$((failed + 1))
     fi
 fi

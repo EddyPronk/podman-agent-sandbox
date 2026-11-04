@@ -48,7 +48,7 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        that; PATH/.devcontainer is read-only inside
   sandbox new ... --agent claude-code|codex|none
                        the coding agent in the sandbox, as a Feature of its own
-                       (.devcontainer/agent/NAME); the claude, claude-containers
+                       (.devcontainer/agent/NAME); the claude, nested-containers
                        and proxy-client templates have claude-code by default.
                        --option trustWorkspace=0 reaches the agent. With
                        --inplace, only together with --template

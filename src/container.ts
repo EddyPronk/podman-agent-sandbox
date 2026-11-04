@@ -215,7 +215,7 @@ export function describeInfo(name: string, info: PodmanInfo, {
         // What VS Code forwards when attached: not mounts, so only visible inside (inspect.ts).
         const probe = podman(['exec', name, 'sh', '-c', VSCODE_PROBE]);
         if (probe.status === 0) vscode = parseVscodeProbe(probe.stdout);
-        // Podman inside (claude-containers and the like): its images may outlive the container.
+        // Podman inside (nested-containers and the like): its images may outlive the container.
         const inner = podman(['exec', name, 'sh', '-c', PODMAN_STORAGE_PROBE]);
         if (inner.status === 0) storage = parsePodmanStorage(inner.stdout);
     }

@@ -60,7 +60,7 @@ A sandbox config is a valid dev container config, so `devcontainer up --workspac
 | the workspace | the project at its own path | `/workspace`, as the config says |
 | git hooks and config | read-only | writable |
 | seccomp | Podman's default plus `seccompAllow` | Podman's default |
-| containers inside (`claude-containers`) | work | fail: `crun: sethostname: Operation not permitted` |
+| containers inside (`nested-containers`) | work | fail: `crun: sethostname: Operation not permitted` |
 | the `podman-agent-sandbox` label | `sandbox`'s version | empty: `sandbox list` doesn't count it |
 | `devcontainer-lock.json` | written next to the copy, in `~/sandboxes/NAME` | written into the project's `.devcontainer/` |
 
@@ -69,7 +69,7 @@ A sandbox config is a valid dev container config, so `devcontainer up --workspac
 1. **Podman inside gives every container its own hostname,** so the runtime (crun) calls
    `sethostname`.
 2. **Podman's default seccomp profile allows `sethostname` only to a container with the
-   `CAP_SYS_ADMIN` capability.** A sandbox doesn't have it, not even `claude-containers`.
+   `CAP_SYS_ADMIN` capability.** A sandbox doesn't have it, not even `nested-containers`.
 3. **A seccomp filter applies to everything started inside the container, and can't be loosened
    from inside.** The inner runtime has the capability in its own user namespace, but the outer
    filter still refuses the call.

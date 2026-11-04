@@ -12,7 +12,7 @@ one opens a shell in it.
 - **Rootless, and you inside:** rootless Podman, no daemon, no root. Inside, you are your own user,
   so files in the project keep your ownership.
 - **Hardened by default:** no capabilities and no new privileges, so nothing inside can gain rights,
-  not even with `sudo` (except the `claude-containers` template, which needs them). See [How a
+  not even with `sudo` (except the `nested-containers` template, which needs them). See [How a
   sandbox is isolated](docs/security-model.md).
 - **Your project, not your home:** the project folder is all a sandbox gets from your machine; its
   home directory is a volume of its own. The project's git hooks and config are read-only, so the
@@ -164,7 +164,7 @@ network (internal or routed), limits, and every mount (read-only, writable or hi
 sandbox runs, capabilities, new privileges and seccomp are read inside, from `/proc/1/status`.
 It also lists host sockets mounted into it (an SSH agent, Podman's or Docker's API, X11, D-Bus),
 and, for a sandbox that runs Podman inside, how much its images and containers take and whether
-`sandbox rm` keeps them (it does when they're in the home volume, as with `claude-containers`).
+`sandbox rm` keeps them (it does when they're in the home volume, as with `nested-containers`).
 Warnings follow, e.g. for a sandbox made before 0.5.2 that still has capabilities, or a git repo in a
 `--workspace` whose hooks or config would be writable. It works on any container, e.g. one VS Code
 made, and says first whether it is a sandbox. Podman records the command line only for containers
@@ -179,7 +179,7 @@ size and how to remove it), and `sandbox list --all` lists every such sandbox in
 
 ### The agent: `--agent`
 
-The `claude`, `claude-containers` and `proxy-client` templates come with Claude Code. It isn't part
+The `claude`, `nested-containers` and `proxy-client` templates come with Claude Code. It isn't part
 of the template itself but an agent added to it, so another agent can take its place:
 
 ```sh
@@ -248,7 +248,7 @@ isolated](docs/security-model.md#no-way-to-gain-rights) says how to add them.
 | Template | What you get |
 |---|---|
 | `claude` | Debian trixie (or another base image: `--image`, below), Node.js and Claude Code (Dev Container Features); unrestricted network |
-| `claude-containers` | Like `claude`, plus rootless Podman and `sandbox` inside, for an agent that needs containers of its own, and Python 3 with uv for Python projects. Weakens the sandbox: see [Containers inside a sandbox](docs/containers-inside-a-sandbox.md) |
+| `nested-containers` | Like `claude`, plus rootless Podman and `sandbox` inside, for an agent that needs containers of its own, and Python 3 with uv for Python projects. Weakens the sandbox: see [Containers inside a sandbox](docs/containers-inside-a-sandbox.md) |
 | `mitm-proxy` | [agent-mitm-proxy](https://github.com/EddyPronk/agent-mitm-proxy): an egress proxy with TLS interception and an allowlist (`allowlist.txt` in the sandbox folder; changes apply without a restart). Option `ref`: the agent-mitm-proxy commit to build; `credentialVault` (default `1`): Claude Code's OAuth tokens stay in the proxy's vault, clients hold phantom tokens ([more](docs/behind-the-proxy.md#4-keep-claude-codes-tokens-out-of-the-sandbox)); `clientAuth=1`: each client needs a name and token of its own ([more](docs/behind-the-proxy.md#5-a-name-and-token-per-client)). Its gatekeeper lets an agent ask for a host, and you approve it on Buzz ([more](docs/behind-the-proxy.md#6-approve-hosts-from-your-phone)) |
 | `proxy-client` | Like `claude` (also `--image`), but with no route out: only the proxy's internal network, all HTTP(S) through `http://proxy:8899`, trusting the proxy's CA. With a vault in the proxy, it fetches its credentials file (phantom tokens) when made, so it needs no sign-in. With the proxy's gatekeeper running, Claude Code gets it as an MCP server, to ask for blocked hosts. Option `clientAuth=1`, for a proxy made with it: it enrols itself with the proxy |
 | `offline` | No network at all, only loopback; for running code you don't trust. Debian trixie with `git` and `make`, or another base image with `--image`. No agent: it couldn't reach its API. Tools your code needs come from the image, since nothing can be downloaded later |
@@ -256,7 +256,7 @@ isolated](docs/security-model.md#no-way-to-gain-rights) says how to add them.
 `mitm-proxy` and `proxy-client` work as a pair: [Your project behind the egress
 proxy](docs/behind-the-proxy.md).
 
-In `claude`, `claude-containers` and `proxy-client`, Claude Code trusts the workspace folder from
+In `claude`, `nested-containers` and `proxy-client`, Claude Code trusts the workspace folder from
 the start (`/workspace`, or with `--workspace` the project's own path): it doesn't ask "Do you trust
 this folder?", which a session started without a terminal (such as `claude --remote-control`)
 can't answer. The sandbox is what contains what Claude Code runs there. `--option trustWorkspace=0`

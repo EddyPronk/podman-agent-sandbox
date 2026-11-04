@@ -3,7 +3,9 @@
 # TRUSTWORKSPACE. The static release binary, checked against the SHA-256 of the given version.
 set -eu
 apt-get update
-apt-get install -y --no-install-recommends ca-certificates curl ripgrep
+# bubblewrap: Codex runs the commands it executes in its own Linux sandbox, which needs bwrap
+# (the release tarball has none).
+apt-get install -y --no-install-recommends bubblewrap ca-certificates curl ripgrep
 rm -rf /var/lib/apt/lists/*
 
 case "$(dpkg --print-architecture)" in

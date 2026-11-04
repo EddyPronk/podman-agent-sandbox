@@ -1,12 +1,12 @@
 # Containers inside a sandbox
 
 Some work needs containers: building images, running a project's integration tests, or trying out
-sandboxes themselves. The `claude-containers` template is `claude` plus rootless Podman and the
+sandboxes themselves. The `nested-containers` template is `claude` plus rootless Podman and the
 `sandbox` command inside, so the agent can do that itself. It gives up some of the isolation the
 other templates have ([How a sandbox is isolated](security-model.md)); what, and why, is below.
 
 ```sh
-sandbox new myproject --template claude-containers --workspace ~/workspace/myproject --hide .env
+sandbox new myproject --template nested-containers --workspace ~/workspace/myproject --hide .env
 sandbox enter myproject
 # inside: podman build/run, and sandbox new/enter for sandboxes of its own
 ```
@@ -14,7 +14,7 @@ sandbox enter myproject
 Inside gets the same `sandbox` version as outside (the release of that version, installed when the
 sandbox is made). Containers inside can't get more rights than the sandbox itself has, and the
 `mitm-proxy` and `proxy-client` templates work inside as they do outside, on networks of their own.
-A `claude-containers` sandbox can be made inside another one, e.g. to test a project that itself
+A `nested-containers` sandbox can be made inside another one, e.g. to test a project that itself
 makes sandboxes.
 
 **What it costs.** Rootless Podman inside a rootless container needs four rights the `claude`

@@ -227,7 +227,7 @@ test('audit: an unhardened sandbox gets one warning, a nested-podman one a note'
 
     const nested = audit(info({ BoundingCaps: caps, HostConfig: { NetworkMode: 'pasta', Devices: [{ PathOnHost: '/dev/net/tun' }] } }));
     assert.deepEqual(nested.warnings, []);
-    assert.match(nested.notes[0], /like claude-containers/);
+    assert.match(nested.notes[0], /like nested-containers/);
     assert.equal(row(nested, 'devices'), '/dev/net/tun');
 });
 

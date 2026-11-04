@@ -6,10 +6,10 @@
 #
 # TARBALL is an `npm pack` of this repo, installed globally on the host beforehand (sandbox on PATH).
 # Creates the sandbox `nested` (NESTED=NAME for another name) from the bundled template
-# claude-containers in $SANDBOX_DIR (default ~/sandboxes), installs TARBALL inside it over the
+# nested-containers in $SANDBOX_DIR (default ~/sandboxes), installs TARBALL inside it over the
 # release the template installs, then checks, one line per test (PASS or FAIL):
 #   T1-T6   podman inside: info, run, network, exec, build
-#   T7      node, npm, python3 (Debian's 3.13) and uv in claude-containers
+#   T7      node, npm, python3 (Debian's 3.13) and uv in nested-containers
 #   T8-T12  the sandbox command inside: a nested `claude` sandbox made, entered, its home and USER
 #   T13-T16 a mitm-proxy and a proxy-client sandbox inside: the client's only way out is the
 #           proxy (proxy-network.sh, run inside)
@@ -69,7 +69,7 @@ die() {   # MESSAGE LOGFILE: setting up failed
 command -v sandbox >/dev/null || { echo "nested.sh: no sandbox on PATH; npm install -g $TARBALL first"; exit 99; }
 if [[ ! -d $SANDBOX_DIR/$N ]]; then
     mkdir -p "$SANDBOX_DIR"
-    sandbox new "$N" --template claude-containers >"$LOG/new.log" 2>&1 || die "sandbox new failed" "$LOG/new.log"
+    sandbox new "$N" --template nested-containers >"$LOG/new.log" 2>&1 || die "sandbox new failed" "$LOG/new.log"
 fi
 # enter with no input: builds and starts the container, the shell exits at once, the container stays.
 # Its postCreateCommand installs the released sandbox of this version (if there is one).

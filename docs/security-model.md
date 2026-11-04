@@ -21,7 +21,7 @@ The templates run every sandbox with `--cap-drop=all` and `--security-opt=no-new
 
 Podman's default seccomp profile limits the system calls on top of that.
 
-**The exception is `claude-containers`.** Running Podman inside a sandbox needs some of these rights;
+**The exception is `nested-containers`.** Running Podman inside a sandbox needs some of these rights;
 [Containers inside a sandbox](containers-inside-a-sandbox.md) lists what it gives up and why.
 
 **Sandboxes made before 0.5.2** don't have the two flags. Add `"--cap-drop=all"` and
@@ -57,7 +57,7 @@ them.
 
 ## Network
 
-- **`claude`** (and `claude-containers`): an ordinary rootless network (`pasta`). The Internet, your
+- **`claude`** (and `nested-containers`): an ordinary rootless network (`pasta`). The Internet, your
   LAN and services on your machine are reachable.
 - **`proxy-client`:** only the proxy's internal network, with no route out. All HTTP(S) goes through
   the `mitm-proxy` sandbox, which allows only the hosts in its allowlist; see [Your project behind
