@@ -14,11 +14,12 @@ again; `sandbox --version` shows what you have.
   and the README now say what plain `list` leaves out.
 - **Choose the agent: `sandbox new … --agent codex`** (or `claude-code`, the default, or `none`).
   Claude Code is no longer built into the `claude`, `claude-containers` and `proxy-client`
-  templates: it's an agent the package ships as a Feature, with the auto-updater off and the
+  templates: it is an agent the package ships as a Feature, with the auto-updater off and the
   workspace trusted, and the templates have it by default, so `sandbox new --template claude` gives
-  what it did. `--agent codex` gives OpenAI's Codex CLI instead (tested with `claude`, open network).
-  `--option trustWorkspace=0` still keeps the trust question. Sandboxes made earlier keep Claude
-  Code as they have it.
+  what it did. `--agent codex` gives OpenAI Codex CLI instead (tested in `claude` and
+  `nested-containers`, open network). Its own sandbox (bubblewrap) runs in `nested-containers`, not
+  in `claude` or `proxy-client` (README, "The agent"). `--option trustWorkspace=0` still keeps the
+  trust question. Sandboxes made earlier keep Claude Code as they have it.
 - **`claude-containers` is now `nested-containers`**: containers inside the sandbox, with Claude
   Code by default or another agent (`sandbox new work --template nested-containers --agent codex`).
   The old name still works.

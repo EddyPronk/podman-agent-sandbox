@@ -198,9 +198,16 @@ NAME` and `sandbox enter NAME`.
 
 With `--inplace --template`, the agent goes into the project's own `devcontainer.json`
 (`"./agent/claude-code"` under `features`, its folder next to it), so the config you commit names it;
-`sandbox export` does the same. Codex is tested in `claude` (open network): behind the egress proxy
-it needs its hosts allowed, and its sign-in isn't in the proxy's credential vault, which holds Claude
-Code's.
+`sandbox export` does the same.
+
+Codex runs the commands it executes in a sandbox of its own (bubblewrap, which the agent installs).
+That works in `nested-containers`, which unmasks `/proc` for Podman. In `claude` and `proxy-client`,
+`/proc` stays masked and bubblewrap can't start (`bwrap: Can't mount proc on /proc: Operation not
+permitted`), so Codex can't run commands with its default settings there. Use `nested-containers`,
+or turn Codex's own sandbox off in the sandbox (`sandbox_mode = "danger-full-access"` in
+`~/.codex/config.toml`, or `codex --sandbox danger-full-access`): the container is then what
+contains it, as for Claude Code. Behind the egress proxy Codex also needs its hosts allowed, and its
+sign-in isn't in the proxy's credential vault, which holds Claude Code's.
 
 ### Adding tools: `--feature`
 
