@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { SandboxError } from './devcontainer.js';
 import { isObject } from './json.js';
 import type { JsonObject } from './json.js';
+import { readSettings } from './workspace.js';
 
 /** Where the agent's Feature folder goes, inside .devcontainer. */
 export const AGENT_DIR = 'agent';
@@ -55,8 +56,14 @@ export function extraFeatures(dir: string): JsonObject {
     return { ...recordedFeatures(dir), ...(agent ? { [`./${AGENT_DIR}/${agent}`]: {} } : {}) };
 }
 
-/** The devcontainer options that add DIR's extra Features: [] without any. */
+/**
+ * The devcontainer options that add DIR's extra Features: [] without any, and always [] for an
+ * --inplace sandbox. Its config folder holds the trusted copy of the project's .devcontainer, so an
+ * agent folder or sandbox-features.json there came from the project, and the trust prompt (which
+ * shows devcontainer.json) didn't show them: such a config names its Features itself.
+ */
 export function featureArgs(dir: string): string[] {
+    if (readSettings(dir)?.inplace) return [];
     const features = extraFeatures(dir);
     return Object.keys(features).length ? ['--additional-features', JSON.stringify(features)] : [];
 }

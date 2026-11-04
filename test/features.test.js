@@ -44,6 +44,15 @@ test('featureArgs: the recorded --feature Features and the agent, in one --addit
     assert.deepEqual(JSON.parse(json), { [AWS]: {}, 'ghcr.io/devcontainers/features/python:1': { version: '3.13' }, './agent/codex': {} });
 });
 
+test('featureArgs: nothing for an --inplace sandbox, whose agent folder and sandbox-features.json would be the project\'s', () => {
+    const dir = folder(['codex']);
+    writeFeatures(dir, { [AWS]: {} });
+    writeFileSync(join(dir, 'sandbox.json'), JSON.stringify({ workspace: '/p', inplace: true, configTree: 'x' }));
+    assert.deepEqual(featureArgs(dir), []);
+    writeFileSync(join(dir, 'sandbox.json'), JSON.stringify({ workspace: '/p' }));
+    assert.equal(featureArgs(dir).length, 2, 'a --workspace sandbox without --inplace keeps them');
+});
+
 test('recordedFeatures: a file sandbox new didn\'t write is refused', () => {
     const dir = folder();
     writeFileSync(join(dir, '.devcontainer', 'sandbox-features.json'), '["ghcr.io/x:1"]\n');
