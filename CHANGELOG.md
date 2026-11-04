@@ -22,7 +22,7 @@ again; `sandbox --version` shows what you have.
   trust question. Sandboxes made earlier keep Claude Code as they have it.
 - **`claude-containers` is now `nested-containers`**: containers inside the sandbox, with Claude
   Code by default or another agent (`sandbox new work --template nested-containers --agent codex`).
-  The old name still works.
+  The old name still works. It now has `jq` too.
 - **Add tools with `sandbox new … --feature REF`.** Any published Dev Container Feature, by its
   reference, with options as JSON after `=`; repeatable, e.g. `--feature
   ghcr.io/devcontainers/features/aws-cli:1`. The template stays as it is: the Features are kept in
