@@ -75,8 +75,13 @@ test('export writes the config with the user\'s edits and without this machine\'
         assert.match(readFileSync(join(root, '.devcontainer', 'Containerfile'), 'utf8'), /astral-sh\/uv/, 'so is this one');
         assert.ok(config.mounts.includes('type=bind,source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,readonly'));
         assert.deepEqual(config.customizations['podman-agent-sandbox'],
-            { version: 1, minVersion: '0.7.0', policies: [], seccompAllow: ['sethostname', 'setdomainname'] },
+            { version: 1, agent: 'claude-code', minVersion: '0.7.0', policies: [], seccompAllow: ['sethostname', 'setdomainname'] },
             'the template\'s marker goes along, minVersion included');
+        assert.deepEqual(config.features['./agent/claude-code'], { trustWorkspace: true },
+            'the agent is in the project\'s own config, which an --inplace sandbox goes by');
+        assert.ok(existsSync(join(root, '.devcontainer', 'agent', 'claude-code', 'install.sh')), 'with its folder');
+        assert.ok(!existsSync(join(root, '.devcontainer', 'sandbox-features.json')), 'not the record');
+        assert.match(exported.stdout, /left out: sandbox-features\.json and the agent folder as extra Features \(in devcontainer\.json's features now: \.\/agent\/claude-code\)/);
         assert.ok(!existsSync(join(root, '.devcontainer', 'seccomp.json')), 'generated, not committed');
         assert.ok(!config.runArgs.some((arg) => arg.startsWith('--security-opt=seccomp=')),
             'nor the runArg naming it: the Dev Containers CLI on its own can start the committed config');

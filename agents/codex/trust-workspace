@@ -1,0 +1,22 @@
+#!/bin/sh
+# trust-workspace DIR: records in ~/.codex/config.toml that Codex trusts DIR, as answering its
+# trust question would, so that it starts there without asking. postCreateCommand runs it with the
+# workspace folder when the Feature option trustWorkspace is true (the default).
+# The sandbox is what contains the workspace's code; the question would only repeat that choice.
+# Appends a [projects."DIR"] table unless one is there; not a TOML parser. DIR goes in as a TOML basic
+# string: \ and " escaped; a control character (a newline, say) is refused rather than escaped.
+set -eu
+[ $# -eq 1 ] && [ -n "$1" ] || { echo "usage: trust-workspace DIR" >&2; exit 2; }
+case $1 in
+  *[[:cntrl:]]*) echo "trust-workspace: a folder name with a control character isn't supported" >&2; exit 2 ;;
+esac
+key=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')
+f=$HOME/.codex/config.toml
+mkdir -p "$HOME/.codex"
+if [ -f "$f" ] && grep -qxF "[projects.\"$key\"]" "$f"; then
+  echo "trust-workspace: $f already has $1"
+  exit 0
+fi
+printf '\n[projects."%s"]\ntrust_level = "trusted"\n' "$key" >> "$f"
+chmod 600 "$f"
+echo "trust-workspace: Codex trusts $1"

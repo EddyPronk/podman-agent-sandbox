@@ -12,6 +12,13 @@ again; `sandbox --version` shows what you have.
   from it, which looked as if `new` had failed. `--all` shows those too, after the others, and says
   that `sandbox enter NAME` creates them; `--removed` is refused with a pointer to `--all`. The help
   and the README now say what plain `list` leaves out.
+- **Choose the agent: `sandbox new … --agent codex`** (or `claude-code`, the default, or `none`).
+  Claude Code is no longer built into the `claude`, `claude-containers` and `proxy-client`
+  templates: it's an agent the package ships as a Feature, with the auto-updater off and the
+  workspace trusted, and the templates have it by default, so `sandbox new --template claude` gives
+  what it did. `--agent codex` gives OpenAI's Codex CLI instead (tested with `claude`, open network).
+  `--option trustWorkspace=0` still keeps the trust question. Sandboxes made earlier keep Claude
+  Code as they have it.
 - **Add tools with `sandbox new … --feature REF`.** Any published Dev Container Feature, by its
   reference, with options as JSON after `=`; repeatable, e.g. `--feature
   ghcr.io/devcontainers/features/aws-cli:1`. The template stays as it is: the Features are kept in

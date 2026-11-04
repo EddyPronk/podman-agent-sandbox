@@ -1,7 +1,7 @@
 #!/bin/sh
 # trust-workspace DIR: records in ~/.claude.json that Claude Code may trust DIR, as answering "Yes,
 # I trust this folder" would, so that it starts there without asking. postCreateCommand runs it
-# with the container's workspace folder when the template option trustWorkspace is 1 (the default).
+# with the workspace folder when the Feature option trustWorkspace is true (the default).
 # The sandbox is what contains the workspace's code; the question would only repeat that choice.
 set -eu
 [ $# -eq 1 ] && [ -n "$1" ] || { echo "usage: trust-workspace DIR" >&2; exit 2; }

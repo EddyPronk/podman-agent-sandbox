@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdirSync, mkdtempSync, readFileSync, existsSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, existsSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -413,24 +413,20 @@ test('every bundled template with Node.js pins its major version, not whatever l
     }
 });
 
-test('claude templates: trustWorkspace (default 1) has postCreateCommand trust the workspace folder', () => {
+test('claude templates: Claude Code is their default agent, not part of the template', () => {
     for (const name of ['claude', 'claude-containers', 'proxy-client']) {
-        const command = (given) => {
-            const dest = join(mkdtempSync(join(tmpdir(), 'sandbox-test-')), name);
-            applyTemplate(name, dest, given);
-            assert.ok(existsSync(join(dest, '.devcontainer', 'trust-workspace')), name);
-            const config = JSON.parse(readFileSync(join(dest, '.devcontainer', 'devcontainer.json'), 'utf8'));
-            return config.postCreateCommand;
-        };
-        assert.ok(command({}).endsWith('; [ "1" != 1 ] || trust-workspace "${containerWorkspaceFolder}"'), name);
-        assert.ok(command({ trustWorkspace: '0' }).endsWith('; [ "0" != 1 ] || trust-workspace "${containerWorkspaceFolder}"'), name);
-        assert.throws(() => command({ trustWorkspace: 'yes' }), /option 'trustWorkspace' must be one of 0, 1/);
+        const dir = fileURLToPath(new URL(`../templates/${name}/.devcontainer/`, import.meta.url));
+        const config = JSON.parse(readFileSync(join(dir, 'devcontainer.json'), 'utf8'));
+        assert.equal(config.customizations['podman-agent-sandbox'].agent, 'claude-code', name);
+        assert.ok(!Object.keys(config.features).some((ref) => ref.includes('claude-code')), `${name}: no claude-code Feature`);
+        assert.doesNotMatch(JSON.stringify(config), /trust-workspace|DISABLE_AUTOUPDATER/, name);
+        assert.ok(!existsSync(join(dir, 'trust-workspace')), `${name}: the script is the agent's`);
     }
 });
 
 test('trust-workspace records the folder as trusted in ~/.claude.json, keeping what is there', () => {
     const home = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
-    const script = fileURLToPath(new URL('../templates/claude/.devcontainer/trust-workspace', import.meta.url));
+    const script = fileURLToPath(new URL('../agents/claude-code/trust-workspace', import.meta.url));
     const run = (...args) => spawnSync('sh', [script, ...args], { encoding: 'utf8', env: { ...process.env, HOME: home } });
     const config = () => JSON.parse(readFileSync(join(home, '.claude.json'), 'utf8'));
 
@@ -446,10 +442,6 @@ test('trust-workspace records the folder as trusted in ~/.claude.json, keeping w
     assert.deepEqual(config().projects['/home/u/project'], { allowedTools: ['x'], hasTrustDialogAccepted: true });
 
     assert.equal(run().status, 2, 'no folder: usage');
-    for (const name of ['claude-containers', 'proxy-client']) {
-        const copy = fileURLToPath(new URL(`../templates/${name}/.devcontainer/trust-workspace`, import.meta.url));
-        assert.equal(readFileSync(copy, 'utf8'), readFileSync(script, 'utf8'), `${name}'s copy is the same`);
-    }
 });
 
 test('template metadata without an id, or with malformed options, is refused with a message', () => {
@@ -506,7 +498,7 @@ test('proxy-client: Claude Code gets the gatekeeper when the container is made',
     const dest = join(mkdtempSync(join(tmpdir(), 'sandbox-test-')), 'client');
     applyTemplate('proxy-client', dest, {});
     const config = JSON.parse(readFileSync(join(dest, '.devcontainer', 'devcontainer.json'), 'utf8'));
-    assert.match(config.postCreateCommand, /; proxy-gatekeeper connect \|\| true;/);
+    assert.match(config.postCreateCommand, /; proxy-gatekeeper connect \|\| true$/);
     assert.ok(existsSync(join(dest, '.devcontainer', 'proxy-gatekeeper')));
     assert.match(readFileSync(join(dest, 'CLAUDE.md'), 'utf8'), /request_allowlist/);
 });
@@ -539,4 +531,15 @@ test('proxy-gatekeeper: adds the MCP server only when the gatekeeper answers, an
     assert.equal(again.status, 0);
     assert.match(again.stdout, /already has/);
     assert.doesNotMatch(calls(known), /mcp add/);
+});
+
+test('templates: every file a Containerfile COPYs from its build context is there', () => {
+    for (const id of readdirSync(new URL('../templates/', import.meta.url))) {
+        const dir = fileURLToPath(new URL(`../templates/${id}/.devcontainer/`, import.meta.url));
+        if (!existsSync(join(dir, 'Containerfile'))) continue;
+        for (const line of readFileSync(join(dir, 'Containerfile'), 'utf8').split('\n')) {
+            const copy = line.match(/^COPY\s+(?!--from)(\S+)\s+\S+/);
+            if (copy) assert.ok(existsSync(join(dir, copy[1])), `${id}: COPY ${copy[1]}`);
+        }
+    }
 });

@@ -13,13 +13,8 @@
       "version": "24",
       "nodeGypDependencies": false,
       "pnpmVersion": "none"
-    },
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+    }
   },
-  "overrideFeatureInstallOrder": [
-    "ghcr.io/devcontainers/features/node",
-    "ghcr.io/anthropics/devcontainer-features/claude-code"
-  ],
   "initializeCommand": "podman network exists agent-proxy-net || podman network create --internal agent-proxy-net; sh .devcontainer/proxy-env.sh \"${localWorkspaceFolderBasename}\" \"${templateOption:clientAuth}\"",
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
@@ -36,10 +31,9 @@
     "no_proxy": "localhost,127.0.0.1,proxy",
     "CURL_CA_BUNDLE": "/proxy-ca/ca-cert.pem",
     "NODE_EXTRA_CA_CERTS": "/proxy-ca/ca-cert.pem",
-    "DISABLE_AUTOUPDATER": "1",
     "NVM_SYMLINK_CURRENT": "false"
   },
-  "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/; proxy-credentials fetch || true; proxy-gatekeeper connect || true; [ \"${templateOption:trustWorkspace}\" != 1 ] || trust-workspace \"${containerWorkspaceFolder}\"",
+  "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/; proxy-credentials fetch || true; proxy-gatekeeper connect || true",
   "mounts": [
     "type=volume,source=${localWorkspaceFolderBasename}-home,target=/home/${localEnv:USER},U=true",
     "type=volume,source=agent-proxy-ca,target=/proxy-ca,readonly",
@@ -60,6 +54,7 @@
   "customizations": {
     "podman-agent-sandbox": {
       "version": 1,
+      "agent": "claude-code",
       "policies": []
     }
   }

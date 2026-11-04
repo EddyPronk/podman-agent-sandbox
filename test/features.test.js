@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -94,4 +94,132 @@ test('new --feature: bad values and --inplace are refused before anything is mad
     const inplace = sandbox('new', 'x', '--workspace', tmpdir(), '--inplace', '--feature', AWS);
     assert.equal(inplace.status, 1);
     assert.match(inplace.stderr, /--feature can't go with --inplace yet/);
+});
+
+/** The extra Features recorded for sandbox NAME in DIR, and its agent folder's name (or null). */
+function made(dir, name) {
+    const conf = join(dir, name, '.devcontainer');
+    const file = join(conf, 'sandbox-features.json');
+    return {
+        features: existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null,
+        agent: existsSync(join(conf, 'agent')) ? readdirSync(join(conf, 'agent')) : null,
+    };
+}
+
+test('new: a claude template gets its default agent, claude-code, with trustWorkspace from the template option', () => {
+    const plain = sandbox('new', 'c', '--template', 'claude');
+    assert.equal(plain.status, 0, plain.stderr);
+    assert.match(plain.stdout, /^with agent claude-code \(in \.devcontainer\/agent\/claude-code\)$/m);
+    assert.deepEqual(made(plain.dir, 'c'), { features: { './agent/claude-code': { trustWorkspace: true } }, agent: ['claude-code'] });
+    assert.equal(featureArgs(join(plain.dir, 'c'))[1], '{"./agent/claude-code":{"trustWorkspace":true}}');
+
+    const off = sandbox('new', 'c', '--template', 'proxy-client', '--option', 'trustWorkspace=0');
+    assert.equal(off.status, 0, off.stderr);
+    assert.deepEqual(made(off.dir, 'c').features, { './agent/claude-code': { trustWorkspace: false } });
+});
+
+test('new --agent: another agent, or none; offline has none by default; an unknown one is refused', () => {
+    const codex = sandbox('new', 'x', '--template', 'claude', '--agent', 'codex', '--feature', AWS);
+    assert.equal(codex.status, 0, codex.stderr);
+    assert.deepEqual(made(codex.dir, 'x'), { features: { [AWS]: {}, './agent/codex': { trustWorkspace: true } }, agent: ['codex'] });
+
+    const none = sandbox('new', 'x', '--template', 'claude', '--agent', 'none');
+    assert.equal(none.status, 0, none.stderr);
+    assert.deepEqual(made(none.dir, 'x'), { features: null, agent: null });
+    assert.doesNotMatch(none.stdout, /with agent/);
+
+    const offline = sandbox('new', 'x', '--template', 'offline');
+    assert.deepEqual(made(offline.dir, 'x'), { features: null, agent: null });
+
+    const nope = sandbox('new', 'x', '--template', 'claude', '--agent', 'nope');
+    assert.equal(nope.status, 1);
+    assert.match(nope.stderr, /--agent nope: no such agent; the agents are claude-code, codex, or none/);
+    assert.equal(readdirSync(nope.dir).length, 0, 'nothing made');
+});
+
+test('extraFeatures: a recorded agent whose folder was swapped for another is left out', () => {
+    const dir = folder(['codex']);
+    writeFeatures(dir, { './agent/claude-code': { trustWorkspace: false }, [AWS]: {} });
+    assert.deepEqual(JSON.parse(featureArgs(dir)[1]), { [AWS]: {}, './agent/codex': {} });
+});
+
+test('new --inplace --template: the agent goes into the project\'s own devcontainer.json; plain --inplace refuses --agent', () => {
+    const project = mkdtempSync(join(tmpdir(), 'features-project-'));
+    const result = sandbox('new', 'p', '--workspace', project, '--inplace', '--template', 'claude');
+    assert.equal(result.status, 0, result.stderr);
+    const config = JSON.parse(readFileSync(join(project, '.devcontainer', 'devcontainer.json'), 'utf8'));
+    assert.deepEqual(config.features['./agent/claude-code'], { trustWorkspace: true });
+    assert.ok(existsSync(join(project, '.devcontainer', 'agent', 'claude-code', 'install.sh')));
+    assert.deepEqual(featureArgs(join(result.dir, 'p')), [], 'the sandbox goes by the project\'s config');
+
+    const plain = sandbox('new', 'q', '--workspace', project, '--inplace', '--agent', 'codex');
+    assert.equal(plain.status, 1);
+    assert.match(plain.stderr, /--agent with --inplace needs --template/);
+});
+
+/**
+ * A copy of bundled template NAME in a temp folder, as a template given by path: EDIT(text) changes
+ * its devcontainer.json's text; AGENTS (names from agents/) are put in its .devcontainer/agent.
+ */
+function templateCopy(name, { edit = (text) => text, agents = [] } = {}) {
+    const dir = join(mkdtempSync(join(tmpdir(), 'features-template-')), name);
+    cpSync(fileURLToPath(new URL(`../templates/${name}`, import.meta.url)), dir, { recursive: true });
+    const file = join(dir, '.devcontainer', 'devcontainer.json');
+    writeFileSync(file, edit(readFileSync(file, 'utf8')));
+    for (const agent of agents) {
+        cpSync(fileURLToPath(new URL(`../agents/${agent}`, import.meta.url)), join(dir, '.devcontainer', 'agent', agent), { recursive: true });
+    }
+    return dir;
+}
+const withComment = (text) => text.replace('{\n', '{\n  // a comment: JSONC, as the Dev Containers CLI allows\n');
+const withoutAgent = (text) => text.replace('      "agent": "claude-code",\n', '');
+
+test('new: a template with comments (JSONC) works; its default agent can\'t be read, so it needs --agent', () => {
+    const plain = sandbox('new', 'x', '--template', templateCopy('claude', { edit: (t) => withComment(withoutAgent(t)) }));
+    assert.equal(plain.status, 0, plain.stderr);
+    assert.deepEqual(made(plain.dir, 'x'), { features: null, agent: null });
+
+    const marked = sandbox('new', 'x', '--template', templateCopy('claude', { edit: withComment }));
+    assert.equal(marked.status, 1);
+    assert.match(marked.stderr, /has comments or trailing commas, so sandbox can't read its default agent: give --agent NAME \(or --agent none\)/);
+
+    const given = sandbox('new', 'x', '--template', templateCopy('claude', { edit: withComment }), '--agent', 'codex');
+    assert.equal(given.status, 0, given.stderr);
+    assert.deepEqual(made(given.dir, 'x').agent, ['codex']);
+});
+
+test('new: a template\'s own agent folder gives way when sandbox decides the agent, and stays when it doesn\'t', () => {
+    const own = () => templateCopy('offline', { agents: ['claude-code'] });
+    const none = sandbox('new', 'x', '--template', own(), '--agent', 'none');
+    assert.equal(none.status, 0, none.stderr);
+    assert.deepEqual(made(none.dir, 'x').agent, null, '--agent none: no agent');
+
+    const codex = sandbox('new', 'x', '--template', own(), '--agent', 'codex');
+    assert.equal(codex.status, 0, codex.stderr);
+    assert.deepEqual(made(codex.dir, 'x').agent, ['codex'], '--agent codex: only codex');
+    assert.equal(featureArgs(join(codex.dir, 'x'))[1], '{"./agent/codex":{}}');
+
+    const kept = sandbox('new', 'x', '--template', own());
+    assert.equal(kept.status, 0, kept.stderr);
+    assert.deepEqual(made(kept.dir, 'x').agent, ['claude-code'], 'no --agent, no default: the template\'s own');
+
+    const marked = sandbox('new', 'x', '--template', templateCopy('claude', { agents: ['codex'] }));
+    assert.equal(marked.status, 0, marked.stderr);
+    assert.deepEqual(made(marked.dir, 'x').agent, ['claude-code'], 'the template\'s default replaces a folder it ships too');
+});
+
+test('codex trust-workspace: the path is escaped as a TOML string, written once; a newline is refused', () => {
+    const home = mkdtempSync(join(tmpdir(), 'features-codex-'));
+    const script = fileURLToPath(new URL('../agents/codex/trust-workspace', import.meta.url));
+    const run = (dir) => spawnSync('sh', [script, dir], { encoding: 'utf8', env: { ...process.env, HOME: home } });
+    const config = () => readFileSync(join(home, '.codex', 'config.toml'), 'utf8');
+
+    assert.equal(run('/w/a"b\\c').status, 0);
+    assert.match(config(), /^\[projects\."\/w\/a\\"b\\\\c"\]\ntrust_level = "trusted"$/m);
+    assert.equal(run('/w/a"b\\c').status, 0);
+    assert.equal(config().split('[projects.').length - 1, 1, 'the table once');
+    assert.equal(run('/workspace').status, 0);
+    assert.match(config(), /^\[projects\."\/workspace"\]$/m);
+
+    assert.equal(run('/w/a\nb').status, 2, 'a newline: refused');
 });

@@ -177,6 +177,31 @@ NAME` then shows what's left (the workspace, an `--inplace` config's trust, each
 size and how to remove it), and `sandbox list --all` lists every such sandbox in
 `$SANDBOX_DIR`.
 
+### The agent: `--agent`
+
+The `claude`, `claude-containers` and `proxy-client` templates come with Claude Code. It isn't part
+of the template itself but an agent added to it, so another agent can take its place:
+
+```sh
+sandbox new work --template claude                   # Claude Code (the default)
+sandbox new work --template claude --agent codex     # OpenAI's Codex CLI instead
+sandbox new work --template claude --agent none      # no agent
+```
+
+An agent is a Dev Container Feature the package ships (`agents/claude-code`, `agents/codex`):
+`sandbox new` copies it into `.devcontainer/agent/NAME`, read-only inside the sandbox, and adds it at
+every build. It brings what the agent needs in a sandbox: Claude Code with its auto-updater off; Codex
+as its release binary, checked against a pinned SHA-256; and for both, the workspace folder trusted
+from the start (`--option trustWorkspace=0` keeps the agent's question). To switch the agent of a
+sandbox, replace the folder in `.devcontainer/agent/` with another from the package, then `sandbox rm
+NAME` and `sandbox enter NAME`.
+
+With `--inplace --template`, the agent goes into the project's own `devcontainer.json`
+(`"./agent/claude-code"` under `features`, its folder next to it), so the config you commit names it;
+`sandbox export` does the same. Codex is tested in `claude` (open network): behind the egress proxy
+it needs its hosts allowed, and its sign-in isn't in the proxy's credential vault, which holds Claude
+Code's.
+
 ### Adding tools: `--feature`
 
 `sandbox new NAME --template TEMPLATE --feature REF` adds a published

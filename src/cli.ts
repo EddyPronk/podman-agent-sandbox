@@ -46,6 +46,12 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        you confirm it (--yes: without asking). sandbox keeps
                        the copy you trusted in $SANDBOX_DIR/NAME and runs only
                        that; PATH/.devcontainer is read-only inside
+  sandbox new ... --agent claude-code|codex|none
+                       the coding agent in the sandbox, as a Feature of its own
+                       (.devcontainer/agent/NAME); the claude, claude-containers
+                       and proxy-client templates have claude-code by default.
+                       --option trustWorkspace=0 reaches the agent. With
+                       --inplace, only together with --template
   sandbox new ... --feature REF[=OPTIONS]
                        any of the above but --inplace, with a published Dev
                        Container Feature added (repeatable), e.g. --feature

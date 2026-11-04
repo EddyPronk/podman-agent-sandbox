@@ -13,13 +13,8 @@
       "version": "24",
       "nodeGypDependencies": false,
       "pnpmVersion": "none"
-    },
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+    }
   },
-  "overrideFeatureInstallOrder": [
-    "ghcr.io/devcontainers/features/node",
-    "ghcr.io/anthropics/devcontainer-features/claude-code"
-  ],
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
   "containerUser": "${localEnv:SANDBOX_UID:1000}:${localEnv:SANDBOX_GID:1000}",
@@ -31,10 +26,9 @@
     "LOGNAME": "${localEnv:USER}"
   },
   "containerEnv": {
-    "DISABLE_AUTOUPDATER": "1",
     "NVM_SYMLINK_CURRENT": "false"
   },
-  "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/; [ \"${templateOption:trustWorkspace}\" != 1 ] || trust-workspace \"${containerWorkspaceFolder}\"",
+  "postCreateCommand": "cp -r --update=none /etc/skel/. \"$HOME\"/",
   "mounts": [
     "type=volume,source=${localWorkspaceFolderBasename}-home,target=/home/${localEnv:USER},U=true",
     "type=bind,source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,readonly"
@@ -52,6 +46,7 @@
   "customizations": {
     "podman-agent-sandbox": {
       "version": 1,
+      "agent": "claude-code",
       "policies": []
     }
   }
