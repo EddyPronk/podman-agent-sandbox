@@ -12,7 +12,8 @@ import {
 import type { StagedConfig } from './inplace.js';
 import { table } from './inspect.js';
 import {
-    FEATURES_FILE, checkAgent, chooseAgent, parseFeatureArgs, placeAgent, withFeatures, writeFeatures,
+    FEATURES_FILE, addPolicy, checkAgent, checkPolicy, chooseAgent, parseFeatureArgs, placeAgent, POLICY_DIR, withFeatures,
+    writeFeatures,
 } from './features.js';
 import { SECCOMP_RUN_ARG } from './seccomp.js';
 import { removeRecord, writeRecord } from './state.js';
@@ -40,6 +41,7 @@ interface NewValues {
     vm?: boolean;
     feature?: string[];
     agent?: string;
+    policy?: string;
 }
 
 /** Everything --workspace adds, checked (planWorkspace). HIDE and READONLY are relative to WORKSPACE. */
@@ -68,9 +70,10 @@ export function cmdNew(args: string[]): void {
             vm: { type: 'boolean' },
             feature: { type: 'string', short: 'f', multiple: true },
             agent: { type: 'string', short: 'a' },
+            policy: { type: 'string' },
         },
     });
-    const usage = 'sandbox new NAME --template TEMPLATE [--image IMAGE] [--option KEY=VALUE ...] [--agent AGENT|none] [--feature REF ...] [--vm]\n'
+    const usage = 'sandbox new NAME --template TEMPLATE [--image IMAGE] [--option KEY=VALUE ...] [--agent AGENT|none] [--policy DIR] [--feature REF ...] [--vm]\n'
         + '       sandbox new [NAME] --template TEMPLATE --workspace PATH [--image IMAGE] [--hide PATH ...] [--readonly PATH ...] [--vm]\n'
         + '       sandbox new [NAME] --workspace PATH --inplace [--template TEMPLATE] [--yes] [--hide PATH ...] [--readonly PATH ...] [--vm]';
     const workspace = values.workspace === undefined ? null : resolveWorkspace(values.workspace);
@@ -80,12 +83,16 @@ export function cmdNew(args: string[]): void {
     if (values.feature && values.inplace) {
         throw new SandboxError('--feature can\'t go with --inplace yet: add the Feature to the project\'s devcontainer.json');
     }
+    if (values.policy !== undefined && values.inplace) {
+        throw new SandboxError('--policy can\'t go with --inplace yet: put the policy in the project\'s agent folder');
+    }
     if (values.agent !== undefined && values.inplace && !values.template) {
         throw new SandboxError('--agent with --inplace needs --template: the project\'s own devcontainer.json names its agent');
     }
     // Checked before anything is made.
     const features = parseFeatureArgs(values.feature ?? []);
     checkAgent(values.agent);
+    const policy = checkPolicy(values.policy);
     if (positionals.length > 1 || (positionals.length === 0 && !workspace)) throw new SandboxError(`usage: ${usage}`);
     if (!values.template && !values.inplace) {
         const hint = workspace && hasMarker(workspace)
@@ -114,6 +121,7 @@ export function cmdNew(args: string[]): void {
     const given = withImage(parseOptionArgs(values.option ?? []), values.image);
     const template = applyTemplate(values.template, dest, given);
     let agent: string | null = null;
+    let policyFiles: string[] = [];
     try {
         if (plan) applyWorkspace(dest, plan);
         // The agent: --agent, else the template's default (customizations.podman-agent-sandbox.agent).
@@ -121,6 +129,7 @@ export function cmdNew(args: string[]): void {
         checkAgent(agent ?? undefined);
         const extra = { ...features, ...placeAgent(dest, values.agent, agent, resolveOptions(template, given)) };
         if (Object.keys(extra).length) writeFeatures(dest, extra);
+        if (policy) policyFiles = addPolicy(dest, agent, policy);
         if (values.vm) checkVm(name, readConfig(configFile(dest)), dest);
     } catch (err) {
         rmSync(dest, { recursive: true, force: true });
@@ -136,6 +145,9 @@ export function cmdNew(args: string[]): void {
         console.log(`created ${dest} from template '${values.template}'`);
     }
     if (agent) console.log(`with agent ${agent} (in .devcontainer/agent/${agent})`);
+    if (policyFiles.length) {
+        console.log(`with managed policy ${policyFiles.join(', ')} (in .devcontainer/agent/${agent}/${POLICY_DIR})`);
+    }
     for (const ref of Object.keys(features)) console.log(`with Feature ${ref} (in .devcontainer/${FEATURES_FILE})`);
     console.log(nextStep(name, values.vm));
     warnImage(name, template, given);

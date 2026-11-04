@@ -52,6 +52,11 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        and proxy-client templates have claude-code by default.
                        --option trustWorkspace=0 reaches the agent. With
                        --inplace, only together with --template
+  sandbox new ... --policy DIR
+                       the agent's managed policy (claude-code: CLAUDE.md,
+                       managed-settings.json), copied into
+                       .devcontainer/agent/NAME/policy and mounted read-only
+                       at /etc/claude-code. Not with --inplace
   sandbox new ... --feature REF[=OPTIONS]
                        any of the above but --inplace, with a published Dev
                        Container Feature added (repeatable), e.g. --feature

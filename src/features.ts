@@ -5,8 +5,8 @@
 // The files are the record: .devcontainer is read-only inside the sandbox, so what runs there can't
 // change what the next build runs as root. The Dev Containers CLI takes a local Feature only from
 // inside .devcontainer (not by absolute path), and a published one by its OCI reference.
-import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SandboxError } from './devcontainer.js';
 import { isObject } from './json.js';
@@ -163,6 +163,30 @@ export function addAgent(dest: string, name: string, values: OptionValues, root:
     }
     cpSync(src, join(dest, '.devcontainer', AGENT_DIR, name), { recursive: true });
     return { [agentKey(name)]: options };
+}
+
+/** An agent's managed policy folder, inside its folder; its Feature mounts it read-only (claude-code: /etc/claude-code). */
+export const POLICY_DIR = 'policy';
+
+/** Check sandbox new's --policy value GIVEN (a folder) before anything is made: its absolute path. */
+export function checkPolicy(given: string | undefined): string | undefined {
+    if (given === undefined) return undefined;
+    const dir = resolve(given);
+    if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new SandboxError(`--policy ${given}: no such folder`);
+    return dir;
+}
+
+/**
+ * Copy the files of policy folder SRC into the managed policy folder of AGENT (null: none) in the new
+ * sandbox DEST; returns their names. Refused for no agent, and for an agent whose folder has no
+ * policy/ (its Feature mounts none).
+ */
+export function addPolicy(dest: string, agent: string | null, src: string): string[] {
+    if (agent === null) throw new SandboxError('--policy needs an agent: it is the agent\'s managed policy');
+    const target = join(dest, '.devcontainer', AGENT_DIR, agent, POLICY_DIR);
+    if (!existsSync(target)) throw new SandboxError(`--policy: agent ${agent} has no managed policy folder (${AGENT_DIR}/${agent}/${POLICY_DIR})`);
+    cpSync(src, target, { recursive: true });
+    return readdirSync(src).sort();
 }
 
 /**

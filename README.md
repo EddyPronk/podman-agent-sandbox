@@ -209,6 +209,23 @@ or turn Codex's own sandbox off in the sandbox (`sandbox_mode = "danger-full-acc
 contains it, as for Claude Code. Behind the egress proxy Codex also needs its hosts allowed, and its
 sign-in isn't in the proxy's credential vault, which holds Claude Code's.
 
+#### The agent's managed policy: `--policy`
+
+Claude Code reads a managed policy from `/etc/claude-code`, above every other settings level:
+`CLAUDE.md` (instructions) and `managed-settings.json` (settings, such as permission rules that the
+workspace's own `.claude/` can't loosen). The claude-code agent mounts its folder's `policy/` there,
+read-only, and `--policy DIR` fills it:
+
+```sh
+sandbox new work --template nested-containers --workspace ~/project --policy ~/policies/work
+```
+
+`DIR`'s files are copied into `.devcontainer/agent/claude-code/policy` (next to a README that
+Claude Code ignores). The agent in the sandbox can't change them. To change the policy later, edit
+the files there on the host and restart the sandbox (`podman restart NAME`). Without `--policy`,
+`/etc/claude-code` holds only that README, which hides one the image may have. `--policy` needs an
+agent that has a policy folder; Codex's doesn't have one yet. It isn't available with `--inplace` yet.
+
 ### Adding tools: `--feature`
 
 `sandbox new NAME --template TEMPLATE --feature REF` adds a published
