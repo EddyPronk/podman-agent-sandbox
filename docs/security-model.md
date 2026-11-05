@@ -92,9 +92,12 @@ file can't change while the sandbox runs":
    - Writing a file in place keeps the mount.
    - A hidden *folder* keeps its mount when files in it change; it's lost only if the folder itself
      is replaced.
-   - **`sandbox inspect` doesn't show it:** it lists the mounts the container was made with, and so
-     does `podman inspect`. The `enter` and `exec` check doesn't see it either. Only
-     `/proc/self/mountinfo` inside lists the mounts that are really there.
+   - **`podman inspect` doesn't show it:** it lists the mounts the container was made with. Only
+     `/proc/self/mountinfo` inside lists the mounts that are really there. While the sandbox runs,
+     `sandbox inspect` reads it too. It warns about a mount podman lists that isn't there.
+     `enter` and `exec` read it too, and refuse to run while a protected path has lost its mount
+     (since 0.10.0). They check only when you run them, so a mount lost during a session goes
+     unnoticed until then.
    - `podman restart NAME` (or `sandbox stop` and `enter`) puts the mounts back, **on the files as
      they are then**. If the agent changed one in between, the change stays. Look at it first.
 2. **From inside, a protected path can't be moved or removed, but the folder around it can.**

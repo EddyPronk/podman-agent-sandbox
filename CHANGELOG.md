@@ -38,11 +38,15 @@ again; `sandbox --version` shows what you have.
   `"policies": ["git-readonly", "no-vm"]`. A template or a project's own config can list
   `git-readonly` itself. With `--inplace`, `--policy` needs `--template`; otherwise the project's
   config lists its policies.
+- **`enter`, `exec` and `inspect` look at the mounts really there** while the sandbox runs (its
+  `/proc/1/mountinfo`), not only at podman's record, which keeps listing a mount the kernel dropped
+  or that moved. `enter` and `exec` refuse while a protected path has lost its mount, and say that
+  a restart brings it back. `inspect` warns about each mount podman lists that isn't there.
 - **The limits of the read-only and hidden paths are documented** (docs/security-model.md, "Where a
   mount's protection ends"). Git's hooks and config, `--readonly` and `--hide` are mounts on single
   paths, and can be got around:
   - a program on your machine replacing the file (an atomic save; `git config` and `git branch`
-    rewrite `.git/config`) drops the mount in the sandbox, which `sandbox inspect` doesn't show;
+    rewrite `.git/config`) drops the mount in the sandbox, which `podman inspect` doesn't show;
   - the agent can move the folder around a protected path away, `.git` included, and make it again;
   - the agent can redirect git with `.git/commondir`;
   - repositories made after `sandbox new` aren't covered.

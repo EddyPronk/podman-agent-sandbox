@@ -36,8 +36,9 @@ sandbox enter myproject
   mounted.
 - **`sandbox enter` checks this again** before it starts: a repo added since `sandbox new` is
   reported, and the sandbox has to be made again (`sandbox rm`, remove its folder, `sandbox new`).
-  It compares with the mounts the container was made with, so it doesn't see a mount the sandbox
-  lost when a file was replaced on your machine (`podman restart NAME` brings those back).
+  While the sandbox runs, it compares with the mounts really there inside, so it also catches a
+  mount lost when a file was replaced on your machine. `sandbox stop NAME` and `enter` bring those
+  back, on the files as they are then: look at them first.
 - **What isn't protected: your secrets.** The agent can read and change everything else in the
   project. `--hide PATH` (relative to the project) hides a file (it reads as empty) or a folder (an
   empty one in its place); `--readonly PATH` makes a path read-only. Neither can be added later:

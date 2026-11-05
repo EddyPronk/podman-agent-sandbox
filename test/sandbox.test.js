@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -98,7 +98,7 @@ function run(containers, ...args) {
  * state.js), whose folder is $SANDBOX_DIR/NAME; IMAGES ({ name: ID }) for podman image inspect. Also
  * returns sandboxDir.
  */
-function runWith({ folders = [], records = {}, images = {} }, containers, ...args) {
+function runWith({ folders = [], records = {}, images = {}, setup = () => {} }, containers, ...args) {
     const dir = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
     const stateFile = join(dir, 'state.json');
     const log = join(dir, 'podman.log');
@@ -113,6 +113,7 @@ function runWith({ folders = [], records = {}, images = {} }, containers, ...arg
     for (const [name, kind] of Object.entries(records)) {
         writeFileSync(join(dir, 'sandboxes', '.state', `${name}.json`), JSON.stringify({ kind, folder: join(dir, 'sandboxes', name) }));
     }
+    setup(join(dir, 'sandboxes'));
     const result = spawnSync(process.execPath, [SANDBOX, ...args], {
         encoding: 'utf8',
         env: { ...process.env, PATH: `${FAKE}:${process.env.PATH}`, SANDBOX_DIR: join(dir, 'sandboxes'), FAKE_PODMAN_STATE: stateFile, FAKE_PODMAN_LOG: log },
@@ -372,4 +373,45 @@ test('parseConfiguration: the merged configuration and the workspace folder; out
         assert.throws(() => parseConfiguration(JSON.stringify(out), '/d'),
             /read-configuration gave output sandbox doesn't expect for \/d: no configuration/, JSON.stringify(out));
     }
+});
+
+/** One /proc/PID/mountinfo line for a mount at TARGET (OPTS: rw or ro). */
+const mountinfoLine = (id, target, opts) => `${id} 1 0:${id} / ${target.replace(/ /g, '\\040')} ${opts},relatime - ext4 /dev/sda1 rw`;
+
+test('exec checks the live mounts: a repo folder moved inside (mv foo foo.old; cp -a) is refused as lost', () => {
+    const ws = realpathSync(mkdtempSync(join(tmpdir(), 'sandbox-ws-')));
+    // After the attack: foo.old holds the moved mounts, foo is the agent's copy.
+    for (const repo of ['foo', 'foo.old']) mkdirSync(join(ws, repo, '.git', 'hooks'), { recursive: true });
+    const setup = (sandboxes) => {
+        const dir = join(sandboxes, 'x');
+        mkdirSync(join(dir, '.devcontainer'), { recursive: true });
+        writeFileSync(join(dir, 'sandbox.json'), JSON.stringify({ workspace: ws, hide: [], readonly: [] }));
+        writeFileSync(join(dir, '.devcontainer', 'devcontainer.json'), JSON.stringify({
+            customizations: { 'podman-agent-sandbox': { policies: ['git-readonly'] } } }));
+    };
+    const bind = (path, rw) => ({ Type: 'bind', Source: path, Destination: path, RW: rw });
+    // Podman's record: as made, before foo.old existed.
+    const recorded = { Mounts: [bind(ws, true), bind(join(ws, 'foo'), true), bind(join(ws, 'foo', '.git'), false)] };
+    const box = (mountinfo) => ({ ...sandbox('x', 'running'), ...recorded, Mountinfo: mountinfo });
+    const moved = [mountinfoLine(30, '/', 'rw'), mountinfoLine(31, ws, 'rw'), mountinfoLine(32, join(ws, 'foo.old'), 'rw'),
+        mountinfoLine(33, join(ws, 'foo.old', '.git'), 'ro')].join('\n');
+
+    const result = runWith({ setup }, [box(`${moved}\n`)], 'exec', 'x', 'true');
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /these aren't protected inside x/);
+    assert.match(result.stderr, new RegExp(`  ${ws}/foo \\(could be moved away with the \\.git in it\\)\n  ${ws}/foo/\\.git \\(writable\\)\n`));
+    assert.doesNotMatch(result.stderr, /foo\.old/, 'what moved is still mounted read-only: not listed');
+    assert.match(result.stderr, /Lost while x ran: .*Podman still lists them.*'sandbox stop x'.*not with git/s);
+    assert.doesNotMatch(result.stderr, /Make the sandbox again/, 'a restart is enough');
+    assert.deepEqual(changes(result.calls), [], 'not started');
+
+    // The same record with all its mounts there: the check passes (the fake can't run the command itself).
+    for (const repo of ['foo.old']) rmSync(join(ws, repo), { recursive: true });
+    const intact = [mountinfoLine(30, '/', 'rw'), mountinfoLine(31, ws, 'rw'), mountinfoLine(32, join(ws, 'foo'), 'rw'),
+        mountinfoLine(33, join(ws, 'foo', '.git'), 'ro')].join('\n');
+    const ok = runWith({ setup }, [box(`${intact}\n`)], 'exec', 'x', 'true');
+    assert.doesNotMatch(ok.stderr, /aren't protected/);
+    // Without mountinfo (it can't be read): podman's record counts, as before.
+    const unread = runWith({ setup }, [{ ...sandbox('x', 'running'), ...recorded }], 'exec', 'x', 'true');
+    assert.doesNotMatch(unread.stderr, /aren't protected/);
 });

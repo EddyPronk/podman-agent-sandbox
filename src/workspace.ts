@@ -323,6 +323,27 @@ export interface MountView {
     targets: string[];
 }
 
+/**
+ * MountView of a /proc/PID/mountinfo: the mounts that are really there. Podman's record (mountView)
+ * keeps a mount the kernel dropped when the host replaced its file, and shows a moved one at its old
+ * path (docs/security-model.md, "Where a mount's protection ends"). Where mounts are stacked, the
+ * last line for a mount point is the one on top, and it decides read-only.
+ */
+export function parseMountinfo(text: string): MountView {
+    // Mount points escape space, tab, newline and backslash as octal.
+    const unescape = (s: string) => s.replace(/\\([0-7]{3})/g, (_, oct: string) => String.fromCharCode(parseInt(oct, 8)));
+    const top = new Map<string, boolean>();
+    for (const line of text.split('\n')) {
+        const fields = line.split(' ');
+        if (fields.length < 6) continue;
+        const target = unescape(fields[4]);
+        top.delete(target);   // keep the order of the top ones
+        top.set(target, fields[5].split(',').includes('ro'));
+    }
+    const targets = [...top.keys()];
+    return { readonly: targets.filter((t) => top.get(t)), targets };
+}
+
 /** MountView of a `podman inspect` Mounts list. */
 export function mountView(mounts: { Destination: string; RW: boolean }[]): MountView {
     return { readonly: mounts.filter((m) => !m.RW).map((m) => m.Destination), targets: mounts.map((m) => m.Destination) };

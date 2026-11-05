@@ -7,11 +7,12 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
     CONFIG_MOUNT, applyWorkspace, findGitDirs, findSecretFiles, gitAnchors, mountTargets, readConfig, readonlyTargets,
-    readSettings, realConfigDir, resolveWorkspace, uncoveredGitPaths, uncoveredInSandbox, uncoveredWhy, workspaceMounts,
+    parseMountinfo, readSettings, realConfigDir, resolveWorkspace, uncoveredGitPaths, uncoveredInSandbox, uncoveredWhy, workspaceMounts,
     workspacePath,
 } from '../dist/workspace.js';
 import { parsePolicies } from '../dist/templates.js';
 import { vmPolicy } from '../dist/vm.js';
+import { lostMounts } from '../dist/container.js';
 
 const SANDBOX = fileURLToPath(new URL('../bin/sandbox.js', import.meta.url));
 
@@ -509,4 +510,26 @@ test('readConfig and readonlyTargets take null mounts as none, as the Dev Contai
     writeFileSync(file, '{"image": "x", "mounts": null}');
     assert.deepEqual(readConfig(file), { image: 'x', mounts: null });
     assert.deepEqual(readonlyTargets(null), []);
+});
+
+test('parseMountinfo: the mounts really there; the top one of a stack decides read-only; escaped names', () => {
+    const text = [
+        '30 1 0:30 / / rw,relatime - overlay overlay rw',
+        '31 30 8:1 /w /w rw,relatime - ext4 /dev/sda1 rw',
+        '32 31 8:1 /w/.git /w/.git ro,relatime - ext4 /dev/sda1 rw',
+        '33 31 8:1 /w/a\\040b /w/a\\040b rw,relatime - ext4 /dev/sda1 rw',
+        '34 31 8:1 /w/x /w/x ro - ext4 /dev/sda1 rw',
+        '35 34 8:1 /w/x /w/x rw - ext4 /dev/sda1 rw',
+        '',
+    ].join('\n');
+    assert.deepEqual(parseMountinfo(text), { readonly: ['/w/.git'], targets: ['/', '/w', '/w/.git', '/w/a b', '/w/x'] });
+});
+
+test('lostMounts: a recorded mount missing inside, or writable though made read-only', () => {
+    const live = { readonly: ['/w/.git'], targets: ['/w', '/w/.git', '/w/cfg'] };
+    const warnings = lostMounts([{ Destination: '/w', RW: true }, { Destination: '/w/.git', RW: false },
+        { Destination: '/w/foo/.git', RW: false }, { Destination: '/w/cfg', RW: false }], live);
+    assert.equal(warnings.length, 2);
+    assert.match(warnings[0], /podman lists a mount at \/w\/foo\/\.git, but it isn't there inside/);
+    assert.match(warnings[1], /podman made \/w\/cfg read-only, but inside it's writable now/);
 });

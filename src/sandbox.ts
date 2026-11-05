@@ -457,7 +457,7 @@ export class Sandbox {
         const inplace = checkTrusted(name, dir);
         if (inplace && !container.exists) writeEffective(dir, inplace);
         if (!container.exists) checkConfigVersion(dir);
-        checkWorkspace(name, dir, container.exists ? container.mountView() : null);
+        checkWorkspace(name, dir, container.exists ? container.mountView() : null, () => container.liveMountView());
         container.start();
         this.reload();
     }
@@ -664,18 +664,33 @@ function checkConfigVersion(dir: string): void {
  * For a sandbox made with --workspace: refuse to start if a git repo in the workspace would have
  * writable hooks or config inside (or, with git-readonly, a folder above a .git that could be moved).
  * Repos get added or moved after the sandbox was made. A container (or VM) keeps the mounts it was
- * created with, so check those (CONTAINER) when it exists, else (null) the config.
+ * created with, so check those (CONTAINER) when it exists, else (null) the config. LIVE_MOUNTS gives
+ * the mounts really there while it runs (Container.liveMountView); they count over CONTAINER, and what CONTAINER
+ * covers but LIVE doesn't was lost while it ran (the host replaced or moved a protected path, or a
+ * folder above one was moved inside).
  */
-function checkWorkspace(name: string, dir: string, container: MountView | null): void {
+function checkWorkspace(name: string, dir: string, container: MountView | null,
+    liveMounts: () => MountView | null = () => null): void {
     const settings = readSettings(dir);
     if (!settings) return;
-    const missing = uncoveredInSandbox(dir, container);
+    const live = liveMounts();
+    const missing = uncoveredInSandbox(dir, live ?? container);
     if (missing.length === 0) return;
-    const redo = container ? `sandbox rm ${name}; ` : '';
+    const neverCovered = live ? uncoveredInSandbox(dir, container) : missing;
+    const lost = missing.filter((path) => !neverCovered.includes(path));
+    let how = '';
+    if (lost.length) {
+        how += `Lost while ${name} ran: ${lost.join(', ')}. Podman still lists them, but they aren't mounted inside.\n`
+            + `'sandbox stop ${name}' and enter again mounts them on what is there then, so first look at those .git\n`
+            + 'folders as files (hooks, config, commondir), not with git, which runs what they name.\n';
+    }
+    if (missing.some((path) => !lost.includes(path))) {
+        const redo = container ? `sandbox rm ${name}; ` : '';
+        how += `Make the sandbox again (the options are in ${join(dir, 'sandbox.json')}):\n`
+            + `  ${redo}rm -r ${dir}; sandbox new ${name} --template ... --workspace ${settings.workspace} ...\n`;
+    }
     throw new SandboxError(`these aren't protected inside ${name}, and git on the host runs what a .git names:\n`
-        + missing.map((path) => `  ${path}${uncoveredWhy(path)}\n`).join('')
-        + `Make the sandbox again (the options are in ${join(dir, 'sandbox.json')}):\n`
-        + `  ${redo}rm -r ${dir}; sandbox new ${name} --template ... --workspace ${settings.workspace} ...`);
+        + missing.map((path) => `  ${path}${uncoveredWhy(path)}\n`).join('') + how.trimEnd());
 }
 
 /**
