@@ -24,6 +24,8 @@
 #   V9   a --workspace sandbox (a git repo, --hide of a file and a folder) in a VM: .git/hooks and
 #        .git/config read-only, hidden paths empty, as the user and as guest root if the image has sudo;
 #        a repo added after the VM was made: enter --vm refuses
+#   V14  --policy git-readonly in a VM: every .git read-only, and the folders above a nested repo
+#        (bound onto themselves in the container the VM is made from) can't be moved; writing works
 #   V10  a claude-template sandbox in a VM: Claude Code runs
 #   V11  nested-containers (custom seccomp profile on the VM's host process): the VM starts, or the
 #        failure removes it (R5); NOTE says which
@@ -41,12 +43,12 @@ command -v krun > /dev/null && krun --version | grep -q LIBKRUN || { echo "vm.sh
 REPO=$(cd "$(dirname "$0")/../.." && pwd -P)
 export SB=${SANDBOX:-node $REPO/bin/sandbox.js}
 export SANDBOX_DIR=${SANDBOX_DIR:-$HOME/sandboxes-vm-test}
-export WS=$SANDBOX_DIR-project
+export WS=$SANDBOX_DIR-project WG=$SANDBOX_DIR-gro-project
 LOG=${1:-$PWD/vm-test-logs}
 mkdir -p "$LOG" "$SANDBOX_DIR"
 export LOG=$(cd "$LOG" && pwd -P)
 export HOST_KERNEL=$(uname -r)
-NAMES=(v1 v6 v7 vp vp2 vw vc vcc vx vx-vm v13)
+NAMES=(v1 v6 v7 vp vp2 vw vg vc vcc vx vx-vm v13)
 failed=0
 
 run() {   # NAME COMMAND: run COMMAND, report
@@ -86,7 +88,7 @@ cleanup() {
         # The images the Dev Containers CLI built for it (1-2 GB each for claude and nested-containers).
         podman images --format '{{.Repository}}' | grep -E "^localhost/vsc-$n-[0-9a-f]{64}$" | xargs -r podman rmi > /dev/null 2>&1
     done
-    rm -rf "$SANDBOX_DIR" "$WS"
+    rm -rf "$SANDBOX_DIR" "$WS" "$WG"
 }
 cleanup
 mkdir -p "$SANDBOX_DIR"
@@ -201,7 +203,20 @@ run "V9 a --workspace sandbox in a VM: .git read-only, hidden paths empty; a rep
     echo "$out" | grep -q NO-SUDO && echo "note: no sudo in the image; guest root not tried" || true
     mkdir -p "$WS/sub"; git -C "$WS/sub" init -q
     out=$(vm vw "exit\n" 2>&1) && { echo "ran with an unprotected repo"; exit 1; }
-    echo "$out" | grep -q "aren't protected inside vw"'
+    echo "$out" | grep -q "protected inside vw, and git on the host"'
+
+run "V14 --policy git-readonly in a VM: every .git read-only, the folders above a nested repo can't be moved" '
+    set -e
+    rm -rf "$WG"; mkdir -p "$WG/libs/nested"; git -C "$WG" init -q; git -C "$WG/libs/nested" init -q
+    $SB new vg --template offline --workspace "$WG" --policy git-readonly
+    probe="cd $WG; for p in .git/x libs/nested/.git/x; do touch \$p 2>/dev/null && echo WRITABLE:\$p; done"
+    probe="$probe; for p in libs libs/nested .git; do mv \$p \$p.old 2>/dev/null && echo MOVED:\$p; done"
+    probe="$probe; echo x > libs/nested/f && rm libs/nested/f && echo WRITE-OK"
+    out=$(vm vg "$probe\nexit\n")
+    echo "$out"
+    ! echo "$out" | grep -q "WRITABLE\|MOVED"
+    echo "$out" | grep -q WRITE-OK
+    [ -d "$WG/libs/nested/.git" ] && [ ! -e "$WG/libs.old" ] && [ ! -e "$WG/.git/x" ] && [ ! -e "$WG/libs/nested/.git/x" ]'
 
 run "V10 a claude-template sandbox in a VM: Claude Code runs" '
     set -e
