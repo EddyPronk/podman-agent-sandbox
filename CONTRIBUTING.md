@@ -51,6 +51,25 @@ npm install -g --ignore-scripts ~/podman-agent-sandbox-X.Y.Z.tgz
 - **`--ignore-scripts`:** the package needs no install scripts, so none of its dependencies' run.
 - **`enter` and `exec` may refuse a sandbox made with another build,** when the protections it should
   have changed in between. Make it again: `sandbox rm NAME`, move its folder aside, `sandbox new`.
+- **A `nested-containers` sandbox warns when it's made, and that's expected.** Its
+  `postCreateCommand` installs the same `sandbox` version inside, from the GitHub release, and an
+  unreleased version has none. You get npm's `E404` for
+  `…/releases/download/vX.Y.Z/podman-agent-sandbox-X.Y.Z.tgz`, then:
+
+  ```
+  sandbox: warning: could not install sandbox X.Y.Z inside (not released?); install it there by hand
+  ```
+
+  The sandbox itself is made (`"outcome":"success"`). Install the same tarball inside. Put it where
+  the sandbox can read it: in the project, which a `--workspace` sandbox mounts at the same path
+  (other sandboxes, at `/workspace`).
+
+  ```sh
+  sandbox exec NAME sh -lc 'npm install -g --ignore-scripts --prefix ~/.local /path/in/project/podman-agent-sandbox-X.Y.Z.tgz'
+  ```
+
+  `~/.local/bin` is on the login shell's PATH inside, so `sandbox enter` finds it. A plain `sh -c`
+  doesn't load that PATH.
 
 ## Tests
 
