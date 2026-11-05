@@ -24,13 +24,16 @@ sandbox enter myproject
   `.git` away, together with the read-only parts, and make a new one, or write `.git/commondir`. And
   when git on your machine rewrites `.git/config` (`git config`, `git branch`, `git push -u`), the
   sandbox loses that mount. See [Where a mount's protection ends](security-model.md#where-a-mounts-protection-ends).
-- **`--policy git-readonly`** makes every repo's whole `.git` read-only instead. That closes the
-  ways above, for the repos there are at `sandbox new`. Git inside can then only read (`status`,
+- **`--policy git-readonly`** makes every repo's whole `.git` read-only instead. Each folder
+  between the project and a `.git` is also mounted onto itself, so the agent can't move a repo away
+  with its read-only `.git` and copy it back writable. That closes the ways above, for the repos
+  there are at `sandbox new`. Git inside can then only read (`status`,
   `log`, `diff`); `add`, `commit`, `branch` and `checkout` fail. Use it when the commits are made
   outside the sandbox. `--policy` writes it into the sandbox's `devcontainer.json`, in
   `"customizations": {"podman-agent-sandbox": {"policies": ["git-readonly"]}}`, where a template of
   your own or a project's config ([A project's own sandbox config](project-config.md)) can list it
-  too. The `enter` check then wants each `.git` read-only as a whole.
+  too. The `enter` check then wants each `.git` read-only as a whole, and the folders above it
+  mounted.
 - **`sandbox enter` checks this again** before it starts: a repo added since `sandbox new` is
   reported, and the sandbox has to be made again (`sandbox rm`, remove its folder, `sandbox new`).
   It compares with the mounts the container was made with, so it doesn't see a mount the sandbox

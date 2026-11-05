@@ -6,8 +6,9 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
-    CONFIG_MOUNT, applyWorkspace, findGitDirs, findSecretFiles, readConfig, readonlyTargets, readSettings,
-    realConfigDir, resolveWorkspace, uncoveredGitPaths, uncoveredInSandbox, workspaceMounts, workspacePath,
+    CONFIG_MOUNT, applyWorkspace, findGitDirs, findSecretFiles, gitAnchors, mountTargets, readConfig, readonlyTargets,
+    readSettings, realConfigDir, resolveWorkspace, uncoveredGitPaths, uncoveredInSandbox, uncoveredWhy, workspaceMounts,
+    workspacePath,
 } from '../dist/workspace.js';
 import { parsePolicies } from '../dist/templates.js';
 import { vmPolicy } from '../dist/vm.js';
@@ -182,10 +183,36 @@ test('git-readonly: the whole .git is the protected path, and hooks and config a
     const nested = join(root, 'libs', 'nested');
     const mounts = workspaceMounts({ workspace: root, gitDirs: findGitDirs(root), policies: ['git-readonly'] });
     const ro = (p) => `type=bind,source=${p},target=${p},readonly`;
-    assert.deepEqual(mounts, [ro(join(root, '.git')), ro(join(nested, '.git'))]);
+    const self = (p) => `type=bind,source=${p},target=${p}`;
+    // The folders above the nested .git are bound onto themselves (outer first), so they can't be moved.
+    assert.deepEqual(mounts, [ro(join(root, '.git')), self(join(root, 'libs')), self(nested), ro(join(nested, '.git'))]);
     const gitDirs = ['/p/.git'];
     assert.deepEqual(uncoveredGitPaths(gitDirs, ['/p/.git/hooks', '/p/.git/config'], ['git-readonly']), ['/p/.git']);
     assert.deepEqual(uncoveredGitPaths(gitDirs, ['/p/.git'], ['git-readonly']), []);
+});
+
+test('gitAnchors: the folders from each repo up to the workspace, not the workspace, not in a read-only one', () => {
+    const gitDirs = ['/w/.git', '/w/foo/.git', '/w/lab/30/deep/.git', '/w/lab/other/.git', '/w/ro/x/.git'];
+    assert.deepEqual(gitAnchors('/w', gitDirs),
+        ['/w/foo', '/w/lab', '/w/lab/30', '/w/lab/30/deep', '/w/lab/other', '/w/ro', '/w/ro/x']);
+    assert.deepEqual(gitAnchors('/w', gitDirs, ['/w/ro', '/w/lab/30']),
+        ['/w/foo', '/w/lab', '/w/lab/other'], 'a read-only folder can\'t be renamed, nor what is in it');
+    assert.deepEqual(gitAnchors('/w', ['/w/.git']), [], 'a repo at the root needs none: the workspace is a mount point');
+});
+
+test('git-readonly: a --readonly folder above a repo stays read-only (no read-write self-bind over it)', () => {
+    const root = project();
+    const libs = join(root, 'libs');
+    const mounts = workspaceMounts({ workspace: root, readonly: [libs], gitDirs: findGitDirs(root), policies: ['git-readonly'] });
+    assert.ok(!mounts.some((m) => m.startsWith(`type=bind,source=${libs}`) && !m.endsWith(',readonly')), mounts.join('\n'));
+    assert.deepEqual(mountTargets(mounts).filter((t) => !t.includes('.git')), [libs]);
+});
+
+test('uncoveredWhy tells a writable git path from a movable folder', () => {
+    assert.equal(uncoveredWhy('/w/foo/.git'), ' (writable)');
+    assert.equal(uncoveredWhy('/w/foo/.git/hooks'), ' (writable)');
+    assert.equal(uncoveredWhy('/w/foo'), ' (could be moved away with the .git in it)');
+    assert.equal(uncoveredWhy('/w/foo.git'), ' (could be moved away with the .git in it)');
 });
 
 test('parsePolicies: names, comma-separated or repeated; unknown and empty ones refused', () => {
@@ -359,8 +386,9 @@ test('the enter check: a repo added later is caught, in the config and in the co
     // An existing container keeps its mounts: those count, not the config.
     const containerMounts = readonlyTargets(JSON.parse(
         readFileSync(join(configDir, '.devcontainer', 'devcontainer.json'), 'utf8')).mounts);
-    assert.deepEqual(uncoveredInSandbox(configDir, [...containerMounts, ...added]), []);
-    assert.equal(uncoveredInSandbox(configDir, []).length, 6);
+    const view = (readonly) => ({ readonly, targets: readonly });
+    assert.deepEqual(uncoveredInSandbox(configDir, view([...containerMounts, ...added])), []);
+    assert.equal(uncoveredInSandbox(configDir, view([])).length, 6);
 });
 
 test('sandbox new --workspace --policy git-readonly: in the config\'s policies, every .git read-only, checked by enter', () => {
@@ -378,12 +406,21 @@ test('sandbox new --workspace --policy git-readonly: in the config\'s policies, 
     assert.match(result.stdout, /read-only inside: 2 git repos' \.git \(policy git-readonly\)/);
     assert.deepEqual(uncoveredInSandbox(configDir, null), []);
 
+    const libs = join(root, 'libs');
+    const nested = join(libs, 'nested');
+    assert.ok(config.mounts.includes(`type=bind,source=${libs},target=${libs}`), 'the folders above a nested .git: self-binds');
+    assert.ok(config.mounts.includes(`type=bind,source=${nested},target=${nested}`));
+
     // A container with only hooks and config read-only doesn't satisfy the policy.
     const partial = [join(root, '.git', 'hooks'), join(root, '.git', 'config'),
-        join(root, 'libs', 'nested', '.git', 'hooks'), join(root, 'libs', 'nested', '.git', 'config')];
-    assert.deepEqual(uncoveredInSandbox(configDir, partial).sort(), [join(root, '.git'), join(root, 'libs', 'nested', '.git')]);
+        join(nested, '.git', 'hooks'), join(nested, '.git', 'config')];
+    assert.deepEqual(uncoveredInSandbox(configDir, { readonly: partial, targets: [...partial, libs, nested] }),
+        [join(root, '.git'), join(nested, '.git')]);
+    // One made before the self-binds (0.10.0's first cut): every .git read-only, but libs/nested could be moved.
+    const gitOnly = [join(root, '.git'), join(nested, '.git')];
+    assert.deepEqual(uncoveredInSandbox(configDir, { readonly: gitOnly, targets: gitOnly }), [libs, nested]);
     gitRepo(join(root, 'added'));
-    assert.deepEqual(uncoveredInSandbox(configDir, null), [join(root, 'added', '.git')]);
+    assert.deepEqual(uncoveredInSandbox(configDir, null), [join(root, 'added'), join(root, 'added', '.git')]);
 });
 
 test('sandbox new --policy: git-readonly needs --workspace, --inplace needs --template, unknown names refused; nothing made', () => {

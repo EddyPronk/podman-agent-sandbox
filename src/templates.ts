@@ -46,7 +46,8 @@ export function markerOf(config: unknown): JsonObject | undefined {
  * The policies this sandbox can apply, as a config lists them in its marker's "policies", and as
  * `sandbox new --policy` writes them there:
  * - git-readonly: with --workspace, every repo's whole .git read-only, not only its hooks and config
- *   (workspace.ts gitProtectedPaths). Git inside can then read but not commit, stage or switch
+ *   (workspace.ts gitProtectedPaths), and the folders above it bound onto themselves, so they can't
+ *   be moved away with it (gitAnchors). Git inside can then read but not commit, stage or switch
  *   branches. It closes what hooks and config alone leave open (docs/security-model.md, "Where a
  *   mount's protection ends"). Without --workspace there is no project git to protect.
  * - no-vm: the config can't run as a VM (sandbox enter --vm refuses it; vm.ts).

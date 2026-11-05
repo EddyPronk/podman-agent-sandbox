@@ -11,7 +11,8 @@ import {
     parseVscodeProbe, podmanStorageRows, splitCommand, table, writableConfig,
 } from './inspect.js';
 import type { PodmanInfo, PodmanStorage, ProcStatus, Row, VscodeProbe } from './inspect.js';
-import { uncoveredInSandbox } from './workspace.js';
+import { mountView, uncoveredInSandbox } from './workspace.js';
+import type { MountView } from './workspace.js';
 
 export type { PodmanInfo } from './inspect.js';
 
@@ -90,9 +91,9 @@ export class Container {
         return { reason, hint: reason ? '' : unlabelledHint({ folder: this.folder }) };
     }
 
-    /** Destinations of its read-only mounts. */
-    readonlyMounts(): string[] {
-        return (this.info?.Mounts ?? []).filter((m) => !m.RW).map((m) => m.Destination);
+    /** Its mounts' destinations, read-only ones and all, for the enter check. */
+    mountView(): MountView {
+        return mountView(this.info?.Mounts ?? []);
     }
 
     /** Names of the volumes it mounts. */
@@ -232,7 +233,7 @@ export function describeInfo(name: string, info: PodmanInfo, {
     const configWritable = sandbox ? writableConfig(info, folder) : null;
     if (folder) {
         try {
-            uncovered = uncoveredInSandbox(folder, (info.Mounts ?? []).filter((m) => !m.RW).map((m) => m.Destination));
+            uncovered = uncoveredInSandbox(folder, mountView(info.Mounts ?? []));
         } catch {
             // the config folder is gone: nothing to compare with
         }

@@ -101,8 +101,11 @@ file can't change while the sandbox runs":
    `mv .git .git.old` works, and the read-only `config` and `hooks` go along with `.git.old`. The
    agent then makes a new `.git` at the old path. It's writable, and **git on your machine uses
    it**, with whatever `core.fsmonitor` or hook the agent put there. The same works for
-   `--readonly a/b` when `a` is writable. Moving the folder around a *hidden* path is harmless: the
-   hiding goes with it.
+   `--readonly a/b` when `a` is writable. A read-only `.git` as a whole is no exception: `mv libs
+   libs.old` takes `libs/.git`'s mount along, and a copy (`cp -a libs.old libs`) puts a writable
+   `.git` back where git on your machine looks. Only the project folder itself can't be moved, so
+   only a repository at its top is safe from this. Moving the folder around a *hidden* path is
+   harmless: the hiding goes with it.
 3. **Git reads more than `config` and `hooks`.** Inside, the agent can also write:
    - `.git/commondir`, which makes git read its config, hooks and refs from another folder;
    - an interrupted rebase's to-do list, whose `exec` lines `git rebase --continue` runs;
@@ -119,11 +122,21 @@ file can't change while the sandbox runs":
 **What helps:**
 
 - **`--policy git-readonly`** makes each repository's whole `.git` read-only, as one mount. `.git`
-  is then the mount point: it can't be moved (2), `commondir` and rebase state can't be written (3),
-  and files git replaces *inside* `.git` keep the protection (1). The price is that git inside can
-  only read. `status`, `log` and `diff` work. `add`, `commit`, `branch` and `checkout` fail
-  ("Unable to create '.git/index.lock': Read-only file system"). It doesn't help with 4, or with a
-  `.git` you replace as a whole (say, by cloning again).
+  is then the mount point: it can't be moved, `commondir` and rebase state can't be written (3),
+  and files git replaces *inside* `.git` keep the protection (1).
+  - Against moving the folders around it (2), each folder between the project folder and a `.git`
+    is mounted onto itself, read-write. For `lab/30/tool/.git` that's `lab`, `lab/30` and
+    `lab/30/tool`. A mount point can't be renamed or removed from inside ("Resource busy"), and
+    files in those folders are written as usual. Moving a file *between* them becomes a copy and a
+    delete, which `mv` does by itself.
+  - The agent can't undo these mounts: in a namespace of its own, or in a container it starts
+    inside, they're locked. It can't unmount them, remount them writable, or bind the folder
+    without them.
+  - The price is that git inside can only read. `status`, `log` and `diff` work. `add`, `commit`,
+    `branch` and `checkout` fail ("Unable to create '.git/index.lock': Read-only file system").
+  - It doesn't help with 4, or with a `.git` or a folder around it that you replace or move on your
+    machine (say, by cloning again). The mount is then lost, as in 1.
+  - Tested in containers. With `enter --vm`, not yet.
 - **While a sandbox is running, treat its project's git as the agent's.** Don't run git on your
   machine in a repository the agent can write, including in folders it may have added. If you must,
   look at `.git` first as files (`commondir`, a `.git` file, the hooks, the keys in `config`), not

@@ -13,6 +13,8 @@ import { commandText } from './inplace.js';
 import { isObject } from './json.js';
 import type { JsonObject } from './json.js';
 import { MARKER } from './templates.js';
+import { mountView } from './workspace.js';
+import type { MountView } from './workspace.js';
 
 /** The label that makes a container sandbox NAME's VM. (Its config folder is in its record: state.ts.) */
 export const VM_OF_LABEL = 'podman-agent-sandbox.vm-of';
@@ -282,8 +284,8 @@ export class Vm {
         return isActive(this.state);
     }
 
-    readonlyMounts(): string[] {
-        return (this.info.Mounts ?? []).filter((m) => !m.RW).map((m) => m.Destination);
+    mountView(): MountView {
+        return mountView(this.info.Mounts ?? []);
     }
 
     volumes(): string[] {

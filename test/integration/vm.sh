@@ -201,7 +201,7 @@ run "V9 a --workspace sandbox in a VM: .git read-only, hidden paths empty; a rep
     echo "$out" | grep -q NO-SUDO && echo "note: no sudo in the image; guest root not tried" || true
     mkdir -p "$WS/sub"; git -C "$WS/sub" init -q
     out=$(vm vw "exit\n" 2>&1) && { echo "ran with an unprotected repo"; exit 1; }
-    echo "$out" | grep -q "would be writable inside vw"'
+    echo "$out" | grep -q "aren't protected inside vw"'
 
 run "V10 a claude-template sandbox in a VM: Claude Code runs" '
     set -e

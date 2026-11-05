@@ -28,9 +28,12 @@ again; `sandbox --version` shows what you have.
   settings and out of the agent's reach. Kept in `.devcontainer/agent/claude-code/policy` (README,
   "The agent's managed policy").
 - **Every `.git` read-only: `sandbox new --workspace PATH --policy git-readonly`.** Each repository's
-  whole `.git` is one read-only mount, instead of its hooks and config. Git inside can then read
-  (`status`, `log`, `diff`) but not commit, stage or switch branches; `enter` and `exec` check for
-  it. `--policy NAME` (comma-separated or repeated) writes the config's `"policies"`, the list that
+  whole `.git` is one read-only mount, instead of its hooks and config. Each folder between the
+  project and a `.git` is mounted onto itself, so it can't be renamed from inside: otherwise
+  `mv libs libs.old` takes `libs/.git`'s mount along, and a copy puts a writable `.git` back.
+  Git inside can then read (`status`, `log`, `diff`) but not commit, stage or switch branches.
+  `enter` and `exec` check for both, and say why a path is listed ("writable", or "could be moved
+  away with the .git in it"). `--policy NAME` (comma-separated or repeated) writes the config's `"policies"`, the list that
   already held `no-vm`: `sandbox new … --policy no-vm,git-readonly` gives
   `"policies": ["git-readonly", "no-vm"]`. A template or a project's own config can list
   `git-readonly` itself. With `--inplace`, `--policy` needs `--template`; otherwise the project's

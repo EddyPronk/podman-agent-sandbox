@@ -5,7 +5,7 @@ import { basename, join } from 'node:path';
 import { resolveLocalEnv } from './inplace.js';
 import { isBoolean, isNumber, isObject, isString, isStringList, nullable, optional } from './json.js';
 import type { Check, JsonObject } from './json.js';
-import { SETTINGS } from './workspace.js';
+import { SETTINGS, uncoveredWhy } from './workspace.js';
 import type { DevcontainerConfig, Settings } from './workspace.js';
 
 /**
@@ -576,7 +576,7 @@ export function audit(info: PodmanInfo, {
         }
     }
 
-    for (const path of uncovered) warnings.push(`writable inside, and git on the host runs what it names: ${path}`);
+    for (const path of uncovered) warnings.push(`not protected inside, and git on the host runs what a .git names: ${path}${uncoveredWhy(path)}`);
     if (configWritable) {
         warnings.push(`the sandbox's own config is writable inside (${configWritable}): the next container creation `
             + '(sandbox rm and enter, or build) uses what is there then, and an initializeCommand runs on your machine. '

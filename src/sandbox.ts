@@ -23,8 +23,8 @@ import type { Kind, StateRecord } from './state.js';
 import { checkMinVersion } from './templates.js';
 import { VM_OF_LABEL, Vm, checkHost, madeAt, vmName, vmPolicy } from './vm.js';
 import type { Answer } from './vm.js';
-import { configFile, readConfig, readSettings, uncoveredInSandbox } from './workspace.js';
-import type { Settings } from './workspace.js';
+import { configFile, readConfig, readSettings, uncoveredInSandbox, uncoveredWhy } from './workspace.js';
+import type { MountView, Settings } from './workspace.js';
 import type { Row, VolumeSize } from './inspect.js';
 
 const ALLOWED: Answer = { allowed: true };
@@ -400,7 +400,7 @@ export class Sandbox {
             const { vm } = this;
             if (!vm) throw new Error(`enterPlan said ${plan.action} without a VM`);   // a bug in sandbox
             // A repo added to the workspace after the VM was made would be writable inside it.
-            checkWorkspace(name, dir, vm.readonlyMounts());
+            checkWorkspace(name, dir, vm.mountView());
             if (plan.action === 'start') {
                 this.#checkContainerInactive();
                 vm.start();
@@ -426,7 +426,7 @@ export class Sandbox {
                         + `'sandbox enter ${name}' uses it as a container`);
                 }
             } else {
-                checkWorkspace(name, dir, this.container.readonlyMounts());
+                checkWorkspace(name, dir, this.container.mountView());
             }
             this.#checkContainerInactive();
             return Vm.makeFrom(this.container, { workdir: config.workdir, env: vmEnv(merged) });
@@ -457,7 +457,7 @@ export class Sandbox {
         const inplace = checkTrusted(name, dir);
         if (inplace && !container.exists) writeEffective(dir, inplace);
         if (!container.exists) checkConfigVersion(dir);
-        checkWorkspace(name, dir, container.exists ? container.readonlyMounts() : null);
+        checkWorkspace(name, dir, container.exists ? container.mountView() : null);
         container.start();
         this.reload();
     }
@@ -662,18 +662,18 @@ function checkConfigVersion(dir: string): void {
 
 /**
  * For a sandbox made with --workspace: refuse to start if a git repo in the workspace would have
- * writable hooks or config inside. Repos get added or moved after the sandbox was made. A container
- * (or VM) keeps the mounts it was created with, so check those (READONLY, its read-only mounts) when
- * it exists, else (null) the config.
+ * writable hooks or config inside (or, with git-readonly, a folder above a .git that could be moved).
+ * Repos get added or moved after the sandbox was made. A container (or VM) keeps the mounts it was
+ * created with, so check those (CONTAINER) when it exists, else (null) the config.
  */
-function checkWorkspace(name: string, dir: string, readonly: string[] | null): void {
+function checkWorkspace(name: string, dir: string, container: MountView | null): void {
     const settings = readSettings(dir);
     if (!settings) return;
-    const missing = uncoveredInSandbox(dir, readonly);
+    const missing = uncoveredInSandbox(dir, container);
     if (missing.length === 0) return;
-    const redo = readonly ? `sandbox rm ${name}; ` : '';
-    throw new SandboxError(`these would be writable inside ${name}, and git on the host runs what they name:\n`
-        + missing.map((path) => `  ${path}\n`).join('')
+    const redo = container ? `sandbox rm ${name}; ` : '';
+    throw new SandboxError(`these aren't protected inside ${name}, and git on the host runs what a .git names:\n`
+        + missing.map((path) => `  ${path}${uncoveredWhy(path)}\n`).join('')
         + `Make the sandbox again (the options are in ${join(dir, 'sandbox.json')}):\n`
         + `  ${redo}rm -r ${dir}; sandbox new ${name} --template ... --workspace ${settings.workspace} ...`);
 }

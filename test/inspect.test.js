@@ -256,7 +256,7 @@ test('audit: networks, privileged, host network, unmask and uncovered git paths'
         NetworkMode: 'host', Privileged: true } }), { uncovered: ['/w/sub/.git/config'] });
     assert.equal(row(bad, '/proc'), 'unmasked: /proc/*');
     assert.deepEqual(bad.warnings.map((w) => w.split(':')[0]), ['privileged', 'seccomp is off', 'host network',
-        'writable inside, and git on the host runs what it names']);
+        'not protected inside, and git on the host runs what a .git names']);
 
     const root = audit(info({ Config: { CreateCommand: [] } }));
     assert.equal(row(root, 'user'), "root (the image's default)");
