@@ -5,7 +5,7 @@ template changes reach only sandboxes made after the release; where that matters
 what to do about sandboxes you already have. To update, run the [one-line install](INSTALL.md)
 again; `sandbox --version` shows what you have.
 
-## 0.10.0 (unreleased)
+## 0.10.0 (2026-11-06)
 
 - **`/tmp` is writable again with podman 5.6 and newer.** Their image builds can leave `/tmp` at
   mode 755 after a Dev Container Feature is installed
