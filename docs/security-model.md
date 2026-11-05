@@ -52,7 +52,7 @@ them.
   machine runs what they name. That isn't all git reads, and the mounts have limits: see [Where a
   mount's protection ends](#where-a-mounts-protection-ends). **`--policy git-readonly`** makes every
   repository's whole `.git` read-only instead, which closes most of that, but git inside can then only
-  read.
+  read. [Default or git-readonly](#default-or-git-readonly) compares the two.
 - **`--hide`** keeps a file or folder of the project out of sight, and **`--readonly`** makes one
   read-only. The same limits apply.
 
@@ -140,9 +140,34 @@ file can't change while the sandbox runs":
   - It doesn't help with 4, or with a `.git` or a folder around it that you replace or move on your
     machine (say, by cloning again). The mount is then lost, as in 1.
   - Tested in containers and in VMs (`enter --vm`).
-- **While a sandbox is running, treat its project's git as the agent's.** Don't run git on your
-  machine in a repository the agent can write, including in folders it may have added. If you must,
-  look at `.git` first as files (`commondir`, a `.git` file, the hooks, the keys in `config`), not
-  with git: git runs the payload itself.
+- **Once the agent has run, treat its project's git as the agent's,** also after `sandbox stop`:
+  what it planted in a `.git` stays there. Without `git-readonly`, don't run git on your machine in
+  a repository the agent could write, including in folders it may have added, until you've looked
+  at its `.git` as files (`commondir`, a `.git` file, the hooks, the keys in `config`, a
+  `rebase-merge` or `rebase-apply` folder), not with git: git runs the payload itself.
 - **After something on your machine has replaced a protected or hidden file,** restart the sandbox,
   then check that file.
+
+### Default or git-readonly
+
+By default, each repository's `.git/hooks` and `.git/config` are read-only. That stops the agent
+writing a hook, `core.hooksPath` or `core.fsmonitor` directly: by mistake, or because an injected
+instruction told it to. **It doesn't stop an agent that sets out to get around it:** a few commands
+do, and two of the ways leave nothing the checks find. `--policy git-readonly` closes those ways,
+at the cost of commits inside. The numbers are the limits above.
+
+| What happens | Default | `--policy git-readonly` |
+|---|---|---|
+| The agent writes a hook, or `core.fsmonitor` in `.git/config` | blocked | blocked |
+| The agent moves `.git`, or a folder above it, and puts a writable `.git` in its place (2) | works; the next `enter` or `exec` refuses, unless the sandbox was restarted in between | blocked ("Resource busy") |
+| The agent writes `.git/commondir` (3) | works; **not detected** | blocked |
+| The agent leaves a rebase to-do list with `exec` lines (3) | works; **not detected** | blocked |
+| Git on your machine rewrites `.git/config` (`git branch`, `git config`, `git push -u`) (1) | the config is writable inside; the next `enter` or `exec` refuses | stays read-only |
+| Something on your machine replaces or moves a `.git`, or a folder above it (1) | the mounts are lost; the next `enter` or `exec` refuses | the same |
+| The agent makes a new repository (4) | not protected; the next `enter` or `exec` refuses | the same |
+| Git inside | reads, commits, branches | only reads |
+
+A refusal at the next `enter` or `exec` comes after the fact: by then git on your machine may
+already have run what the agent put there, through your shell prompt or your editor. Use
+`git-readonly` when the commits are made outside the sandbox. With the default, follow the rule
+above before you run git on your machine in the project.

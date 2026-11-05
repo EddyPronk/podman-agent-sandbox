@@ -23,7 +23,10 @@ sandbox enter myproject
   is refused for now. **This doesn't cover everything git reads.** From inside, the agent can move
   `.git` away, together with the read-only parts, and make a new one, or write `.git/commondir`. And
   when git on your machine rewrites `.git/config` (`git config`, `git branch`, `git push -u`), the
-  sandbox loses that mount. See [Where a mount's protection ends](security-model.md#where-a-mounts-protection-ends).
+  sandbox loses that mount. So this stops a direct write, not an agent that sets out to get around
+  it, and two of the ways (`commondir`, a rebase's to-do list) leave nothing `enter` finds. [Default
+  or git-readonly](security-model.md#default-or-git-readonly) compares the two, and
+  [Where a mount's protection ends](security-model.md#where-a-mounts-protection-ends) has the details.
 - **`--policy git-readonly`** makes every repo's whole `.git` read-only instead. Each folder
   between the project and a `.git` is also mounted onto itself, so the agent can't move a repo away
   with its read-only `.git` and copy it back writable. That closes the ways above, for the repos

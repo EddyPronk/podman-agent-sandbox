@@ -17,8 +17,9 @@ one opens a shell in it.
 - **Your project, not your home:** the project folder is all a sandbox gets from your machine; its
   home directory is a volume of its own. The project's git hooks and config are read-only, against
   the agent running code on your machine through git, and `--hide` keeps secrets out of sight. These
-  mounts have limits, which [How a sandbox is isolated](docs/security-model.md#where-a-mounts-protection-ends)
-  sets out; `--policy git-readonly` closes most of them for git.
+  mounts stop a direct write, not an agent that sets out to get around them;
+  `--policy git-readonly` closes those ways for git
+  ([Default or git-readonly](docs/security-model.md#default-or-git-readonly)).
 - **Optional egress proxy:** a sandbox with no route out except through a proxy that allows only the
   hosts you list; refused hosts can be approved from a terminal.
 - **Ready-made templates:** Claude Code on Debian or Ubuntu, a proxy and its client, one that can
@@ -88,10 +89,10 @@ claude                          # inside the sandbox: sign in once, then work on
 ```
 
 The project is the working folder inside, at the same path. The agent can change its files, but not
-its git hooks and config. That has limits: the agent can still get around them
-([Where a mount's protection ends](docs/security-model.md#where-a-mounts-protection-ends)). If you
-commit outside the sandbox, add `--policy git-readonly`: every `.git` is then read-only inside, and
-git there can only read. Your SSH keys, your other files and the rest of your home directory stay
+its git hooks and config. That stops it writing them, not an agent that sets out to get around
+them: a few commands do ([Default or git-readonly](docs/security-model.md#default-or-git-readonly)).
+If you commit outside the sandbox, add `--policy git-readonly`: every `.git` is then read-only
+inside, and git there can only read. Your SSH keys, your other files and the rest of your home directory stay
 outside. The sandbox's own config is in `~/sandboxes/your-project`. Leave the shell with `exit`; the
 sandbox keeps running until `sandbox stop your-project`. More in
 [A sandbox around an existing project](docs/sandbox-around-an-existing-project.md), and

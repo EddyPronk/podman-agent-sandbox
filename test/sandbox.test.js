@@ -415,3 +415,33 @@ test('exec checks the live mounts: a repo folder moved inside (mv foo foo.old; c
     const unread = runWith({ setup }, [{ ...sandbox('x', 'running'), ...recorded }], 'exec', 'x', 'true');
     assert.doesNotMatch(unread.stderr, /aren't protected/);
 });
+
+test('exec checks the live mounts without git-readonly too: .git moved inside (mv .git .git.old; a new .git) is refused as lost', () => {
+    const ws = realpathSync(mkdtempSync(join(tmpdir(), 'sandbox-ws-')));
+    // After the attack: .git.old holds the moved hooks and config mounts, .git is the agent's.
+    for (const git of ['.git', '.git.old']) mkdirSync(join(ws, git, 'hooks'), { recursive: true });
+    for (const git of ['.git', '.git.old']) writeFileSync(join(ws, git, 'config'), '');
+    const setup = (sandboxes) => {
+        const dir = join(sandboxes, 'x');
+        mkdirSync(join(dir, '.devcontainer'), { recursive: true });
+        writeFileSync(join(dir, 'sandbox.json'), JSON.stringify({ workspace: ws, hide: [], readonly: [] }));
+        writeFileSync(join(dir, '.devcontainer', 'devcontainer.json'), JSON.stringify({}));
+    };
+    const bind = (path, rw) => ({ Type: 'bind', Source: path, Destination: path, RW: rw });
+    const recorded = { Mounts: [bind(ws, true), bind(join(ws, '.git', 'hooks'), false), bind(join(ws, '.git', 'config'), false)] };
+    const box = (mountinfo) => ({ ...sandbox('x', 'running'), ...recorded, Mountinfo: mountinfo });
+    const moved = [mountinfoLine(30, '/', 'rw'), mountinfoLine(31, ws, 'rw'),
+        mountinfoLine(32, join(ws, '.git.old', 'hooks'), 'ro'), mountinfoLine(33, join(ws, '.git.old', 'config'), 'ro')].join('\n');
+
+    const result = runWith({ setup }, [box(`${moved}\n`)], 'exec', 'x', 'true');
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /these aren't protected inside x/);
+    assert.match(result.stderr, new RegExp(`  ${ws}/\\.git/config \\(writable\\)\n  ${ws}/\\.git/hooks \\(writable\\)\n`));
+    assert.match(result.stderr, /Lost while x ran: .*not with git/s);
+    assert.deepEqual(changes(result.calls), [], 'not started');
+
+    const intact = [mountinfoLine(30, '/', 'rw'), mountinfoLine(31, ws, 'rw'),
+        mountinfoLine(32, join(ws, '.git', 'hooks'), 'ro'), mountinfoLine(33, join(ws, '.git', 'config'), 'ro')].join('\n');
+    const ok = runWith({ setup }, [box(`${intact}\n`)], 'exec', 'x', 'true');
+    assert.doesNotMatch(ok.stderr, /aren't protected/);
+});
