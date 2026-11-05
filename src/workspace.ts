@@ -5,6 +5,7 @@ import type { Dirent, Stats } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { SandboxError, errnoCode } from './devcontainer.js';
 import { isBoolean, isObject, isString, isStringList, nullable, optional } from './json.js';
+import { configPolicies } from './templates.js';
 
 /** Where `sandbox new --workspace` records its choices, in the sandbox's config folder. */
 export const SETTINGS = 'sandbox.json';
@@ -21,6 +22,7 @@ export interface DevcontainerConfig {
 /**
  * sandbox.json: what `sandbox new --workspace` chose. HIDE and READONLY are relative to the
  * workspace; INPLACE and CONFIG_TREE are there for --inplace (the trusted project config's id).
+ * Policies (--policy) aren't here: they're in the config's marker (templates.ts KNOWN_POLICIES).
  */
 export interface Settings {
     workspace: string;
@@ -32,6 +34,7 @@ export interface Settings {
 
 // git runs what these name (hooks, core.hooksPath, core.fsmonitor, aliases, ...) on the host.
 const GIT_PARTS = ['hooks', 'config'];
+
 // Folders full of other people's code, not the user's repos.
 const SKIP = new Set(['node_modules', '.venv']);
 
@@ -145,25 +148,30 @@ export function findSecretFiles(root: string, hidden: string[] = []): string[] {
     return found.sort();
 }
 
-/** The read-only paths that protect GITDIRS: each one's hooks and config. */
-export function gitProtectedPaths(gitDirs: string[]): string[] {
+/**
+ * The read-only paths that protect GITDIRS: each one's hooks and config, or with the git-readonly
+ * policy (in POLICIES, the config's) the whole git directory.
+ */
+export function gitProtectedPaths(gitDirs: string[], policies: string[] = []): string[] {
+    if (policies.includes('git-readonly')) return [...gitDirs];
     return gitDirs.flatMap((gitDir) => GIT_PARTS.map((part) => join(gitDir, part)));
 }
 
 /**
  * Mounts for a sandbox around WORKSPACE, as devcontainer.json "mounts" strings, outer paths first.
  * HIDE and READONLY are absolute paths inside the workspace (see workspacePath); CONFIG_DIR is the
- * sandbox's config folder, made read-only if it's inside the workspace.
+ * sandbox's config folder, made read-only if it's inside the workspace. POLICIES: --policy's names.
  */
-export function workspaceMounts({ workspace, hide = [], readonly = [], configDir, gitDirs }: {
+export function workspaceMounts({ workspace, hide = [], readonly = [], configDir, gitDirs, policies = [] }: {
     workspace: string;
     hide?: string[];
     readonly?: string[];
     configDir?: string;
     gitDirs: string[];
+    policies?: string[];
 }): string[] {
     const mounts: { target: string; spec: string }[] = [];
-    for (const path of gitProtectedPaths(gitDirs)) {
+    for (const path of gitProtectedPaths(gitDirs, policies)) {
         if (!existsSync(path)) {
             throw new SandboxError(`${path} is missing, so it can't be made read-only and the agent could create it; `
                 + `create it first (e.g. mkdir ${path}) and try again`);
@@ -280,24 +288,28 @@ export function readonlyTargets(mounts: unknown[] | null = []): string[] {
         .filter((target): target is string => Boolean(target));
 }
 
-/** The git paths under the workspace that READONLY (read-only mount targets) leaves writable. */
-export function uncoveredGitPaths(gitDirs: string[], readonly: string[]): string[] {
-    const covered = new Set(readonly);
-    return gitProtectedPaths(gitDirs).filter((path) => !covered.has(path));
+/**
+ * The git paths under the workspace that READONLY (read-only mount targets) leaves writable: a path
+ * is covered by a mount on it or on a folder around it. POLICIES: the config's (git-readonly).
+ */
+export function uncoveredGitPaths(gitDirs: string[], readonly: string[], policies: string[] = []): string[] {
+    return gitProtectedPaths(gitDirs, policies).filter((path) => !readonly.some((target) => isInside(path, target)));
 }
 
 /**
  * For the sandbox whose config is in CONFIG_DIR: the git paths in its workspace that would be writable
  * inside. CONTAINER_READONLY is the container's read-only mount destinations if it exists (it keeps
- * the mounts it was created with), else null: then the config it would be created from counts.
+ * the mounts it was created with), else null: then the config it would be created from counts. The
+ * config's policies say what must be read-only (git-readonly: all of .git).
  * [] for a sandbox not made with --workspace.
  */
 export function uncoveredInSandbox(configDir: string, containerReadonly: string[] | null): string[] {
     const settings = readSettings(configDir);
     if (!settings) return [];
     const gitDirs = findGitDirs(settings.workspace, hiddenPaths(settings));
-    const readonly = containerReadonly ?? readonlyTargets(readConfig(configFile(configDir)).mounts);
-    return uncoveredGitPaths(gitDirs, readonly);
+    const config = readConfig(configFile(configDir));
+    const readonly = containerReadonly ?? readonlyTargets(config.mounts);
+    return uncoveredGitPaths(gitDirs, readonly, configPolicies(config));
 }
 
 /** NAME for `sandbox new --workspace PATH` without one: the folder's name. */

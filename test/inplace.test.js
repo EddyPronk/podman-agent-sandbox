@@ -79,13 +79,14 @@ test('configTree sees edits, untracked files, mode changes and a missing folder'
 
 test('checkMarker: no marker, a newer version, unknown policies are refused', () => {
     assert.equal(MARKER_VERSION, 1);
-    assert.deepEqual(KNOWN_POLICIES, ['no-vm']);
+    assert.deepEqual(KNOWN_POLICIES, ['git-readonly', 'no-vm']);
     assert.doesNotThrow(() => checkMarker({ customizations: MARKER }, 'f'));
     assert.doesNotThrow(() => checkMarker({ customizations: { 'podman-agent-sandbox': { version: 1, policies: ['no-vm'] } } }, 'f'));
     assert.throws(() => checkMarker({}, 'f'), /isn't a sandbox config.*\n.*--template claude/s);
     assert.throws(() => checkMarker({ customizations: { vscode: {} } }, 'f'), /isn't a sandbox config/);
     assert.throws(() => checkMarker({ customizations: { 'podman-agent-sandbox': {} } }, 'f'), /needs a "version"/);
     assert.throws(() => checkMarker({ customizations: { 'podman-agent-sandbox': { version: 2 } } }, 'f'), /newer sandbox.*update sandbox/);
+    assert.doesNotThrow(() => checkMarker({ customizations: { 'podman-agent-sandbox': { version: 1, policies: ['no-vm', 'git-readonly'] } } }, 'f'));
     assert.throws(() => checkMarker({ customizations: { 'podman-agent-sandbox': { version: 1, policies: ['rootless'] } } }, 'f'),
         /a policy this sandbox can't check: rootless/);
     assert.throws(() => checkMarker({ customizations: { 'podman-agent-sandbox': { version: 1, policies: 'x' } } }, 'f'), /must be a list/);
@@ -248,6 +249,27 @@ test('a changed project config: build refuses and offers the diff; trust shows i
         const gone = sandbox(['build', 'p'], dir);
         assert.match(gone.stderr, /\.devcontainer is gone/);
     });
+
+test('new --inplace: git-readonly from the project\'s policies, or added by --policy to a --template', { skip: noGit }, () => {
+    const dir = tempDir();
+    const root = project({ customizations: { 'podman-agent-sandbox': { version: 1, policies: ['git-readonly'] } } });
+    git(root, 'init', '-q');
+    const made = sandbox(['new', 'p', '--workspace', root, '--inplace', '--yes'], dir);
+    assert.equal(made.status, 0, made.stderr);
+    const running = JSON.parse(readFileSync(join(dir, 'p', '.devcontainer', 'devcontainer.json'), 'utf8'));
+    assert.ok(running.mounts.includes(`type=bind,source=${root}/.git,target=${root}/.git,readonly`));
+    assert.ok(!running.mounts.some((m) => m.includes('.git/hooks')));
+    assert.match(made.stdout, /1 git repo's \.git \(policy git-readonly\)/);
+
+    const fresh = tempDir();
+    git(fresh, 'init', '-q');
+    const templated = sandbox(['new', 'q', '--workspace', fresh, '--inplace', '--template', 'offline', '--policy', 'git-readonly'], dir);
+    assert.equal(templated.status, 0, templated.stderr);
+    const written = JSON.parse(readFileSync(join(fresh, '.devcontainer', 'devcontainer.json'), 'utf8'));
+    assert.deepEqual(written.customizations['podman-agent-sandbox'].policies, ['git-readonly'], 'in the project\'s config, to commit');
+    const effective = JSON.parse(readFileSync(join(dir, 'q', '.devcontainer', 'devcontainer.json'), 'utf8'));
+    assert.ok(effective.mounts.includes(`type=bind,source=${fresh}/.git,target=${fresh}/.git,readonly`));
+});
 
 test('new --inplace --template writes the template into the project, with the marker and without seccomp.json',
     { skip: noGit }, () => {

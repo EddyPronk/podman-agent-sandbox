@@ -168,11 +168,11 @@ export function addAgent(dest: string, name: string, values: OptionValues, root:
 /** An agent's managed policy folder, inside its folder; its Feature mounts it read-only (claude-code: /etc/claude-code). */
 export const POLICY_DIR = 'policy';
 
-/** Check sandbox new's --policy value GIVEN (a folder) before anything is made: its absolute path. */
+/** Check sandbox new's --agent-policy value GIVEN (a folder) before anything is made: its absolute path. */
 export function checkPolicy(given: string | undefined): string | undefined {
     if (given === undefined) return undefined;
     const dir = resolve(given);
-    if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new SandboxError(`--policy ${given}: no such folder`);
+    if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new SandboxError(`--agent-policy ${given}: no such folder`);
     return dir;
 }
 
@@ -182,9 +182,11 @@ export function checkPolicy(given: string | undefined): string | undefined {
  * policy/ (its Feature mounts none).
  */
 export function addPolicy(dest: string, agent: string | null, src: string): string[] {
-    if (agent === null) throw new SandboxError('--policy needs an agent: it is the agent\'s managed policy');
+    if (agent === null) throw new SandboxError('--agent-policy needs an agent: it is the agent\'s managed policy');
     const target = join(dest, '.devcontainer', AGENT_DIR, agent, POLICY_DIR);
-    if (!existsSync(target)) throw new SandboxError(`--policy: agent ${agent} has no managed policy folder (${AGENT_DIR}/${agent}/${POLICY_DIR})`);
+    if (!existsSync(target)) {
+        throw new SandboxError(`--agent-policy: agent ${agent} has no managed policy folder (${AGENT_DIR}/${agent}/${POLICY_DIR})`);
+    }
     cpSync(src, target, { recursive: true });
     return readdirSync(src).sort();
 }

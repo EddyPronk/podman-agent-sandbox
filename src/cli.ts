@@ -30,16 +30,24 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        image (claude, offline, proxy-client; default
                        debian:trixie-slim)
   sandbox new [NAME] --template TEMPLATE --workspace PATH [--image IMAGE]
-              [--hide PATH ...] [--readonly PATH ...] [--option KEY=VALUE ...]
+              [--hide PATH ...] [--readonly PATH ...] [--policy NAME ...]
+              [--option KEY=VALUE ...]
                        a sandbox around an existing folder: PATH is mounted at
                        its own path and is the working folder; the config stays
                        in $SANDBOX_DIR/NAME (NAME defaults to PATH's name).
                        Every git repo in PATH gets .git/hooks and .git/config
                        read-only. --hide (a file or folder, relative to PATH)
                        hides it inside: use it for secrets. --readonly makes
-                       it read-only.
+                       it read-only. These mounts have limits: see
+                       docs/security-model.md.
+  sandbox new ... --policy NAME[,NAME ...]
+                       add policies to the config's "policies" (customizations.
+                       podman-agent-sandbox): git-readonly (with --workspace:
+                       every repo's whole .git read-only; git inside can't
+                       commit), no-vm (enter --vm refuses it). Repeatable. With
+                       --inplace, only together with --template
   sandbox new [NAME] --workspace PATH --inplace [--template TEMPLATE] [--yes]
-              [--hide PATH ...] [--readonly PATH ...]
+              [--hide PATH ...] [--readonly PATH ...] [--policy NAME ...]
                        the config is PATH/.devcontainer (yours to commit), not
                        a copy of a template; with --template, that template is
                        written there first. It must be a sandbox config, and
@@ -52,7 +60,7 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        and proxy-client templates have claude-code by default.
                        --option trustWorkspace=0 reaches the agent. With
                        --inplace, only together with --template
-  sandbox new ... --policy DIR
+  sandbox new ... --agent-policy DIR
                        the agent's managed policy (claude-code: CLAUDE.md,
                        managed-settings.json), copied into
                        .devcontainer/agent/NAME/policy and mounted read-only

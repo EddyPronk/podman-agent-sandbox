@@ -23,10 +23,29 @@ again; `sandbox --version` shows what you have.
 - **`claude-containers` is now `nested-containers`**: containers inside the sandbox, with Claude
   Code by default or another agent (`sandbox new work --template nested-containers --agent codex`).
   The old name still works. It now has `jq` too.
-- **The agent's managed policy: `sandbox new … --policy DIR`.** Claude Code's `CLAUDE.md` and
+- **The agent's managed policy: `sandbox new … --agent-policy DIR`.** Claude Code's `CLAUDE.md` and
   `managed-settings.json`, mounted read-only at `/etc/claude-code`, above the workspace's own
   settings and out of the agent's reach. Kept in `.devcontainer/agent/claude-code/policy` (README,
   "The agent's managed policy").
+- **Every `.git` read-only: `sandbox new --workspace PATH --policy git-readonly`.** Each repository's
+  whole `.git` is one read-only mount, instead of its hooks and config. Git inside can then read
+  (`status`, `log`, `diff`) but not commit, stage or switch branches; `enter` and `exec` check for
+  it. `--policy NAME` (comma-separated or repeated) writes the config's `"policies"`, the list that
+  already held `no-vm`: `sandbox new … --policy no-vm,git-readonly` gives
+  `"policies": ["git-readonly", "no-vm"]`. A template or a project's own config can list
+  `git-readonly` itself. With `--inplace`, `--policy` needs `--template`; otherwise the project's
+  config lists its policies.
+- **The limits of the read-only and hidden paths are documented** (docs/security-model.md, "Where a
+  mount's protection ends"). Git's hooks and config, `--readonly` and `--hide` are mounts on single
+  paths, and can be got around:
+  - a program on your machine replacing the file (an atomic save; `git config` and `git branch`
+    rewrite `.git/config`) drops the mount in the sandbox, which `sandbox inspect` doesn't show;
+  - the agent can move the folder around a protected path away, `.git` included, and make it again;
+  - the agent can redirect git with `.git/commondir`;
+  - repositories made after `sandbox new` aren't covered.
+
+  If you run git on your machine in a project a sandbox works on, restart the sandbox after git
+  changes its config, or use `--policy git-readonly`.
 - **Add tools with `sandbox new … --feature REF`.** Any published Dev Container Feature, by its
   reference, with options as JSON after `=`; repeatable, e.g. `--feature
   ghcr.io/devcontainers/features/aws-cli:1`. The template stays as it is: the Features are kept in

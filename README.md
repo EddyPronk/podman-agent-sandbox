@@ -15,8 +15,10 @@ one opens a shell in it.
   not even with `sudo` (except the `nested-containers` template, which needs them). See [How a
   sandbox is isolated](docs/security-model.md).
 - **Your project, not your home:** the project folder is all a sandbox gets from your machine; its
-  home directory is a volume of its own. The project's git hooks and config are read-only, so the
-  agent can't run code on your machine through git, and `--hide` keeps secrets out of sight.
+  home directory is a volume of its own. The project's git hooks and config are read-only, against
+  the agent running code on your machine through git, and `--hide` keeps secrets out of sight. These
+  mounts have limits, which [How a sandbox is isolated](docs/security-model.md#where-a-mounts-protection-ends)
+  sets out; `--policy git-readonly` closes most of them for git.
 - **Optional egress proxy:** a sandbox with no route out except through a proxy that allows only the
   hosts you list; refused hosts can be approved from a terminal.
 - **Ready-made templates:** Claude Code on Debian or Ubuntu, a proxy and its client, one that can
@@ -86,7 +88,10 @@ claude                          # inside the sandbox: sign in once, then work on
 ```
 
 The project is the working folder inside, at the same path. The agent can change its files, but not
-its git hooks and config. Your SSH keys, your other files and the rest of your home directory stay
+its git hooks and config. That has limits: the agent can still get around them
+([Where a mount's protection ends](docs/security-model.md#where-a-mounts-protection-ends)). If you
+commit outside the sandbox, add `--policy git-readonly`: every `.git` is then read-only inside, and
+git there can only read. Your SSH keys, your other files and the rest of your home directory stay
 outside. The sandbox's own config is in `~/sandboxes/your-project`. Leave the shell with `exit`; the
 sandbox keeps running until `sandbox stop your-project`. More in
 [A sandbox around an existing project](docs/sandbox-around-an-existing-project.md), and
@@ -209,21 +214,21 @@ or turn Codex's own sandbox off in the sandbox (`sandbox_mode = "danger-full-acc
 contains it, as for Claude Code. Behind the egress proxy Codex also needs its hosts allowed, and its
 sign-in isn't in the proxy's credential vault, which holds Claude Code's.
 
-#### The agent's managed policy: `--policy`
+#### The agent's managed policy: `--agent-policy`
 
 Claude Code reads a managed policy from `/etc/claude-code`, above every other settings level:
 `CLAUDE.md` (instructions) and `managed-settings.json` (settings, such as permission rules that the
 workspace's own `.claude/` can't loosen). The claude-code agent mounts its folder's `policy/` there,
-read-only, and `--policy DIR` fills it:
+read-only, and `--agent-policy DIR` fills it:
 
 ```sh
-sandbox new work --template nested-containers --workspace ~/project --policy ~/policies/work
+sandbox new work --template nested-containers --workspace ~/project --agent-policy ~/policies/work
 ```
 
 `DIR`'s files are copied into `.devcontainer/agent/claude-code/policy` (next to a README that
 Claude Code ignores). The agent in the sandbox can't change them. To change the policy later, edit
-the files there on the host and restart the sandbox (`podman restart NAME`). Without `--policy`,
-`/etc/claude-code` holds only that README, which hides one the image may have. `--policy` needs an
+the files there on the host and restart the sandbox (`podman restart NAME`). Without `--agent-policy`,
+`/etc/claude-code` holds only that README, which hides one the image may have. `--agent-policy` needs an
 agent that has a policy folder; Codex's doesn't have one yet. It isn't available with `--inplace` yet.
 
 ### Adding tools: `--feature`

@@ -224,7 +224,7 @@ test('codex trust-workspace: the path is escaped as a TOML string, written once;
     assert.equal(run('/w/a\nb').status, 2, 'a newline: refused');
 });
 
-/** A policy folder with Claude Code's managed policy files, as --policy takes it. */
+/** A policy folder with Claude Code's managed policy files, as --agent-policy takes it. */
 function policyDir() {
     const dir = mkdtempSync(join(tmpdir(), 'features-policy-'));
     writeFileSync(join(dir, 'CLAUDE.md'), '# inside\n');
@@ -239,8 +239,8 @@ test('claude-code agent: its policy folder is mounted read-only at /etc/claude-c
     assert.ok(existsSync(fileURLToPath(new URL('../agents/claude-code/policy', import.meta.url))), 'the folder ships, so the mount has a source');
 });
 
-test('new --policy DIR: the files go into the agent\'s policy folder; without it, the folder has only its README', () => {
-    const policy = sandbox('new', 'c', '--template', 'nested-containers', '--policy', policyDir());
+test('new --agent-policy DIR: the files go into the agent\'s policy folder; without it, the folder has only its README', () => {
+    const policy = sandbox('new', 'c', '--template', 'nested-containers', '--agent-policy', policyDir());
     assert.equal(policy.status, 0, policy.stderr);
     const folder = join(policy.dir, 'c', '.devcontainer', 'agent', 'claude-code', 'policy');
     assert.deepEqual(readdirSync(folder).sort(), ['CLAUDE.md', 'README.md', 'managed-settings.json']);
@@ -253,22 +253,22 @@ test('new --policy DIR: the files go into the agent\'s policy folder; without it
     assert.doesNotMatch(plain.stdout, /managed policy/);
 });
 
-test('new --policy: refused without an agent that has one, for a missing folder, and with --inplace; nothing made', () => {
+test('new --agent-policy: refused without an agent that has one, for a missing folder, and with --inplace; nothing made', () => {
     const cases = [
-        [['--template', 'claude', '--agent', 'none'], /--policy needs an agent/],
-        [['--template', 'offline'], /--policy needs an agent/],
-        [['--template', 'claude', '--agent', 'codex'], /--policy: agent codex has no managed policy/],
-        [['--template', 'claude', '--policy-missing'], /--policy .*: no such folder/],
+        [['--template', 'claude', '--agent', 'none'], /--agent-policy needs an agent/],
+        [['--template', 'offline'], /--agent-policy needs an agent/],
+        [['--template', 'claude', '--agent', 'codex'], /--agent-policy: agent codex has no managed policy/],
+        [['--template', 'claude', '--policy-missing'], /--agent-policy .*: no such folder/],
     ];
     for (const [args, message] of cases) {
         const missing = args.includes('--policy-missing');
         const result = sandbox('new', 'x', ...args.filter((a) => a !== '--policy-missing'),
-            '--policy', missing ? join(tmpdir(), 'no-such-policy-folder') : policyDir());
+            '--agent-policy', missing ? join(tmpdir(), 'no-such-policy-folder') : policyDir());
         assert.equal(result.status, 1, `${args.join(' ')}: ${result.stdout}`);
         assert.match(result.stderr, message);
         assert.equal(readdirSync(result.dir).length, 0, `${args.join(' ')}: nothing made`);
     }
-    const inplace = sandbox('new', 'x', '--workspace', tmpdir(), '--inplace', '--policy', policyDir());
+    const inplace = sandbox('new', 'x', '--workspace', tmpdir(), '--inplace', '--agent-policy', policyDir());
     assert.equal(inplace.status, 1);
-    assert.match(inplace.stderr, /--policy can't go with --inplace yet/);
+    assert.match(inplace.stderr, /--agent-policy can't go with --inplace yet/);
 });

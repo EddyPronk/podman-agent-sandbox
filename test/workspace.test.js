@@ -6,9 +6,11 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
-    CONFIG_MOUNT, applyWorkspace, findGitDirs, findSecretFiles, readConfig, readonlyTargets, readSettings, realConfigDir,
-    resolveWorkspace, uncoveredGitPaths, uncoveredInSandbox, workspaceMounts, workspacePath,
+    CONFIG_MOUNT, applyWorkspace, findGitDirs, findSecretFiles, readConfig, readonlyTargets, readSettings,
+    realConfigDir, resolveWorkspace, uncoveredGitPaths, uncoveredInSandbox, workspaceMounts, workspacePath,
 } from '../dist/workspace.js';
+import { parsePolicies } from '../dist/templates.js';
+import { vmPolicy } from '../dist/vm.js';
 
 const SANDBOX = fileURLToPath(new URL('../bin/sandbox.js', import.meta.url));
 
@@ -170,6 +172,30 @@ test('uncoveredGitPaths compares against the read-only mount targets', () => {
     assert.deepEqual(uncoveredGitPaths(gitDirs, ['/p/.git/hooks', '/p/.git/config', '/p/sub/.git/hooks']),
         ['/p/sub/.git/config']);
     assert.deepEqual(uncoveredGitPaths(gitDirs, []).length, 4);
+    // A read-only folder around a path covers it: a --readonly of the whole .git, or of the repo.
+    assert.deepEqual(uncoveredGitPaths(gitDirs, ['/p/.git', '/p/sub']), []);
+    assert.deepEqual(uncoveredGitPaths(gitDirs, ['/p/.gitx']).length, 4, 'a sibling with the same prefix covers nothing');
+});
+
+test('git-readonly: the whole .git is the protected path, and hooks and config alone don\'t cover it', () => {
+    const root = project();
+    const nested = join(root, 'libs', 'nested');
+    const mounts = workspaceMounts({ workspace: root, gitDirs: findGitDirs(root), policies: ['git-readonly'] });
+    const ro = (p) => `type=bind,source=${p},target=${p},readonly`;
+    assert.deepEqual(mounts, [ro(join(root, '.git')), ro(join(nested, '.git'))]);
+    const gitDirs = ['/p/.git'];
+    assert.deepEqual(uncoveredGitPaths(gitDirs, ['/p/.git/hooks', '/p/.git/config'], ['git-readonly']), ['/p/.git']);
+    assert.deepEqual(uncoveredGitPaths(gitDirs, ['/p/.git'], ['git-readonly']), []);
+});
+
+test('parsePolicies: names, comma-separated or repeated; unknown and empty ones refused', () => {
+    assert.deepEqual(parsePolicies([]), []);
+    assert.deepEqual(parsePolicies(['git-readonly']), ['git-readonly']);
+    assert.deepEqual(parsePolicies(['git-readonly,git-readonly', 'git-readonly']), ['git-readonly']);
+    assert.deepEqual(parsePolicies(['no-vm', 'git-readonly']), ['git-readonly', 'no-vm']);
+    assert.throws(() => parsePolicies(['git-readonly,nope']), /--policy nope: unknown policy; known: git-readonly, no-vm/);
+    assert.throws(() => parsePolicies(['']), /--policy needs a name/);
+    assert.throws(() => parsePolicies(['git-readonly,']), /--policy needs a name/);
 });
 
 test('readonlyTargets reads the read-only targets of a mounts list', () => {
@@ -335,6 +361,73 @@ test('the enter check: a repo added later is caught, in the config and in the co
         readFileSync(join(configDir, '.devcontainer', 'devcontainer.json'), 'utf8')).mounts);
     assert.deepEqual(uncoveredInSandbox(configDir, [...containerMounts, ...added]), []);
     assert.equal(uncoveredInSandbox(configDir, []).length, 6);
+});
+
+test('sandbox new --workspace --policy git-readonly: in the config\'s policies, every .git read-only, checked by enter', () => {
+    const root = project();
+    const sandboxes = tempDir();
+    const result = sandbox(['new', 'box', '--template', 'claude', '--workspace', root, '--hide', 'secrets', '--hide', '.env',
+        '--policy', 'git-readonly'], { SANDBOX_DIR: sandboxes });
+    assert.equal(result.status, 0, result.stderr);
+    const configDir = join(sandboxes, 'box');
+    const config = JSON.parse(readFileSync(join(configDir, '.devcontainer', 'devcontainer.json'), 'utf8'));
+    assert.ok(config.mounts.includes(`type=bind,source=${root}/.git,target=${root}/.git,readonly`));
+    assert.ok(!config.mounts.some((m) => m.includes('.git/hooks')), 'no separate hooks mount: .git covers it');
+    assert.deepEqual(config.customizations['podman-agent-sandbox'].policies, ['git-readonly'], 'written where a template lists them');
+    assert.deepEqual(readSettings(configDir), { workspace: root, hide: ['secrets', '.env'], readonly: [] }, 'not in sandbox.json');
+    assert.match(result.stdout, /read-only inside: 2 git repos' \.git \(policy git-readonly\)/);
+    assert.deepEqual(uncoveredInSandbox(configDir, null), []);
+
+    // A container with only hooks and config read-only doesn't satisfy the policy.
+    const partial = [join(root, '.git', 'hooks'), join(root, '.git', 'config'),
+        join(root, 'libs', 'nested', '.git', 'hooks'), join(root, 'libs', 'nested', '.git', 'config')];
+    assert.deepEqual(uncoveredInSandbox(configDir, partial).sort(), [join(root, '.git'), join(root, 'libs', 'nested', '.git')]);
+    gitRepo(join(root, 'added'));
+    assert.deepEqual(uncoveredInSandbox(configDir, null), [join(root, 'added', '.git')]);
+});
+
+test('sandbox new --policy: git-readonly needs --workspace, --inplace needs --template, unknown names refused; nothing made', () => {
+    const root = project();
+    const sandboxes = tempDir();
+    for (const [args, message] of [
+        [['new', 'box', '--template', 'claude', '--policy', 'git-readonly'], /--policy git-readonly needs --workspace/],
+        [['new', 'box', '--template', 'claude', '--workspace', root, '--policy', 'git-readonly,nope'], /--policy nope: unknown policy/],
+        [['new', 'box', '--workspace', root, '--inplace', '--policy', 'git-readonly'], /--policy with --inplace needs --template/],
+    ]) {
+        const result = sandbox(args, { SANDBOX_DIR: sandboxes });
+        assert.equal(result.status, 1, args.join(' '));
+        assert.match(result.stderr, message);
+        assert.ok(!existsSync(join(sandboxes, 'box')), `nothing created for: ${args.join(' ')}`);
+    }
+});
+
+test('sandbox new --policy no-vm: in the config\'s policies, without --workspace too, and the VM check sees it', () => {
+    const sandboxes = tempDir();
+    const result = sandbox(['new', 'box', '--template', 'claude', '--policy', 'no-vm'], { SANDBOX_DIR: sandboxes });
+    assert.equal(result.status, 0, result.stderr);
+    const config = readConfig(join(sandboxes, 'box', '.devcontainer', 'devcontainer.json'));
+    assert.deepEqual(config.customizations['podman-agent-sandbox'].policies, ['no-vm']);
+    assert.equal(config.customizations['podman-agent-sandbox'].agent, 'claude-code', 'the rest of the marker stays');
+    assert.equal(vmPolicy(config).allowed, false);
+});
+
+test('a template that lists git-readonly gets every .git read-only, without --policy', () => {
+    const root = project();
+    const sandboxes = tempDir();
+    const template = join(tempDir(), 'strict');
+    mkdirSync(join(template, '.devcontainer'), { recursive: true });
+    const offline = fileURLToPath(new URL('../templates/offline/', import.meta.url));
+    const config = JSON.parse(readFileSync(join(offline, '.devcontainer', 'devcontainer.json'), 'utf8'));
+    config.customizations['podman-agent-sandbox'].policies = ['git-readonly'];
+    writeFileSync(join(template, '.devcontainer', 'devcontainer.json'), JSON.stringify(config, null, 2));
+    writeFileSync(join(template, '.devcontainer', 'Containerfile'), readFileSync(join(offline, '.devcontainer', 'Containerfile')));
+    writeFileSync(join(template, 'devcontainer-template.json'), readFileSync(join(offline, 'devcontainer-template.json')));
+    const result = sandbox(['new', 'box', '--template', template, '--workspace', root, '--hide', 'secrets', '--hide', '.env'],
+        { SANDBOX_DIR: sandboxes });
+    assert.equal(result.status, 0, result.stderr);
+    const made = readConfig(join(sandboxes, 'box', '.devcontainer', 'devcontainer.json'));
+    assert.ok(made.mounts.includes(`type=bind,source=${root}/.git,target=${root}/.git,readonly`));
+    assert.match(result.stdout, /\.git \(policy git-readonly\)/);
 });
 
 test('the enter check ignores sandboxes made without --workspace', () => {
