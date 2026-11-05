@@ -7,6 +7,13 @@ again; `sandbox --version` shows what you have.
 
 ## 0.10.0 (unreleased)
 
+- **`/tmp` is writable again with podman 5.6 and newer.** Their image builds can leave `/tmp` at
+  mode 755 after a Dev Container Feature is installed
+  ([buildah#6503](https://github.com/podman-container-tools/buildah/issues/6503)), so the user
+  couldn't write there: `mktemp`, podman inside and npm failed. Every template now mounts a tmpfs
+  at `/tmp` with mode 1777 (`--tmpfs=/tmp:rw,exec,nosuid,nodev,mode=1777`). `/tmp` is then in
+  memory and starts empty at each start. Sandboxes made earlier keep their `/tmp`: make one again
+  (`sandbox rm`, remove its folder, `sandbox new`) if `stat -c %a /tmp` inside says 755.
 - **`sandbox list --removed` is now `sandbox list --all`.** Plain `sandbox list` shows only the
   sandboxes that have a container, so one made with `sandbox new` and not entered yet was missing
   from it, which looked as if `new` had failed. `--all` shows those too, after the others, and says

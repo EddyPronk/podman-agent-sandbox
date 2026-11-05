@@ -38,6 +38,7 @@
     "${localWorkspaceFolderBasename}",
     "--label=podman-agent-sandbox=${localEnv:SANDBOX_VERSION}",
     "--userns=keep-id",
+    "--tmpfs=/tmp:rw,exec,nosuid,nodev,mode=1777",
     "--device=/dev/net/tun",
     "--security-opt=unmask=/proc/*",
     "--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp.json"
