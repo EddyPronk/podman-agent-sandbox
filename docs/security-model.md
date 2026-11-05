@@ -139,7 +139,7 @@ file can't change while the sandbox runs":
     `branch` and `checkout` fail ("Unable to create '.git/index.lock': Read-only file system").
   - It doesn't help with 4, or with a `.git` or a folder around it that you replace or move on your
     machine (say, by cloning again). The mount is then lost, as in 1.
-  - Tested in containers. With `enter --vm`, not yet.
+  - Tested in containers and in VMs (`enter --vm`).
 - **While a sandbox is running, treat its project's git as the agent's.** Don't run git on your
   machine in a repository the agent can write, including in folders it may have added. If you must,
   look at `.git` first as files (`commondir`, a `.git` file, the hooks, the keys in `config`), not
