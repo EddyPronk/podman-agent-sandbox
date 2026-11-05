@@ -11,7 +11,8 @@ import {
     parseVscodeProbe, podmanStorageRows, splitCommand, table, writableConfig,
 } from './inspect.js';
 import type { PodmanInfo, PodmanStorage, ProcStatus, Row, VscodeProbe } from './inspect.js';
-import { uncoveredInSandbox } from './workspace.js';
+import { mountView, parseMountinfo, uncoveredInSandbox } from './workspace.js';
+import type { MountView } from './workspace.js';
 
 export type { PodmanInfo } from './inspect.js';
 
@@ -90,9 +91,19 @@ export class Container {
         return { reason, hint: reason ? '' : unlabelledHint({ folder: this.folder }) };
     }
 
-    /** Destinations of its read-only mounts. */
-    readonlyMounts(): string[] {
-        return (this.info?.Mounts ?? []).filter((m) => !m.RW).map((m) => m.Destination);
+    /** Its mounts' destinations, read-only ones and all, for the enter check: as podman recorded them. */
+    mountView(): MountView {
+        return mountView(this.info?.Mounts ?? []);
+    }
+
+    /**
+     * The mounts really there while it runs (its /proc/1/mountinfo), or null when it isn't running or
+     * they can't be read.
+     */
+    liveMountView(): MountView | null {
+        if (this.state !== 'running') return null;
+        const result = podman(['exec', this.name, 'cat', '/proc/1/mountinfo']);
+        return result.status === 0 && result.stdout ? parseMountinfo(result.stdout) : null;
     }
 
     /** Names of the volumes it mounts. */
@@ -191,6 +202,24 @@ export interface DescribeOptions {
  * sandbox inspect of container NAME (INFO), a sandbox's container or its VM: HEADER, the command that
  * created it, and what it runs with, measured inside while it runs unless UNMEASURED says why not.
  */
+/**
+ * Warnings for the mounts podman lists (MOUNTS) that aren't there inside (LIVE, from mountinfo), or
+ * are there writable though podman made them read-only.
+ */
+export function lostMounts(mounts: { Destination: string; RW: boolean }[], live: MountView): string[] {
+    const warnings: string[] = [];
+    for (const m of mounts) {
+        if (!live.targets.includes(m.Destination)) {
+            warnings.push(`podman lists a mount at ${m.Destination}, but it isn't there inside: something replaced or `
+                + 'moved it (on your machine, or a folder above it moved inside). A restart mounts it again on what is '
+                + 'there then: look at it first');
+        } else if (!m.RW && !live.readonly.includes(m.Destination)) {
+            warnings.push(`podman made ${m.Destination} read-only, but inside it's writable now (something is mounted over it)`);
+        }
+    }
+    return warnings;
+}
+
 export function describeInfo(name: string, info: PodmanInfo, {
     header, sandbox, folder, untrusted = null, unmeasured = '', of = name, title = name,
 }: DescribeOptions): string {
@@ -209,6 +238,7 @@ export function describeInfo(name: string, info: PodmanInfo, {
     let status: ProcStatus | null = null;
     let vscode: VscodeProbe | null = null;
     let storage: PodmanStorage | null = null;
+    let live: MountView | null = null;
     if (!unmeasured && info.State?.Status === 'running') {
         const proc = podman(['exec', name, 'cat', '/proc/1/status']);
         if (proc.status === 0) status = parseStatus(proc.stdout);
@@ -218,6 +248,9 @@ export function describeInfo(name: string, info: PodmanInfo, {
         // Podman inside (nested-containers and the like): its images may outlive the container.
         const inner = podman(['exec', name, 'sh', '-c', PODMAN_STORAGE_PROBE]);
         if (inner.status === 0) storage = parsePodmanStorage(inner.stdout);
+        // The mounts really there: podman keeps listing one the kernel dropped or that moved.
+        const mountinfo = podman(['exec', name, 'cat', '/proc/1/mountinfo']);
+        if (mountinfo.status === 0 && mountinfo.stdout) live = parseMountinfo(mountinfo.stdout);
     }
     const internal: { [network: string]: boolean } = {};
     const networks = Object.keys(info.NetworkSettings?.Networks ?? {});
@@ -232,12 +265,13 @@ export function describeInfo(name: string, info: PodmanInfo, {
     const configWritable = sandbox ? writableConfig(info, folder) : null;
     if (folder) {
         try {
-            uncovered = uncoveredInSandbox(folder, (info.Mounts ?? []).filter((m) => !m.RW).map((m) => m.Destination));
+            uncovered = uncoveredInSandbox(folder, live ?? mountView(info.Mounts ?? []));
         } catch {
             // the config folder is gone: nothing to compare with
         }
     }
     const report = audit(info, { status, internal, uncovered, sandbox, vscode, configWritable });
+    if (live) report.warnings.push(...lostMounts(info.Mounts ?? [], live));
     if (untrusted) report.warnings.unshift(`${untrusted}: enter, exec and build refuse until 'sandbox trust ${of}'`);
 
     const how = unmeasured ? ` (as podman set it up: ${unmeasured})`

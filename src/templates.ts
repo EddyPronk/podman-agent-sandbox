@@ -42,6 +42,43 @@ export function markerOf(config: unknown): JsonObject | undefined {
     return isObject(marker) ? marker : undefined;
 }
 
+/**
+ * The policies this sandbox can apply, as a config lists them in its marker's "policies", and as
+ * `sandbox new --policy` writes them there:
+ * - git-readonly: with --workspace, every repo's whole .git read-only, not only its hooks and config
+ *   (workspace.ts gitProtectedPaths), and the folders above it bound onto themselves, so they can't
+ *   be moved away with it (gitAnchors). Git inside can then read but not commit, stage or switch
+ *   branches. It closes what hooks and config alone leave open (docs/security-model.md, "Where a
+ *   mount's protection ends"). Without --workspace there is no project git to protect.
+ * - no-vm: the config can't run as a VM (sandbox enter --vm refuses it; vm.ts).
+ */
+export const KNOWN_POLICIES = ['git-readonly', 'no-vm'];
+
+/** The policy names in CONFIG's marker (strings only; checkMarker refuses anything else for --inplace). */
+export function configPolicies(config: unknown): string[] {
+    const policies = markerOf(config)?.policies;
+    return Array.isArray(policies) ? policies.filter((p): p is string => typeof p === 'string') : [];
+}
+
+/** --policy values GIVEN (each a NAME or NAME,NAME...): the names, checked, without repeats, sorted. */
+export function parsePolicies(given: string[]): string[] {
+    const names = given.flatMap((value) => value.split(',')).map((name) => name.trim());
+    if (names.some((name) => name === '')) throw new SandboxError(`--policy needs a name: ${KNOWN_POLICIES.join(', ')}`);
+    const unknown = names.find((name) => !KNOWN_POLICIES.includes(name));
+    if (unknown !== undefined) throw new SandboxError(`--policy ${unknown}: unknown policy; known: ${KNOWN_POLICIES.join(', ')}`);
+    return [...new Set(names)].sort();
+}
+
+/**
+ * CONFIG with NAMES added to its marker's "policies" (made if missing), keeping what it lists, without
+ * repeats, sorted. CONFIG itself is unchanged.
+ */
+export function withPolicies<T extends object>(config: T, names: string[]): T {
+    const merged = [...new Set([...configPolicies(config), ...names])].sort();
+    const customizations = isObject((config as JsonObject).customizations) ? (config as JsonObject).customizations as JsonObject : {};
+    return { ...config, customizations: { ...customizations, [MARKER]: { ...markerOf(config), policies: merged } } };
+}
+
 /** Is version HAVE (X.Y.Z) at least NEED? A prerelease or build suffix is ignored. */
 export function versionAtLeast(have: string, need: string): boolean {
     const parts = (v: string) => v.split(/[-+]/)[0].split('.').map(Number);

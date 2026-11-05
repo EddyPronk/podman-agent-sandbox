@@ -49,9 +49,12 @@ them.
   commit the agent made, `enter`, `exec` and `build` refuse until you confirm the change with
   `sandbox trust NAME`. See [A project's own sandbox config](project-config.md).
 - **Git hooks and config** of every repository in a `--workspace` project are read-only: git on your
-  machine runs what they name.
+  machine runs what they name. That isn't all git reads, and the mounts have limits: see [Where a
+  mount's protection ends](#where-a-mounts-protection-ends). **`--policy git-readonly`** makes every
+  repository's whole `.git` read-only instead, which closes most of that, but git inside can then only
+  read.
 - **`--hide`** keeps a file or folder of the project out of sight, and **`--readonly`** makes one
-  read-only.
+  read-only. The same limits apply.
 
 [A sandbox around an existing project](sandbox-around-an-existing-project.md) has the details.
 
@@ -68,6 +71,78 @@ them.
 - **Secrets in the project:** the agent can read everything in it that isn't hidden with `--hide`.
 - **What VS Code brings in:** attaching VS Code forwards your SSH agent and git credentials into the
   sandbox; see [VS Code and sandboxes](vscode.md).
+- **The read-only and hidden paths, in every case:** git's hooks and config, `--readonly` and `--hide`
+  can be got around, from inside or by what you do outside; see below.
 - **The kernel:** a sandbox is a container, not a virtual machine. It shares your kernel, so a kernel
   bug reachable from inside is a way out. With krun installed, `sandbox enter --vm` runs it in a microVM
   with its own kernel instead: see [A sandbox in a microVM](microvm.md), also for what that changes.
+
+### Where a mount's protection ends
+
+The project is mounted read-write. Git's hooks and config, `--readonly` and `--hide` are more mounts,
+each laid over **one path** in the sandbox's own view of the files. Such a mount protects that path
+while nothing replaces what's under it and nothing moves the folder around it. That's less than "this
+file can't change while the sandbox runs":
+
+1. **Something on your machine replaces a protected file: the sandbox loses that mount.** Many
+   programs save by writing a new file and renaming it over the old one: editors, `git config`,
+   `git branch`, `git push -u` (all three rewrite `.git/config`), tools that regenerate a key. The
+   kernel then drops the mount in the sandbox, without an error. Inside, the path is now your new
+   file, **writable** (for git's config or a `--readonly` file) or **readable** (for a `--hide` file).
+   - Writing a file in place keeps the mount.
+   - A hidden *folder* keeps its mount when files in it change; it's lost only if the folder itself
+     is replaced.
+   - **`podman inspect` doesn't show it:** it lists the mounts the container was made with. Only
+     `/proc/self/mountinfo` inside lists the mounts that are really there. While the sandbox runs,
+     `sandbox inspect` reads it too. It warns about a mount podman lists that isn't there.
+     `enter` and `exec` read it too, and refuse to run while a protected path has lost its mount
+     (since 0.10.0). They check only when you run them, so a mount lost during a session goes
+     unnoticed until then.
+   - `podman restart NAME` (or `sandbox stop` and `enter`) puts the mounts back, **on the files as
+     they are then**. If the agent changed one in between, the change stays. Look at it first.
+2. **From inside, a protected path can't be moved or removed, but the folder around it can.**
+   `mv .git .git.old` works, and the read-only `config` and `hooks` go along with `.git.old`. The
+   agent then makes a new `.git` at the old path. It's writable, and **git on your machine uses
+   it**, with whatever `core.fsmonitor` or hook the agent put there. The same works for
+   `--readonly a/b` when `a` is writable. A read-only `.git` as a whole is no exception: `mv libs
+   libs.old` takes `libs/.git`'s mount along, and a copy (`cp -a libs.old libs`) puts a writable
+   `.git` back where git on your machine looks. Only the project folder itself can't be moved, so
+   only a repository at its top is safe from this. Moving the folder around a *hidden* path is
+   harmless: the hiding goes with it.
+3. **Git reads more than `config` and `hooks`.** Inside, the agent can also write:
+   - `.git/commondir`, which makes git read its config, hooks and refs from another folder;
+   - an interrupted rebase's to-do list, whose `exec` lines `git rebase --continue` runs;
+   - a `.git` *file* (`gitdir: PATH`) in place of the folder, if it got the folder out of the way.
+
+   With hooks and config read-only and unchanged, git on your machine can still run the agent's
+   commands.
+4. **Repositories made after `sandbox new` aren't protected.** The agent can make a new repository
+   anywhere in the project, such as `docs/.git`. Git on your machine uses it as soon as it runs in
+   that folder: your shell prompt's git status, your editor, a `git -C`. `sandbox enter` and `exec`
+   refuse to run with a repository that isn't covered. But they check only when you run them, so
+   one made during a session goes unnoticed until the next `enter` or `exec`.
+
+**What helps:**
+
+- **`--policy git-readonly`** makes each repository's whole `.git` read-only, as one mount. `.git`
+  is then the mount point: it can't be moved, `commondir` and rebase state can't be written (3),
+  and files git replaces *inside* `.git` keep the protection (1).
+  - Against moving the folders around it (2), each folder between the project folder and a `.git`
+    is mounted onto itself, read-write. For `lab/30/tool/.git` that's `lab`, `lab/30` and
+    `lab/30/tool`. A mount point can't be renamed or removed from inside ("Resource busy"), and
+    files in those folders are written as usual. Moving a file *between* them becomes a copy and a
+    delete, which `mv` does by itself.
+  - The agent can't undo these mounts: in a namespace of its own, or in a container it starts
+    inside, they're locked. It can't unmount them, remount them writable, or bind the folder
+    without them.
+  - The price is that git inside can only read. `status`, `log` and `diff` work. `add`, `commit`,
+    `branch` and `checkout` fail ("Unable to create '.git/index.lock': Read-only file system").
+  - It doesn't help with 4, or with a `.git` or a folder around it that you replace or move on your
+    machine (say, by cloning again). The mount is then lost, as in 1.
+  - Tested in containers and in VMs (`enter --vm`).
+- **While a sandbox is running, treat its project's git as the agent's.** Don't run git on your
+  machine in a repository the agent can write, including in folders it may have added. If you must,
+  look at `.git` first as files (`commondir`, a `.git` file, the hooks, the keys in `config`), not
+  with git: git runs the payload itself.
+- **After something on your machine has replaced a protected or hidden file,** restart the sandbox,
+  then check that file.

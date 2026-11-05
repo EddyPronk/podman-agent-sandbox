@@ -32,6 +32,45 @@ sandbox-dev new try --template claude
 - **Don't use `npm link` or `npm install -g .` for this.** Both replace the installed `sandbox` until
   you install the release again with the README's one-liner.
 
+## Trying an unreleased version as your `sandbox`
+
+To use a branch as your everyday `sandbox` before it's released, build the package from a commit,
+not from the working tree: what isn't committed (an agent's edits, say) stays out.
+
+```sh
+COMMIT=$(git rev-parse --short HEAD)    # or any commit you reviewed
+W=$(mktemp -d)
+git archive "$COMMIT" | tar -x -C "$W"  # the commit's files only: no edits, untracked files, node_modules or dist/
+(cd "$W" && npm ci && npm pack --pack-destination ~)   # npm pack builds dist/ (prepack)
+rm -rf "$W"
+npm install -g --ignore-scripts ~/podman-agent-sandbox-X.Y.Z.tgz
+```
+
+- **This replaces the installed `sandbox`,** as `npm install -g .` would. The README's one-liner puts
+  the release back.
+- **`--ignore-scripts`:** the package needs no install scripts, so none of its dependencies' run.
+- **`enter` and `exec` may refuse a sandbox made with another build,** when the protections it should
+  have changed in between. Make it again: `sandbox rm NAME`, move its folder aside, `sandbox new`.
+- **A `nested-containers` sandbox warns when it's made, and that's expected.** Its
+  `postCreateCommand` installs the same `sandbox` version inside, from the GitHub release, and an
+  unreleased version has none. You get npm's `E404` for
+  `…/releases/download/vX.Y.Z/podman-agent-sandbox-X.Y.Z.tgz`, then:
+
+  ```
+  sandbox: warning: could not install sandbox X.Y.Z inside (not released?); install it there by hand
+  ```
+
+  The sandbox itself is made (`"outcome":"success"`). Install the same tarball inside. Put it where
+  the sandbox can read it: in the project, which a `--workspace` sandbox mounts at the same path
+  (other sandboxes, at `/workspace`).
+
+  ```sh
+  sandbox exec NAME sh -lc 'npm install -g --ignore-scripts --prefix ~/.local /path/in/project/podman-agent-sandbox-X.Y.Z.tgz'
+  ```
+
+  `~/.local/bin` is on the login shell's PATH inside, so `sandbox enter` finds it. A plain `sh -c`
+  doesn't load that PATH.
+
 ## Tests
 
 - **Unit tests:** `npm test` (Node's test runner). They build no images and start no containers.

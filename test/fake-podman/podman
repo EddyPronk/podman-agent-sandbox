@@ -75,6 +75,12 @@ if (cmd === 'container' && rest[0] === 'inspect') {
     const c = find(rest.at(-1));
     if (!c) noSuch(rest.at(-1));
     console.log(`attached to ${c.Name}`);
+} else if (cmd === 'exec' && rest.length === 3 && rest[1] === 'cat' && rest[2] === '/proc/1/mountinfo') {
+    // The live mounts: a running container's "Mountinfo" (text) in the state, if it has one.
+    const c = find(rest[0]);
+    if (!c) noSuch(rest[0]);
+    if (c.State.Status !== 'running' || c.Mountinfo === undefined) fail('the fake podman has no mountinfo for it');
+    process.stdout.write(c.Mountinfo);
 } else if (cmd === 'volume' || cmd === 'exec' || cmd === 'network') {
     fail(`the fake podman has no ${cmd}`);
 } else {

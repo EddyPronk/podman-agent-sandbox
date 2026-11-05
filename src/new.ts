@@ -12,17 +12,19 @@ import {
 import type { StagedConfig } from './inplace.js';
 import { table } from './inspect.js';
 import {
-    FEATURES_FILE, checkAgent, chooseAgent, parseFeatureArgs, placeAgent, withFeatures, writeFeatures,
+    FEATURES_FILE, addPolicy, checkAgent, checkPolicy, chooseAgent, parseFeatureArgs, placeAgent, POLICY_DIR, withFeatures,
+    writeFeatures,
 } from './features.js';
 import { SECCOMP_RUN_ARG } from './seccomp.js';
 import { removeRecord, writeRecord } from './state.js';
 import {
-    applyTemplate, experimentalImage, parseOptionArgs, resolveOptions, seccompAllow, TESTED_IMAGES, withImage,
+    MARKER, applyTemplate, configPolicies, experimentalImage, parseOptionArgs, parsePolicies, resolveOptions, seccompAllow,
+    TESTED_IMAGES, withImage, withPolicies,
 } from './templates.js';
 import type { OptionValues, Template } from './templates.js';
 import {
-    applyWorkspace, configFile, defaultName, findGitDirs, findSecretFiles, isInside, readConfig, readSettings, realConfigDir,
-    resolveWorkspace, workspaceMounts, workspacePath, writeSettings,
+    applyWorkspace, configFile, defaultName, findGitDirs, findSecretFiles, isInside, readConfig, readSettings,
+    realConfigDir, resolveWorkspace, workspaceMounts, workspacePath, writeSettings,
 } from './workspace.js';
 import type { Settings } from './workspace.js';
 import { checkHost, vmPolicy } from './vm.js';
@@ -40,6 +42,8 @@ interface NewValues {
     vm?: boolean;
     feature?: string[];
     agent?: string;
+    'agent-policy'?: string;
+    policy?: string[];
 }
 
 /** Everything --workspace adds, checked (planWorkspace). HIDE and READONLY are relative to WORKSPACE. */
@@ -47,6 +51,7 @@ interface WorkspacePlan {
     workspace: string;
     hide: string[];
     readonly: string[];
+    policies: string[];
     mounts: string[];
     gitDirs: string[];
     secrets: string[];
@@ -68,17 +73,31 @@ export function cmdNew(args: string[]): void {
             vm: { type: 'boolean' },
             feature: { type: 'string', short: 'f', multiple: true },
             agent: { type: 'string', short: 'a' },
+            'agent-policy': { type: 'string' },
+            policy: { type: 'string', multiple: true },
         },
     });
-    const usage = 'sandbox new NAME --template TEMPLATE [--image IMAGE] [--option KEY=VALUE ...] [--agent AGENT|none] [--feature REF ...] [--vm]\n'
+    const usage = 'sandbox new NAME --template TEMPLATE [--image IMAGE] [--option KEY=VALUE ...] [--agent AGENT|none] [--agent-policy DIR] [--policy NAME ...] [--feature REF ...] [--vm]\n'
         + '       sandbox new [NAME] --template TEMPLATE --workspace PATH [--image IMAGE] [--hide PATH ...] [--readonly PATH ...] [--vm]\n'
-        + '       sandbox new [NAME] --workspace PATH --inplace [--template TEMPLATE] [--yes] [--hide PATH ...] [--readonly PATH ...] [--vm]';
+        + '       sandbox new [NAME] --workspace PATH --inplace [--template TEMPLATE] [--yes] [--hide PATH ...] [--readonly PATH ...] [--policy NAME ...] [--vm]';
     const workspace = values.workspace === undefined ? null : resolveWorkspace(values.workspace);
     if ((values.hide || values.readonly) && !workspace) throw new SandboxError('--hide and --readonly need --workspace');
+    // Checked before anything is made: the policies go into the config's marker, next to the template's.
+    const policies = parsePolicies(values.policy ?? []);
+    if (policies.includes('git-readonly') && !workspace) {
+        throw new SandboxError('--policy git-readonly needs --workspace: it protects the git repos of the project');
+    }
+    if (policies.length && values.inplace && !values.template) {
+        throw new SandboxError('--policy with --inplace needs --template: otherwise the project\'s own devcontainer.json '
+            + `lists its policies ("customizations": {"${MARKER}": {"policies": [...]}})`);
+    }
     if (values.inplace && !workspace) throw new SandboxError('--inplace needs --workspace: the project whose .devcontainer to use');
     if (values.yes && !values.inplace) throw new SandboxError('--yes goes with --inplace');
     if (values.feature && values.inplace) {
         throw new SandboxError('--feature can\'t go with --inplace yet: add the Feature to the project\'s devcontainer.json');
+    }
+    if (values['agent-policy'] !== undefined && values.inplace) {
+        throw new SandboxError('--agent-policy can\'t go with --inplace yet: put the policy in the project\'s agent folder');
     }
     if (values.agent !== undefined && values.inplace && !values.template) {
         throw new SandboxError('--agent with --inplace needs --template: the project\'s own devcontainer.json names its agent');
@@ -86,6 +105,7 @@ export function cmdNew(args: string[]): void {
     // Checked before anything is made.
     const features = parseFeatureArgs(values.feature ?? []);
     checkAgent(values.agent);
+    const policy = checkPolicy(values['agent-policy']);
     if (positionals.length > 1 || (positionals.length === 0 && !workspace)) throw new SandboxError(`usage: ${usage}`);
     if (!values.template && !values.inplace) {
         const hint = workspace && hasMarker(workspace)
@@ -110,17 +130,25 @@ export function cmdNew(args: string[]): void {
     if (values.inplace && workspace) return newInplace(name, dest, workspace, values);
     if (!values.template) throw new SandboxError(`usage: ${usage}`);
     // Check everything about the workspace before creating anything.
-    const plan = workspace && planWorkspace(workspace, values, realConfigDir(dest));
+    let plan = workspace && planWorkspace(workspace, values, realConfigDir(dest), policies);
     const given = withImage(parseOptionArgs(values.option ?? []), values.image);
     const template = applyTemplate(values.template, dest, given);
     let agent: string | null = null;
+    let policyFiles: string[] = [];
     try {
-        if (plan) applyWorkspace(dest, plan);
+        if (plan && workspace) {
+            // The template may list policies of its own (git-readonly changes the mounts); the given ones join them.
+            const all = [...new Set([...configPolicies(readConfig(configFile(dest))), ...policies])].sort();
+            if (all.length !== plan.policies.length) plan = planWorkspace(workspace, values, realConfigDir(dest), all);
+            applyWorkspace(dest, plan);
+        }
+        if (policies.length) writeConfig(dest, withPolicies(readConfig(configFile(dest)), policies));
         // The agent: --agent, else the template's default (customizations.podman-agent-sandbox.agent).
         agent = chooseAgent(dest, values.agent);
         checkAgent(agent ?? undefined);
         const extra = { ...features, ...placeAgent(dest, values.agent, agent, resolveOptions(template, given)) };
         if (Object.keys(extra).length) writeFeatures(dest, extra);
+        if (policy) policyFiles = addPolicy(dest, agent, policy);
         if (values.vm) checkVm(name, readConfig(configFile(dest)), dest);
     } catch (err) {
         rmSync(dest, { recursive: true, force: true });
@@ -129,17 +157,26 @@ export function cmdNew(args: string[]): void {
     if (values.vm) writeRecord(name, { kind: 'vm', folder: dest });
     if (plan) {
         console.log(`created ${dest} from template '${values.template}', around ${workspace}`);
-        const repos = plan.gitDirs.length;
-        console.log(`read-only inside: ${repos} git repo${repos === 1 ? "'s" : "s'"} hooks and config`
+        console.log(`read-only inside: ${gitSummary(plan)}`
             + `${plan.readonly.length ? `, ${plan.readonly.join(', ')}` : ''}; hidden: ${plan.hide.join(', ') || 'nothing'}`);
     } else {
         console.log(`created ${dest} from template '${values.template}'`);
     }
     if (agent) console.log(`with agent ${agent} (in .devcontainer/agent/${agent})`);
+    if (policyFiles.length) {
+        console.log(`with managed policy ${policyFiles.join(', ')} (in .devcontainer/agent/${agent}/${POLICY_DIR})`);
+    }
     for (const ref of Object.keys(features)) console.log(`with Feature ${ref} (in .devcontainer/${FEATURES_FILE})`);
     console.log(nextStep(name, values.vm));
     warnImage(name, template, given);
     if (plan) warnSecrets(name, dest, plan);
+}
+
+/** What PLAN makes read-only of its git repos, for the summary: their hooks and config, or all of .git. */
+function gitSummary(plan: WorkspacePlan): string {
+    const repos = plan.gitDirs.length;
+    const of = `${repos} git repo${repos === 1 ? "'s" : "s'"}`;
+    return plan.policies.includes('git-readonly') ? `${of} .git (policy git-readonly)` : `${of} hooks and config`;
 }
 
 /** What to run after sandbox new: enter, which makes the container or, with --vm, the VM. */
@@ -217,7 +254,9 @@ function alreadyExists(dest: string, name: string): SandboxError {
  * runs from it.
  */
 function newInplace(name: string, dest: string, workspace: string, values: NewValues): void {
-    const plan = planWorkspace(workspace, values, realConfigDir(dest));
+    // The project's own config lists its policies; with --template, --policy adds to the template's.
+    const policies = parsePolicies(values.policy ?? []);
+    let plan = planWorkspace(workspace, values, realConfigDir(dest), policies);
     checkNotHidden(workspace, plan.hide.map((path) => join(workspace, path)));
     const config = join(workspace, '.devcontainer');
     let template: Template | null = null;
@@ -226,7 +265,7 @@ function newInplace(name: string, dest: string, workspace: string, values: NewVa
         if (existsSync(config)) {
             throw new SandboxError(`${config} already exists, and --template would write over it; to use it as it is, leave out --template`);
         }
-        template = writeTemplateInto(values.template, workspace, given, values.agent);
+        template = writeTemplateInto(values.template, workspace, given, values.agent, policies);
     } else if (values.option || values.image) {
         throw new SandboxError('--option and --image fill in a template: with --inplace, they need --template');
     }
@@ -234,6 +273,7 @@ function newInplace(name: string, dest: string, workspace: string, values: NewVa
     try {
         staged = stageConfig(workspace);
         if (values.vm) checkVm(name, staged.config, dest);
+        plan = { ...plan, policies: configPolicies(staged.config) };   // for the summary: what writeEffective applies
     } catch (err) {
         if (staged) rmSync(staged.root, { recursive: true, force: true });
         if (template) rmSync(config, { recursive: true, force: true });
@@ -263,8 +303,7 @@ function newInplace(name: string, dest: string, workspace: string, values: NewVa
         console.log(`wrote ${config} from template '${values.template}': review it, and commit it with the project`);
     }
     console.log(`created ${dest} with the project's own config ${short(staged.id)}, around ${workspace}`);
-    const repos = plan.gitDirs.length;
-    console.log(`read-only inside: .devcontainer, ${repos} git repo${repos === 1 ? "'s" : "s'"} hooks and config`
+    console.log(`read-only inside: .devcontainer, ${gitSummary(plan)}`
         + `${plan.readonly.length ? `, ${plan.readonly.join(', ')}` : ''}; hidden: ${plan.hide.join(', ') || 'nothing'}`);
     console.log(nextStep(name, values.vm));
     if (template) warnImage(name, template, given);
@@ -276,7 +315,9 @@ function newInplace(name: string, dest: string, workspace: string, values: NewVa
  * it, but only its .devcontainer, and without what sandbox makes from seccompAllow: the profile
  * (seccomp.json) and the runArg naming it (SECCOMP_RUN_ARG). Returns the template's metadata.
  */
-function writeTemplateInto(spec: string, workspace: string, given: OptionValues, agentGiven: string | undefined): Template {
+function writeTemplateInto(
+    spec: string, workspace: string, given: OptionValues, agentGiven: string | undefined, policies: string[],
+): Template {
     const tmp = mkdtempSync(join(tmpdir(), 'sandbox-template-'));
     try {
         const copy = join(tmp, 'template');
@@ -298,6 +339,8 @@ function writeTemplateInto(spec: string, workspace: string, given: OptionValues,
         if (agent) {
             writeFileSync(configFile(copy), `${JSON.stringify(withFeatures(readConfig(configFile(copy)), entry), null, 2)}\n`);
         }
+        // --policy in the project's config too: it's what an --inplace sandbox goes by.
+        if (policies.length) writeConfig(copy, withPolicies(readConfig(configFile(copy)), policies));
         try {
             cpSync(join(copy, '.devcontainer'), join(workspace, '.devcontainer'),
                 { recursive: true, filter: (path) => path !== generated });
@@ -330,15 +373,20 @@ function firstTrust(name: string, config: string, staged: StagedConfig, yesFlag:
     return yes(answer);
 }
 
-/** Everything --workspace adds, checked: the mounts, and the choices for sandbox.json. */
-function planWorkspace(workspace: string, values: NewValues, configDir: string): WorkspacePlan {
+/** Everything --workspace adds, checked: the mounts (POLICIES: the config's), and the choices for sandbox.json. */
+function planWorkspace(workspace: string, values: NewValues, configDir: string, policies: string[]): WorkspacePlan {
     const hidden = (values.hide ?? []).map((p) => workspacePath(workspace, p, 'hide'));
     const readonly = (values.readonly ?? []).map((p) => workspacePath(workspace, p, 'readonly'));
     const gitDirs = findGitDirs(workspace, hidden);
-    const mounts = workspaceMounts({ workspace, hide: hidden, readonly, configDir, gitDirs });
+    const mounts = workspaceMounts({ workspace, hide: hidden, readonly, configDir, gitDirs, policies });
     const rel = (path: string) => relative(workspace, path);
     const secrets = findSecretFiles(workspace, hidden);
-    return { workspace, hide: hidden.map(rel), readonly: readonly.map(rel), mounts, gitDirs, secrets };
+    return { workspace, hide: hidden.map(rel), readonly: readonly.map(rel), policies, mounts, gitDirs, secrets };
+}
+
+/** Write CONFIG as DIR's devcontainer.json. */
+function writeConfig(dir: string, config: object): void {
+    writeFileSync(configFile(dir), `${JSON.stringify(config, null, 2)}\n`);
 }
 
 /** After making NAME (in DEST): warn about files in the workspace that may hold secrets (PLAN). */

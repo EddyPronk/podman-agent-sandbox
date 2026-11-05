@@ -31,6 +31,7 @@
     "--label=podman-agent-sandbox=${localEnv:SANDBOX_VERSION}",
     "--network=none",
     "--userns=keep-id",
+    "--tmpfs=/tmp:rw,exec,nosuid,nodev,mode=1777",
     "--cap-drop=all",
     "--security-opt=no-new-privileges"
   ],

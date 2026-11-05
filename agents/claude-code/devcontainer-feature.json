@@ -2,7 +2,7 @@
   "id": "claude-code",
   "version": "1.0.0",
   "name": "Agent: Claude Code",
-  "description": "Claude Code for a podman-agent-sandbox sandbox: Node.js 24 and Anthropic's Claude Code Feature, the auto-updater off, and the workspace folder trusted from the start",
+  "description": "Claude Code for a podman-agent-sandbox sandbox: Node.js 24 and Anthropic's Claude Code Feature, the auto-updater off, the workspace folder trusted from the start, and the managed policy from the agent folder's policy/, read-only at /etc/claude-code",
   "options": {
     "trustWorkspace": {
       "type": "boolean",
@@ -22,5 +22,8 @@
     "DISABLE_AUTOUPDATER": "1",
     "NVM_SYMLINK_CURRENT": "false"
   },
+  "mounts": [
+    "type=bind,source=${localWorkspaceFolder}/.devcontainer/agent/claude-code/policy,target=/etc/claude-code,readonly"
+  ],
   "postCreateCommand": "/usr/local/share/sandbox-agent/post-create"
 }

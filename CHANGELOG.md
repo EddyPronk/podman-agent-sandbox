@@ -7,6 +7,13 @@ again; `sandbox --version` shows what you have.
 
 ## 0.10.0 (unreleased)
 
+- **`/tmp` is writable again with podman 5.6 and newer.** Their image builds can leave `/tmp` at
+  mode 755 after a Dev Container Feature is installed
+  ([buildah#6503](https://github.com/podman-container-tools/buildah/issues/6503)), so the user
+  couldn't write there: `mktemp`, podman inside and npm failed. Every template now mounts a tmpfs
+  at `/tmp` with mode 1777 (`--tmpfs=/tmp:rw,exec,nosuid,nodev,mode=1777`). `/tmp` is then in
+  memory and starts empty at each start. Sandboxes made earlier keep their `/tmp`: make one again
+  (`sandbox rm`, remove its folder, `sandbox new`) if `stat -c %a /tmp` inside says 755.
 - **`sandbox list --removed` is now `sandbox list --all`.** Plain `sandbox list` shows only the
   sandboxes that have a container, so one made with `sandbox new` and not entered yet was missing
   from it, which looked as if `new` had failed. `--all` shows those too, after the others, and says
@@ -22,7 +29,37 @@ again; `sandbox --version` shows what you have.
   trust question. Sandboxes made earlier keep Claude Code as they have it.
 - **`claude-containers` is now `nested-containers`**: containers inside the sandbox, with Claude
   Code by default or another agent (`sandbox new work --template nested-containers --agent codex`).
-  The old name still works.
+  The old name still works. It now has `jq` too.
+- **The agent's managed policy: `sandbox new … --agent-policy DIR`.** Claude Code's `CLAUDE.md` and
+  `managed-settings.json`, mounted read-only at `/etc/claude-code`, above the workspace's own
+  settings and out of the agent's reach. Kept in `.devcontainer/agent/claude-code/policy` (README,
+  "The agent's managed policy").
+- **Every `.git` read-only: `sandbox new --workspace PATH --policy git-readonly`.** Each repository's
+  whole `.git` is one read-only mount, instead of its hooks and config. Each folder between the
+  project and a `.git` is mounted onto itself, so it can't be renamed from inside: otherwise
+  `mv libs libs.old` takes `libs/.git`'s mount along, and a copy puts a writable `.git` back.
+  Git inside can then read (`status`, `log`, `diff`) but not commit, stage or switch branches.
+  `enter` and `exec` check for both, and say why a path is listed ("writable", or "could be moved
+  away with the .git in it"). `--policy NAME` (comma-separated or repeated) writes the config's `"policies"`, the list that
+  already held `no-vm`: `sandbox new … --policy no-vm,git-readonly` gives
+  `"policies": ["git-readonly", "no-vm"]`. A template or a project's own config can list
+  `git-readonly` itself. With `--inplace`, `--policy` needs `--template`; otherwise the project's
+  config lists its policies.
+- **`enter`, `exec` and `inspect` look at the mounts really there** while the sandbox runs (its
+  `/proc/1/mountinfo`), not only at podman's record, which keeps listing a mount the kernel dropped
+  or that moved. `enter` and `exec` refuse while a protected path has lost its mount, and say that
+  a restart brings it back. `inspect` warns about each mount podman lists that isn't there.
+- **The limits of the read-only and hidden paths are documented** (docs/security-model.md, "Where a
+  mount's protection ends"). Git's hooks and config, `--readonly` and `--hide` are mounts on single
+  paths, and can be got around:
+  - a program on your machine replacing the file (an atomic save; `git config` and `git branch`
+    rewrite `.git/config`) drops the mount in the sandbox, which `podman inspect` doesn't show;
+  - the agent can move the folder around a protected path away, `.git` included, and make it again;
+  - the agent can redirect git with `.git/commondir`;
+  - repositories made after `sandbox new` aren't covered.
+
+  If you run git on your machine in a project a sandbox works on, restart the sandbox after git
+  changes its config, or use `--policy git-readonly`.
 - **Add tools with `sandbox new … --feature REF`.** Any published Dev Container Feature, by its
   reference, with options as JSON after `=`; repeatable, e.g. `--feature
   ghcr.io/devcontainers/features/aws-cli:1`. The template stays as it is: the Features are kept in

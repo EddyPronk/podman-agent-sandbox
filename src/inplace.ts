@@ -12,18 +12,15 @@ import { isObject, isString, isStringList, nullable } from './json.js';
 import type { JsonObject } from './json.js';
 import { SECCOMP_RUN_ARG, writeSeccompProfile } from './seccomp.js';
 import type { SeccompOptions } from './seccomp.js';
-import { MARKER, checkMinVersion, markerOf, seccompAllow } from './templates.js';
+import { KNOWN_POLICIES, MARKER, checkMinVersion, configPolicies, markerOf, seccompAllow } from './templates.js';
 import {
     aroundWorkspace, configFile, findGitDirs, hiddenPaths, isInside, readConfig, workspaceMounts,
 } from './workspace.js';
 import type { DevcontainerConfig, Settings } from './workspace.js';
 
-/**
- * The marker format this sandbox understands, and the policies it can check. no-vm: the config can't
- * run as a VM (sandbox enter --vm refuses it; vm.ts).
- */
+/** The marker format this sandbox understands; the policies it can check are templates.ts's KNOWN_POLICIES. */
 export const MARKER_VERSION = 1;
-export const KNOWN_POLICIES = ['no-vm'];
+export { KNOWN_POLICIES };
 
 /** In $SANDBOX_DIR/NAME: the trusted copy of the project's .devcontainer. */
 export const TRUSTED = 'trusted';
@@ -325,7 +322,9 @@ export function writeEffective(dest: string, settings: Settings, hooks: SeccompO
     const hide = hiddenPaths(settings);
     const readonly = [...new Set([join(workspace, '.devcontainer'),
         ...(settings.readonly ?? []).map((path) => join(workspace, path))])];
-    const mounts = workspaceMounts({ workspace, hide, readonly, configDir: dest, gitDirs: findGitDirs(workspace, hide) });
+    const mounts = workspaceMounts({
+        workspace, hide, readonly, configDir: dest, gitDirs: findGitDirs(workspace, hide), policies: configPolicies(config),
+    });
     writeFileSync(file, `${JSON.stringify(aroundWorkspace(config, workspace, mounts), null, 2)}\n`);
 }
 

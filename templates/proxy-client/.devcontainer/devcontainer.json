@@ -47,6 +47,7 @@
     "--label=podman-agent-sandbox=${localEnv:SANDBOX_VERSION}",
     "--env-file=${localWorkspaceFolder}/proxy.env",
     "--userns=keep-id",
+    "--tmpfs=/tmp:rw,exec,nosuid,nodev,mode=1777",
     "--cap-drop=all",
     "--security-opt=no-new-privileges",
     "--network=agent-proxy-net"
