@@ -23,7 +23,7 @@
 #   V8   mitm-proxy refused by enter --vm and new --vm, nothing made
 #   V9   a --workspace sandbox (a git repo, --hide of a file and a folder) in a VM: .git/hooks and
 #        .git/config read-only, hidden paths empty, as the user and as guest root if the image has sudo;
-#        a repo added after the VM was made: enter --vm refuses
+#        .git can't be moved, and is writable; a repo added after the VM was made: enter --vm refuses
 #   V14  --policy git-readonly in a VM: every .git read-only, and the folders above a nested repo
 #        (bound onto themselves in the container the VM is made from) can't be moved; writing works
 #   V10  a claude-template sandbox in a VM: Claude Code runs
@@ -194,10 +194,13 @@ run "V9 a --workspace sandbox in a VM: .git read-only, hidden paths empty; a rep
     $SB new vw --template offline --workspace "$WS" --hide .env --hide secrets
     probe="cd $WS; touch .git/hooks/x 2>/dev/null && echo HOOKS-WRITABLE; echo x >> .git/config 2>/dev/null && echo CONFIG-WRITABLE"
     probe="$probe; echo ENV=[\$(cat .env)] SECRETS=[\$(ls secrets)]"
+    probe="$probe; mv .git .git.old 2>/dev/null && echo MOVED:.git; touch .git/probe && rm .git/probe && echo GIT-WRITE-OK"
     probe="$probe; if command -v sudo >/dev/null; then sudo -n sh -c \"touch .git/hooks/y && echo ROOT-HOOKS-WRITABLE; cat .env\" 2>&1 | sed s/^/root:/; else echo NO-SUDO; fi"
     out=$(vm vw "$probe\nexit\n")
     echo "$out"
-    ! echo "$out" | grep -q "WRITABLE"
+    ! echo "$out" | grep -q "WRITABLE\|MOVED"
+    echo "$out" | grep -q GIT-WRITE-OK
+    [ -d "$WS/.git" ] && [ ! -e "$WS/.git.old" ]
     echo "$out" | grep -q "ENV=\[\] SECRETS=\[\]"
     [ "$(cat "$WS/.env")" = token ] && [ ! -e "$WS/.git/hooks/x" ]
     echo "$out" | grep -q NO-SUDO && echo "note: no sudo in the image; guest root not tried" || true

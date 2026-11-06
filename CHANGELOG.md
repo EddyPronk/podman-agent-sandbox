@@ -5,6 +5,24 @@ template changes reach only sandboxes made after the release; where that matters
 what to do about sandboxes you already have. To update, run the [one-line install](INSTALL.md)
 again; `sandbox --version` shows what you have.
 
+## 0.11.0 (unreleased)
+
+- **Without a policy, `.git` can't be moved away any more.** `sandbox new --workspace` binds each
+  `.git` onto itself (read-write, under its read-only `hooks` and `config`), and each folder between
+  the project and a nested `.git`, as `--policy git-readonly` does for the folders above. Before, `mv
+  .git .git.old` inside carried the read-only parts away and left room for a writable `.git` that git
+  on your machine would use. Git inside still commits, branches and checks out.
+  - **Sandboxes you already have** work on without these mounts, and `enter` doesn't ask for them.
+    To get them, make the sandbox again: `sandbox rm NAME`, remove its folder (after saving any edits
+    to its config), and `sandbox new` with the same options (they're in its `sandbox.json`).
+- **`enter`, `exec` and `inspect` warn about a `commondir` or a rebase in progress** in a repository
+  of a `--workspace` project without `git-readonly`, and show the rebase to-do list's `exec` lines:
+  `git rebase --continue` on your machine would run them. Look before you run git there.
+- **`sandbox export` leaves out the folders bound onto themselves**, of `git-readonly` sandboxes too.
+  Before, it kept them in the exported config, as paths of this machine.
+- **Docs:** [Default or git-readonly](docs/security-model.md#default-or-git-readonly) compares the two
+  modes, attack by attack, and says what each one detects.
+
 ## 0.10.0 (2026-11-06)
 
 - **`/tmp` is writable again with podman 5.6 and newer.** Their image builds can leave `/tmp` at

@@ -89,8 +89,9 @@ claude                          # inside the sandbox: sign in once, then work on
 ```
 
 The project is the working folder inside, at the same path. The agent can change its files, but not
-its git hooks and config. That stops it writing them, not an agent that sets out to get around
-them: a few commands do ([Default or git-readonly](docs/security-model.md#default-or-git-readonly)).
+its git hooks and config, or move `.git` away. That doesn't stop an agent that sets out to get
+around them: a `commondir` or a rebase's to-do list still work, and `sandbox` only warns about them
+([Default or git-readonly](docs/security-model.md#default-or-git-readonly)).
 If you commit outside the sandbox, add `--policy git-readonly`: every `.git` is then read-only
 inside, and git there can only read. Your SSH keys, your other files and the rest of your home directory stay
 outside. The sandbox's own config is in `~/sandboxes/your-project`. Leave the shell with `exit`; the

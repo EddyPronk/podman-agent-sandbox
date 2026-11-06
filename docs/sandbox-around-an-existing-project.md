@@ -20,12 +20,14 @@ sandbox enter myproject
   `.venv`) gets `.git/hooks` and `.git/config` read-only: git on the host runs what they name
   (hooks, `core.hooksPath`, `core.fsmonitor`, aliases), so a writable one would let the agent run
   code outside the sandbox. A `.git` *file* (a worktree or submodule, whose git folder is elsewhere)
-  is refused for now. **This doesn't cover everything git reads.** From inside, the agent can move
-  `.git` away, together with the read-only parts, and make a new one, or write `.git/commondir`. And
-  when git on your machine rewrites `.git/config` (`git config`, `git branch`, `git push -u`), the
-  sandbox loses that mount. So this stops a direct write, not an agent that sets out to get around
-  it, and two of the ways (`commondir`, a rebase's to-do list) leave nothing `enter` finds. [Default
-  or git-readonly](security-model.md#default-or-git-readonly) compares the two, and
+  is refused for now. Each `.git`, and each folder between the project and a nested one, is also
+  bound onto itself (since 0.11.0), so the agent can't move `.git` away with its read-only parts and
+  make a new one. Git inside still commits. **This doesn't cover everything git reads.** `.git` is
+  writable, so the agent can write `.git/commondir` or leave a rebase's to-do list with `exec`
+  lines; `enter`, `exec` and `inspect` warn about both, but only when you run them. And when git on
+  your machine rewrites `.git/config` (`git config`, `git branch`, `git push -u`), the sandbox loses
+  that mount. So this stops a direct write and a move, not an agent that sets out to get around it.
+  [Default or git-readonly](security-model.md#default-or-git-readonly) compares the two, and
   [Where a mount's protection ends](security-model.md#where-a-mounts-protection-ends) has the details.
 - **`--policy git-readonly`** makes every repo's whole `.git` read-only instead. Each folder
   between the project and a `.git` is also mounted onto itself, so the agent can't move a repo away

@@ -22,9 +22,12 @@
 #   T23     the nested claude's own config (/workspace/.devcontainer) is read-only inside
 #   T24-T27 sandboxes from their project's own config (inplace.sh, run inside): --inplace, an
 #           agent's git commit of the config refused until trust, trust, export
-#   T30-T33 --workspace --policy git-readonly --agent-policy (git-readonly.sh, run inside): every
+#   T30-T33 --workspace --policy git-readonly --agent-policy (git-protection.sh, run inside): every
 #           .git read-only and the folders above it bound onto themselves, git only reads, nothing
 #           can be moved; a .git replaced from outside while it runs, and a repo made later, refused
+#   T35-T37 --workspace without a policy (git-protection.sh): hooks and config read-only, each .git
+#           and the folders above bound onto themselves, git commits but nothing can be moved; a
+#           rebase left in progress with an exec line is warned about
 #   T21     a claude sandbox on Ubuntu 26.04 (--image): its ubuntu user (UID 1000) renamed
 #           to yours, so keep-id works; removed again afterwards, with unused images, to save disk
 #   T28     an offline sandbox around a project, on a Python image: sandbox exec runs make in the
@@ -33,8 +36,8 @@
 # Each test's full output is in LOG_DIR (default ./nested-logs), and on a failure the end of it is
 # printed, followed by the state of both levels (containers, their logs, disk).
 # Exit status: the number of failed tests; 99 if `nested` couldn't be set up.
-# Needs rootless podman and /dev/net/tun on the host. Takes a while: it builds nine images (the
-# three for T24-T27 and T30-T33 mostly from the claude image's cached layers).
+# Needs rootless podman and /dev/net/tun on the host. Takes a while: it builds ten images (the
+# four for T24-T27, T30-T33 and T35-T37 mostly from the claude image's cached layers).
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd -P)
@@ -83,7 +86,7 @@ sandbox enter "$N" </dev/null >"$LOG/up.log" 2>&1 || die "sandbox enter $N faile
 { podman cp "$TARBALL" "$N:/tmp/podman-agent-sandbox.tgz" \
     && podman cp "$here/proxy-network.sh" "$N:/tmp/proxy-network.sh" \
     && podman cp "$here/inplace.sh" "$N:/tmp/inplace.sh" \
-    && podman cp "$here/git-readonly.sh" "$N:/tmp/git-readonly.sh" \
+    && podman cp "$here/git-protection.sh" "$N:/tmp/git-protection.sh" \
     && podman exec -u "$U" "$N" bash -lc \
         'prefix=$(npm config get prefix); if [ ! -w "$prefix/lib/node_modules" ]; then prefix=~/.local; fi
          npm install -g --prefix "$prefix" --no-fund --no-audit /tmp/podman-agent-sandbox.tgz'
@@ -143,12 +146,12 @@ if ((ip >= 99)) || ! grep -q '^failed: ' "$LOG/inplace.log"; then
     echo "FAIL  T24-T27 did not run (exit $ip)"; tail -n 30 "$LOG/inplace.log" | sed 's/^/      | /'; ip=1
 fi
 failed=$((failed + ip))
-# T30-T33 run inside, as one script, like T24-T27.
-podman exec -u "$U" "$N" bash -lc 'bash /tmp/git-readonly.sh ~/git-readonly-logs' >"$LOG/git-readonly.log" 2>&1
+# T30-T33 and T35-T37 run inside, as one script, like T24-T27.
+podman exec -u "$U" "$N" bash -lc 'bash /tmp/git-protection.sh ~/git-protection-logs' >"$LOG/git-protection.log" 2>&1
 gr=$?
-grep -E '^(PASS|FAIL|      \|)' "$LOG/git-readonly.log"
-if ((gr >= 99)) || ! grep -q '^failed: ' "$LOG/git-readonly.log"; then
-    echo "FAIL  T30-T33 did not run (exit $gr)"; tail -n 30 "$LOG/git-readonly.log" | sed 's/^/      | /'; gr=1
+grep -E '^(PASS|FAIL|      \|)' "$LOG/git-protection.log"
+if ((gr >= 99)) || ! grep -q '^failed: ' "$LOG/git-protection.log"; then
+    echo "FAIL  T30-T37 did not run (exit $gr)"; tail -n 30 "$LOG/git-protection.log" | sed 's/^/      | /'; gr=1
 fi
 failed=$((failed + gr))
 
