@@ -139,6 +139,7 @@ export interface AuditOptions {
     status?: ProcStatus | null;
     internal?: { [network: string]: boolean };
     uncovered?: string[];
+    gitReadonly?: boolean;
     sandbox?: boolean;
     vscode?: VscodeProbe | null;
     configWritable?: string | null;
@@ -444,7 +445,8 @@ const capName = (cap: string) => cap.replace(/^CAP_/, '').toLowerCase();
  * What container INFO (one `podman container inspect` object) runs with, and what to warn about.
  * status: parseStatus() of /proc/1/status inside, when it runs (measured beats configured).
  * internal: network name -> true when internal (no route out).
- * uncovered: git paths a --workspace sandbox should have read-only and doesn't.
+ * uncovered: git paths a --workspace sandbox should have read-only and doesn't (or folders it should
+ * have bound onto themselves); gitReadonly: whether it has the git-readonly policy (uncoveredWhy).
  * sandbox: false for a container `sandbox` didn't make: the advice is podman's, not the templates'.
  * vscode: parseVscodeProbe() of VSCODE_PROBE run inside, when it runs.
  * configWritable: where the sandbox's own .devcontainer is writable inside (a sandbox made before the
@@ -452,7 +454,7 @@ const capName = (cap: string) => cap.replace(/^CAP_/, '').toLowerCase();
  * Returns { rows: [[label, text]], mounts: [text], warnings: [text], notes: [text] }.
  */
 export function audit(info: PodmanInfo, {
-    status = null, internal = {}, uncovered = [], sandbox = true, vscode = null, configWritable = null,
+    status = null, internal = {}, uncovered = [], gitReadonly = true, sandbox = true, vscode = null, configWritable = null,
 }: AuditOptions = {}): Audit {
     const host: PodmanHostConfig = info.HostConfig ?? {};
     const split = splitCommand(info.Config?.CreateCommand ?? [], info.ImageName ?? '', info.Image);
@@ -576,7 +578,7 @@ export function audit(info: PodmanInfo, {
         }
     }
 
-    for (const path of uncovered) warnings.push(`not protected inside, and git on the host runs what a .git names: ${path}${uncoveredWhy(path)}`);
+    for (const path of uncovered) warnings.push(`not protected inside, and git on the host runs what a .git names: ${path}${uncoveredWhy(path, gitReadonly)}`);
     if (configWritable) {
         warnings.push(`the sandbox's own config is writable inside (${configWritable}): the next container creation `
             + '(sandbox rm and enter, or build) uses what is there then, and an initializeCommand runs on your machine. '

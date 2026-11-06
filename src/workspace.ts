@@ -158,7 +158,7 @@ export function gitProtectedPaths(gitDirs: string[], policies: string[] = []): s
 }
 
 /**
- * With git-readonly: the folders that hold a repo's .git, from the repo folder up to (not including)
+ * The folders that hold a repo's .git, from the repo folder up to (not including)
  * WORKSPACE, which get a read-write bind onto themselves. A mount point can't be renamed or removed
  * from inside (EBUSY), so the repo can't be moved away with its .git mount and replaced by a writable
  * copy at the path host git uses (lab 49, finding 5). The workspace itself is a mount point already;
@@ -175,10 +175,22 @@ export function gitAnchors(workspace: string, gitDirs: string[], readonly: strin
 }
 
 /**
+ * Every folder bound onto itself (read-write) against moves: gitAnchors, and without git-readonly
+ * (GIT_READONLY false) each .git as well. There only its hooks and config are read-only mounts, so
+ * `mv .git .git.old` would carry them away and leave room for a writable .git (lab 49, finding 6).
+ * With git-readonly .git is a mount point already. Not .git folders in a READONLY target. Sorted.
+ */
+export function moveAnchors(workspace: string, gitDirs: string[], readonly: string[], gitReadonly: boolean): string[] {
+    const own = gitReadonly ? [] : gitDirs.filter((dir) => !readonly.some((target) => isInside(dir, target)));
+    return [...new Set([...gitAnchors(workspace, gitDirs, readonly), ...own])].sort();
+}
+
+/**
  * Mounts for a sandbox around WORKSPACE, as devcontainer.json "mounts" strings, outer paths first.
  * HIDE and READONLY are absolute paths inside the workspace (see workspacePath); CONFIG_DIR is the
  * sandbox's config folder, made read-only if it's inside the workspace. POLICIES: --policy's names
- * (git-readonly: every .git read-only, and the folders above them bound onto themselves, gitAnchors).
+ * (git-readonly: every .git read-only). Either way the folders above each .git, and without
+ * git-readonly each .git too, are bound onto themselves (moveAnchors).
  */
 export function workspaceMounts({ workspace, hide = [], readonly = [], configDir, gitDirs, policies = [] }: {
     workspace: string;
@@ -204,10 +216,9 @@ export function workspaceMounts({ workspace, hide = [], readonly = [], configDir
         checkMountable(configInside);
         mounts.push({ target: configInside, spec: `type=bind,source=${configInside},target=${configInside},readonly` });
     }
-    if (policies.includes('git-readonly')) {
-        for (const dir of gitAnchors(workspace, gitDirs, configInside ? [...readonly, configInside] : readonly)) {
-            mounts.push({ target: dir, spec: `type=bind,source=${checkMountable(dir)},target=${dir}` });
-        }
+    const gitReadonly = policies.includes('git-readonly');
+    for (const dir of moveAnchors(workspace, gitDirs, configInside ? [...readonly, configInside] : readonly, gitReadonly)) {
+        mounts.push({ target: dir, spec: `type=bind,source=${checkMountable(dir)},target=${dir}` });
     }
     for (const path of hide) {
         // Without notmpcopyup, Podman copies what's under the target into the tmpfs.
@@ -357,25 +368,41 @@ export function uncoveredGitPaths(gitDirs: string[], readonly: string[], policie
     return gitProtectedPaths(gitDirs, policies).filter((path) => !readonly.some((target) => isInside(path, target)));
 }
 
-/** Why uncoveredInSandbox lists PATH, as a suffix: a git path is writable, any other folder movable. */
-export function uncoveredWhy(path: string): string {
+/**
+ * Why uncoveredInSandbox lists PATH, as a suffix: a git path is writable, any other folder movable.
+ * Without git-readonly (GIT_READONLY false) a .git itself is listed only as movable (moveAnchors).
+ */
+export function uncoveredWhy(path: string, gitReadonly = true): string {
+    if (!gitReadonly && basename(path) === '.git') return ' (could be moved away with its read-only hooks and config)';
     return path.split(sep).includes('.git') ? ' (writable)' : ' (could be moved away with the .git in it)';
 }
 
 /**
- * With git-readonly: the folders of gitAnchors(WORKSPACE, GITDIRS) that aren't a mount target (in
- * MOUNTED) or in a READONLY one, so inside they could be renamed, carrying a .git mount away.
+ * The folders of moveAnchors(WORKSPACE, GITDIRS) that aren't a mount target (in MOUNTED) or in a
+ * READONLY one, so inside they could be renamed, carrying a .git mount away.
  */
-export function unanchoredGitFolders(workspace: string, gitDirs: string[], { readonly, targets }: MountView): string[] {
-    return gitAnchors(workspace, gitDirs, readonly).filter((dir) => !targets.includes(dir));
+export function unanchoredGitFolders(workspace: string, gitDirs: string[], { readonly, targets }: MountView,
+    gitReadonly = true): string[] {
+    return moveAnchors(workspace, gitDirs, readonly, gitReadonly).filter((dir) => !targets.includes(dir));
+}
+
+/**
+ * Whether the sandbox whose config is CONFIG must have its moveAnchors mounted: always with
+ * git-readonly; without it, only when the config binds a .git of GIT_DIRS onto itself. Sandboxes
+ * made before 0.11.0 don't, and keep working; made again, they do.
+ */
+function anchored(config: DevcontainerConfig, gitDirs: string[]): boolean {
+    if (configPolicies(config).includes('git-readonly')) return true;
+    const targets = mountTargets(config.mounts);
+    return gitDirs.some((dir) => targets.includes(dir));
 }
 
 /**
  * For the sandbox whose config is in CONFIG_DIR: the paths in its workspace that aren't protected
- * inside as host git needs: git paths that would be writable, and with git-readonly, folders above a
- * .git that could be moved (gitAnchors). CONTAINER is the container's mounts if it exists (it keeps
- * the mounts it was created with), else null: then the config it would be created from counts. The
- * config's policies say what must be protected. [] for a sandbox not made with --workspace.
+ * inside as host git needs: git paths that would be writable, and folders (a .git among them, without
+ * git-readonly) that could be moved (moveAnchors). CONTAINER is the container's mounts if it exists
+ * (it keeps the mounts it was created with), else null: then the config it would be created from
+ * counts. The config's policies say what must be protected. [] for a sandbox not made with --workspace.
  */
 export function uncoveredInSandbox(configDir: string, container: MountView | null): string[] {
     const settings = readSettings(configDir);
@@ -384,8 +411,63 @@ export function uncoveredInSandbox(configDir: string, container: MountView | nul
     const config = readConfig(configFile(configDir));
     const view = container ?? { readonly: readonlyTargets(config.mounts), targets: mountTargets(config.mounts) };
     const policies = configPolicies(config);
-    const movable = policies.includes('git-readonly') ? unanchoredGitFolders(settings.workspace, gitDirs, view) : [];
-    return [...uncoveredGitPaths(gitDirs, view.readonly, policies), ...movable].sort();
+    const gitReadonly = policies.includes('git-readonly');
+    const movable = anchored(config, gitDirs) ? unanchoredGitFolders(settings.workspace, gitDirs, view, gitReadonly) : [];
+    return [...new Set([...uncoveredGitPaths(gitDirs, view.readonly, policies), ...movable])].sort();
+}
+
+/** Whether the sandbox whose config is in CONFIG_DIR has the git-readonly policy. */
+export function isGitReadonly(configDir: string): boolean {
+    return configPolicies(readConfig(configFile(configDir))).includes('git-readonly');
+}
+
+/**
+ * What in GIT_DIRS would make git on the host run or read what the agent wrote, though hooks and
+ * config are read-only: a `commondir` (git then reads config, hooks and refs from where it points),
+ * and an interrupted rebase, whose to-do list's exec lines `git rebase --continue` runs. One warning
+ * each, with the exec lines. Lab 49, findings 2 and 3; without git-readonly the agent can write both.
+ */
+export function gitStateWarnings(gitDirs: string[]): string[] {
+    const warnings: string[] = [];
+    for (const gitDir of gitDirs) {
+        const commondir = join(gitDir, 'commondir');
+        if (existsSync(commondir)) {
+            let to = '';
+            try {
+                to = readFileSync(commondir, 'utf8').trim();
+            } catch {
+                // unreadable: still worth the warning
+            }
+            warnings.push(`${commondir} exists${to ? ` (${JSON.stringify(to)})` : ''}: git on the host would read `
+                + 'config and hooks from where it points. A repository\'s own .git has none; remove it, after a look');
+        }
+        for (const state of ['rebase-merge', 'rebase-apply']) {
+            const dir = join(gitDir, state);
+            if (!existsSync(dir)) continue;
+            let execs: string[] = [];
+            try {
+                execs = readFileSync(join(dir, 'git-rebase-todo'), 'utf8').split('\n')
+                    .filter((line) => /^\s*(exec|x)\s/.test(line)).map((line) => line.trim());
+            } catch {
+                // no to-do list (rebase-apply, or one in the making)
+            }
+            const repo = dirname(gitDir);
+            warnings.push(`${repo} has a rebase in progress (${join(gitDir, state)}): git rebase --continue on the host `
+                + `runs its to-do list's exec lines; look at ${join(dir, 'git-rebase-todo')} first`
+                + (execs.length ? `. It has ${execs.length}:\n${execs.map((line) => `    ${line}`).join('\n')}` : ''));
+        }
+    }
+    return warnings;
+}
+
+/**
+ * gitStateWarnings for the sandbox whose config is in CONFIG_DIR: [] with git-readonly (the agent can't
+ * write .git) or for a sandbox not made with --workspace.
+ */
+export function gitStateInSandbox(configDir: string): string[] {
+    const settings = readSettings(configDir);
+    if (!settings || isGitReadonly(configDir)) return [];
+    return gitStateWarnings(findGitDirs(settings.workspace, hiddenPaths(settings)));
 }
 
 /** NAME for `sandbox new --workspace PATH` without one: the folder's name. */

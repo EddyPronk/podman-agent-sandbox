@@ -416,6 +416,28 @@ test('exec checks the live mounts: a repo folder moved inside (mv foo foo.old; c
     assert.doesNotMatch(unread.stderr, /aren't protected/);
 });
 
+test('exec warns about a rebase in progress, with its exec lines, without git-readonly only', () => {
+    const ws = realpathSync(mkdtempSync(join(tmpdir(), 'sandbox-ws-')));
+    mkdirSync(join(ws, '.git', 'hooks'), { recursive: true });
+    writeFileSync(join(ws, '.git', 'config'), '');
+    mkdirSync(join(ws, '.git', 'rebase-merge'));
+    writeFileSync(join(ws, '.git', 'rebase-merge', 'git-rebase-todo'), 'pick 1234 a\nexec ./payload\n');
+    const setup = (policies) => (sandboxes) => {
+        const dir = join(sandboxes, 'x');
+        mkdirSync(join(dir, '.devcontainer'), { recursive: true });
+        writeFileSync(join(dir, 'sandbox.json'), JSON.stringify({ workspace: ws, hide: [], readonly: [] }));
+        writeFileSync(join(dir, '.devcontainer', 'devcontainer.json'), JSON.stringify(
+            { customizations: { 'podman-agent-sandbox': { policies } } }));
+    };
+    const bind = (path, rw) => ({ Type: 'bind', Source: path, Destination: path, RW: rw });
+    const box = { ...sandbox('x', 'running'), Mounts: [bind(ws, true), bind(join(ws, '.git'), true),
+        bind(join(ws, '.git', 'hooks'), false), bind(join(ws, '.git', 'config'), false)] };
+    const result = runWith({ setup: setup([]) }, [box], 'exec', 'x', 'true');
+    assert.match(result.stderr, new RegExp(`warning: x: ${ws} has a rebase in progress .*It has 1:\n    exec \\./payload`, 's'));
+    const gro = { ...box, Mounts: [bind(ws, true), bind(join(ws, '.git'), false)] };
+    assert.doesNotMatch(runWith({ setup: setup(['git-readonly']) }, [gro], 'exec', 'x', 'true').stderr, /rebase in progress/);
+});
+
 test('exec checks the live mounts without git-readonly too: .git moved inside (mv .git .git.old; a new .git) is refused as lost', () => {
     const ws = realpathSync(mkdtempSync(join(tmpdir(), 'sandbox-ws-')));
     // After the attack: .git.old holds the moved hooks and config mounts, .git is the agent's.

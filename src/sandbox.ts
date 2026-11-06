@@ -23,7 +23,7 @@ import type { Kind, StateRecord } from './state.js';
 import { checkMinVersion } from './templates.js';
 import { VM_OF_LABEL, Vm, checkHost, madeAt, vmName, vmPolicy } from './vm.js';
 import type { Answer } from './vm.js';
-import { configFile, readConfig, readSettings, uncoveredInSandbox, uncoveredWhy } from './workspace.js';
+import { configFile, gitStateInSandbox, isGitReadonly, readConfig, readSettings, uncoveredInSandbox, uncoveredWhy } from './workspace.js';
 import type { MountView, Settings } from './workspace.js';
 import type { Row, VolumeSize } from './inspect.js';
 
@@ -675,7 +675,10 @@ function checkWorkspace(name: string, dir: string, container: MountView | null,
     if (!settings) return;
     const live = liveMounts();
     const missing = uncoveredInSandbox(dir, live ?? container);
-    if (missing.length === 0) return;
+    if (missing.length === 0) {
+        for (const text of gitStateInSandbox(dir)) console.error(`sandbox: warning: ${name}: ${text}`);
+        return;
+    }
     const neverCovered = live ? uncoveredInSandbox(dir, container) : missing;
     const lost = missing.filter((path) => !neverCovered.includes(path));
     let how = '';
@@ -690,7 +693,7 @@ function checkWorkspace(name: string, dir: string, container: MountView | null,
             + `  ${redo}rm -r ${dir}; sandbox new ${name} --template ... --workspace ${settings.workspace} ...\n`;
     }
     throw new SandboxError(`these aren't protected inside ${name}, and git on the host runs what a .git names:\n`
-        + missing.map((path) => `  ${path}${uncoveredWhy(path)}\n`).join('') + how.trimEnd());
+        + missing.map((path) => `  ${path}${uncoveredWhy(path, isGitReadonly(dir))}\n`).join('') + how.trimEnd());
 }
 
 /**
