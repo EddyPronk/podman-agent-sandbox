@@ -26,12 +26,16 @@ export interface ExportedConfig {
     leftovers: string[];
 }
 
-/** Is MOUNT one that --workspace adds for WORKSPACE (git protection, --readonly, --hide)? */
+/**
+ * Is MOUNT one that --workspace adds for WORKSPACE (git protection, --readonly, --hide, and the
+ * folders it binds onto themselves against moves: workspace.ts moveAnchors)?
+ */
 export function addedMount(mount: unknown, workspace: string): boolean {
     if (typeof mount !== 'string') return false;
     const target = mount.split(',').map((part) => part.split('=')).find(([key]) => key === 'target')?.[1];
     if (!target || !isInside(target, workspace) || target === workspace) return false;
     return mount === `type=bind,source=${target},target=${target},readonly`
+        || mount === `type=bind,source=${target},target=${target}`
         || mount === `type=tmpfs,target=${target},notmpcopyup`
         || mount === `type=bind,source=/dev/null,target=${target},readonly`;
 }

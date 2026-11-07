@@ -108,7 +108,8 @@ file can't change while the sandbox runs":
    libs.old` takes `libs/.git`'s mount along, and a copy (`cp -a libs.old libs`) puts a writable
    `.git` back where git on your machine looks. Only the project folder itself can't be moved, so
    only a repository at its top is safe from this. Moving the folder around a *hidden* path is
-   harmless: the hiding goes with it.
+   harmless: the hiding goes with it. **Since 0.11.0, `sandbox new --workspace` stops this for git**
+   (below, in both modes); for `--readonly`, it still applies.
 3. **Git reads more than `config` and `hooks`.** Inside, the agent can also write:
    - `.git/commondir`, which makes git read its config, hooks and refs from another folder;
    - an interrupted rebase's to-do list, whose `exec` lines `git rebase --continue` runs;
@@ -123,6 +124,13 @@ file can't change while the sandbox runs":
    one made during a session goes unnoticed until the next `enter` or `exec`.
 
 **What helps:**
+
+- **Without a policy (since 0.11.0),** each `.git` is bound onto itself, read-write, under its
+  read-only `hooks` and `config`, and so is each folder between the project folder and a nested
+  `.git`. They can't be renamed or removed from inside, so (2) no longer works for git, and git
+  inside still commits, branches and checks out. `.git` stays writable, so (3) still works: `enter`,
+  `exec` and `inspect` warn when a repository has a `commondir`, or a rebase in progress, and show
+  the to-do list's `exec` lines. They can't stop git on your machine from running one first.
 
 - **`--policy git-readonly`** makes each repository's whole `.git` read-only, as one mount. `.git`
   is then the mount point: it can't be moved, `commondir` and rebase state can't be written (3),
@@ -152,22 +160,32 @@ file can't change while the sandbox runs":
 
 By default, each repository's `.git/hooks` and `.git/config` are read-only. That stops the agent
 writing a hook, `core.hooksPath` or `core.fsmonitor` directly: by mistake, or because an injected
-instruction told it to. **It doesn't stop an agent that sets out to get around it:** a few commands
-do, and two of the ways leave nothing the checks find. `--policy git-readonly` closes those ways,
-at the cost of commits inside. The numbers are the limits above.
+instruction told it to. Since 0.11.0, each `.git`, and each folder between the project folder and
+a nested one, is also bound onto itself (read-write), as `git-readonly` does for the folders above:
+`.git` can't be moved away with its read-only parts, and git inside still commits.
+
+**It still doesn't stop an agent that sets out to get around it:** `.git` is writable, so the agent
+can write a `commondir` or leave a rebase's to-do list with `exec` lines. `enter`, `exec` and
+`inspect` warn about both, and show the `exec` lines. `--policy git-readonly` blocks them, at the
+cost of commits inside. The numbers are the limits above.
 
 | What happens | Default | `--policy git-readonly` |
 |---|---|---|
 | The agent writes a hook, or `core.fsmonitor` in `.git/config` | blocked | blocked |
-| The agent moves `.git`, or a folder above it, and puts a writable `.git` in its place (2) | works; the next `enter` or `exec` refuses, unless the sandbox was restarted in between | blocked ("Resource busy") |
-| The agent writes `.git/commondir` (3) | works; **not detected** | blocked |
-| The agent leaves a rebase to-do list with `exec` lines (3) | works; **not detected** | blocked |
+| The agent moves `.git`, or a folder above it, and puts a writable `.git` in its place (2) | blocked ("Resource busy")\* | blocked ("Resource busy") |
+| The agent writes `.git/commondir` (3) | works; `enter`, `exec` and `inspect` warn | blocked |
+| The agent leaves a rebase to-do list with `exec` lines (3) | works; `enter`, `exec` and `inspect` warn, with the lines | blocked |
 | Git on your machine rewrites `.git/config` (`git branch`, `git config`, `git push -u`) (1) | the config is writable inside; the next `enter` or `exec` refuses | stays read-only |
 | Something on your machine replaces or moves a `.git`, or a folder above it (1) | the mounts are lost; the next `enter` or `exec` refuses | the same |
 | The agent makes a new repository (4) | not protected; the next `enter` or `exec` refuses | the same |
 | Git inside | reads, commits, branches | only reads |
 
-A refusal at the next `enter` or `exec` comes after the fact: by then git on your machine may
+\* In a sandbox made with 0.11.0 or later. One made before works on as it is, without these mounts:
+there moving `.git` works, and the next `enter` or `exec` refuses, unless the sandbox was restarted
+in between. Make it again (`sandbox rm NAME`, remove its folder, `sandbox new` with the same
+options) to get them.
+
+A refusal or a warning at the next `enter` or `exec` comes after the fact: by then git on your machine may
 already have run what the agent put there, through your shell prompt or your editor. Use
 `git-readonly` when the commits are made outside the sandbox. With the default, follow the rule
 above before you run git on your machine in the project.

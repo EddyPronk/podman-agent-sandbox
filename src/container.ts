@@ -11,7 +11,7 @@ import {
     parseVscodeProbe, podmanStorageRows, splitCommand, table, writableConfig,
 } from './inspect.js';
 import type { PodmanInfo, PodmanStorage, ProcStatus, Row, VscodeProbe } from './inspect.js';
-import { mountView, parseMountinfo, uncoveredInSandbox } from './workspace.js';
+import { gitStateInSandbox, isGitReadonly, mountView, parseMountinfo, uncoveredInSandbox } from './workspace.js';
 import type { MountView } from './workspace.js';
 
 export type { PodmanInfo } from './inspect.js';
@@ -262,16 +262,21 @@ export function describeInfo(name: string, info: PodmanInfo, {
         }
     }
     let uncovered: string[] = [];
+    let gitReadonly = true;
+    let gitState: string[] = [];
     const configWritable = sandbox ? writableConfig(info, folder) : null;
     if (folder) {
         try {
             uncovered = uncoveredInSandbox(folder, live ?? mountView(info.Mounts ?? []));
+            gitReadonly = isGitReadonly(folder);
+            gitState = gitStateInSandbox(folder);
         } catch {
             // the config folder is gone: nothing to compare with
         }
     }
-    const report = audit(info, { status, internal, uncovered, sandbox, vscode, configWritable });
+    const report = audit(info, { status, internal, uncovered, gitReadonly, sandbox, vscode, configWritable });
     if (live) report.warnings.push(...lostMounts(info.Mounts ?? [], live));
+    report.warnings.push(...gitState);
     if (untrusted) report.warnings.unshift(`${untrusted}: enter, exec and build refuse until 'sandbox trust ${of}'`);
 
     const how = unmeasured ? ` (as podman set it up: ${unmeasured})`
