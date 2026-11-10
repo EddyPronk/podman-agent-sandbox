@@ -10,7 +10,7 @@
 # release the template installs, then checks, one line per test (PASS or FAIL):
 #   T1-T6   podman inside: info, run, network, exec, build
 #   T7      node, npm, python3 (Debian's 3.13) and uv in nested-containers
-#   T8-T12  the sandbox command inside: a nested `claude` sandbox made, entered, its home and USER
+#   T8-T12  the sandbox command inside: a nested `open-network` sandbox made, entered, its home and USER
 #   T34     /tmp is 1777 in both (a tmpfs, from the templates: buildah#6503 can leave it 755)
 #   T13-T16 a mitm-proxy and a proxy-client sandbox inside: the client's only way out is the
 #           proxy (proxy-network.sh, run inside)
@@ -28,7 +28,7 @@
 #   T35-T37 --workspace without a policy (git-protection.sh): hooks and config read-only, each .git
 #           and the folders above bound onto themselves, git commits but nothing can be moved; a
 #           rebase left in progress with an exec line is warned about
-#   T21     a claude sandbox on Ubuntu 26.04 (--image): its ubuntu user (UID 1000) renamed
+#   T21     an open-network sandbox on Ubuntu 26.04 (--image): its ubuntu user (UID 1000) renamed
 #           to yours, so keep-id works; removed again afterwards, with unused images, to save disk
 #   T28     an offline sandbox around a project, on a Python image: sandbox exec runs make in the
 #           project folder; only loopback, no name lookup, no connection, hardened; removed again.
@@ -114,7 +114,7 @@ run "T7 node, npm, python3 and uv are installed" 'node --version && npm --versio
 run "T8 sandbox is this build ($VERSION)"     "sandbox --version | grep '^sandbox $VERSION ' || exit 1
     pkg=\$(dirname \$(readlink -f \$(command -v sandbox)))/..; t=\$(mktemp -d); tar -xzf /tmp/podman-agent-sandbox.tgz -C \$t
     diff -r \$t/package/dist \$pkg/dist && diff -r \$t/package/templates \$pkg/templates && echo \"same code as the tarball (\$(readlink -f \$pkg))\""
-run "T9 sandbox new + enter a claude"        '[ -d "${SANDBOX_DIR:-$HOME/sandboxes}/claude" ] || sandbox new claude --template claude; sandbox enter claude </dev/null >/tmp/enter.log 2>&1 || { tail -n 40 /tmp/enter.log; exit 1; }; podman ps --format "{{.Names}} {{.State}}" | grep "^claude running"'
+run "T9 sandbox new + enter a claude"        '[ -d "${SANDBOX_DIR:-$HOME/sandboxes}/claude" ] || sandbox new claude --template open-network; sandbox enter claude </dev/null >/tmp/enter.log 2>&1 || { tail -n 40 /tmp/enter.log; exit 1; }; podman ps --format "{{.Names}} {{.State}}" | grep "^claude running"'
 run "T10 claude runs in the nested claude"   'podman exec claude bash -lc "claude --version"'
 run "T34 /tmp is world-writable and sticky (1777) in nested and in the nested claude" 'a=$(stat -c %a /tmp); b=$(podman exec claude stat -c %a /tmp); echo "nested: $a, claude: $b"; [ "$a" = 1777 ] && [ "$b" = 1777 ]'
 run "T11 nested claude's home is its volume" 'u=$(id -un); d=$(podman container inspect claude --format "{{range .Mounts}}{{if eq .Name \"claude-home\"}}{{.Destination}}{{end}}{{end}}"); echo "home volume at [$d], expected /home/$u"; [ "$d" = "/home/$u" ]'
@@ -155,7 +155,7 @@ if ((gr >= 99)) || ! grep -q '^failed: ' "$LOG/git-protection.log"; then
 fi
 failed=$((failed + gr))
 
-run "T21 claude on Ubuntu 26.04 (--image): your user and home, claude, hardened" 'u=$(id -un); [ -d "${SANDBOX_DIR:-$HOME/sandboxes}/u26" ] || sandbox new u26 --template claude --image docker.io/library/ubuntu:26.04 || exit 1
+run "T21 open-network on Ubuntu 26.04 (--image): your user and home, claude, hardened" 'u=$(id -un); [ -d "${SANDBOX_DIR:-$HOME/sandboxes}/u26" ] || sandbox new u26 --template open-network --image docker.io/library/ubuntu:26.04 || exit 1
     sandbox enter u26 </dev/null >/tmp/enter-u26.log 2>&1 || { tail -n 40 /tmp/enter-u26.log; exit 1; }
     podman exec -e U="$u" u26 bash -lc "set -e; grep VERSION_ID /etc/os-release | grep -q 26.04; echo \"\$(id -un) \$HOME\"; [ \"\$(id -un)\" = \"\$U\" ]; [ \"\$HOME\" = /home/\$U ]
         touch ~/.p; rm ~/.p; test -f ~/.bashrc; claude --version

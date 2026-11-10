@@ -60,7 +60,7 @@ echo '{"permissions": {"deny": ["Bash(git push:*)"]}}' > "$POLICY/managed-settin
 
 run "T30 new --policy git-readonly --agent-policy: every .git read-only, the folders above bound onto themselves" '
     set -e
-    $SB new $N --template claude --workspace "$WS" --policy git-readonly --agent-policy "$POLICY" | tee /dev/stderr \
+    $SB new $N --template open-network --workspace "$WS" --policy git-readonly --agent-policy "$POLICY" | tee /dev/stderr \
         | grep -q "2 git repos'"'"' .git (policy git-readonly)"
     c=$D/$N/.devcontainer/devcontainer.json
     jq -e ".customizations[\"podman-agent-sandbox\"].policies == [\"git-readonly\"]" "$c"
@@ -107,7 +107,7 @@ git -C "$WS2/libs/nested" init -q && git -C "$WS2/libs/nested" -c user.name=t -c
 
 run "T35 new without a policy: hooks and config read-only, each .git and the folders above bound onto themselves" '
     set -e
-    $SB new $N2 --template claude --workspace "$WS2"
+    $SB new $N2 --template open-network --workspace "$WS2"
     c=$D/$N2/.devcontainer/devcontainer.json
     jq -e "(.customizations[\"podman-agent-sandbox\"].policies // []) == []" "$c"
     for r in "$WS2" "$WS2/libs/nested"; do

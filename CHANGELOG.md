@@ -20,8 +20,14 @@ again; `sandbox --version` shows what you have.
   `git rebase --continue` on your machine would run them. Look before you run git there.
 - **`sandbox export` leaves out the folders bound onto themselves**, of `git-readonly` sandboxes too.
   Before, it kept them in the exported config, as paths of this machine.
+- **The `claude` template is now `open-network`.** Its agent is a choice since 0.10.0 (`--agent`),
+  so the name said too little: what sets it apart from `proxy-client` and `offline` is its network,
+  open to the Internet, your LAN and services on your machine that don't listen only on 127.0.0.1.
+  Its description and the docs ([Network](docs/security-model.md#network)) now say so. `--template
+  claude` still works and makes the same sandbox; sandboxes you already have are unchanged.
 - **Docs:** [Default or git-readonly](docs/security-model.md#default-or-git-readonly) compares the two
-  modes, attack by attack, and says what each one detects.
+  modes, attack by attack, and says what each one detects. The README's `--agent codex` example uses
+  `nested-containers`, where Codex can run commands with its own sandbox.
 
 ## 0.10.0 (2026-11-06)
 

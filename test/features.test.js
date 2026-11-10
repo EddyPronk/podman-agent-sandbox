@@ -106,8 +106,8 @@ function made(dir, name) {
     };
 }
 
-test('new: a claude template gets its default agent, claude-code, with trustWorkspace from the template option', () => {
-    const plain = sandbox('new', 'c', '--template', 'claude');
+test('new: an open-network template gets its default agent, claude-code, with trustWorkspace from the template option', () => {
+    const plain = sandbox('new', 'c', '--template', 'open-network');
     assert.equal(plain.status, 0, plain.stderr);
     assert.match(plain.stdout, /^with agent claude-code \(in \.devcontainer\/agent\/claude-code\)$/m);
     assert.deepEqual(made(plain.dir, 'c'), { features: { './agent/claude-code': { trustWorkspace: true } }, agent: ['claude-code'] });
@@ -119,11 +119,11 @@ test('new: a claude template gets its default agent, claude-code, with trustWork
 });
 
 test('new --agent: another agent, or none; offline has none by default; an unknown one is refused', () => {
-    const codex = sandbox('new', 'x', '--template', 'claude', '--agent', 'codex', '--feature', AWS);
+    const codex = sandbox('new', 'x', '--template', 'open-network', '--agent', 'codex', '--feature', AWS);
     assert.equal(codex.status, 0, codex.stderr);
     assert.deepEqual(made(codex.dir, 'x'), { features: { [AWS]: {}, './agent/codex': { trustWorkspace: true } }, agent: ['codex'] });
 
-    const none = sandbox('new', 'x', '--template', 'claude', '--agent', 'none');
+    const none = sandbox('new', 'x', '--template', 'open-network', '--agent', 'none');
     assert.equal(none.status, 0, none.stderr);
     assert.deepEqual(made(none.dir, 'x'), { features: null, agent: null });
     assert.doesNotMatch(none.stdout, /with agent/);
@@ -131,7 +131,7 @@ test('new --agent: another agent, or none; offline has none by default; an unkno
     const offline = sandbox('new', 'x', '--template', 'offline');
     assert.deepEqual(made(offline.dir, 'x'), { features: null, agent: null });
 
-    const nope = sandbox('new', 'x', '--template', 'claude', '--agent', 'nope');
+    const nope = sandbox('new', 'x', '--template', 'open-network', '--agent', 'nope');
     assert.equal(nope.status, 1);
     assert.match(nope.stderr, /--agent nope: no such agent; the agents are claude-code, codex, or none/);
     assert.equal(readdirSync(nope.dir).length, 0, 'nothing made');
@@ -145,7 +145,7 @@ test('extraFeatures: a recorded agent whose folder was swapped for another is le
 
 test('new --inplace --template: the agent goes into the project\'s own devcontainer.json; plain --inplace refuses --agent', () => {
     const project = mkdtempSync(join(tmpdir(), 'features-project-'));
-    const result = sandbox('new', 'p', '--workspace', project, '--inplace', '--template', 'claude');
+    const result = sandbox('new', 'p', '--workspace', project, '--inplace', '--template', 'open-network');
     assert.equal(result.status, 0, result.stderr);
     const config = JSON.parse(readFileSync(join(project, '.devcontainer', 'devcontainer.json'), 'utf8'));
     assert.deepEqual(config.features['./agent/claude-code'], { trustWorkspace: true });
@@ -175,15 +175,15 @@ const withComment = (text) => text.replace('{\n', '{\n  // a comment: JSONC, as 
 const withoutAgent = (text) => text.replace('      "agent": "claude-code",\n', '');
 
 test('new: a template with comments (JSONC) works; its default agent can\'t be read, so it needs --agent', () => {
-    const plain = sandbox('new', 'x', '--template', templateCopy('claude', { edit: (t) => withComment(withoutAgent(t)) }));
+    const plain = sandbox('new', 'x', '--template', templateCopy('open-network', { edit: (t) => withComment(withoutAgent(t)) }));
     assert.equal(plain.status, 0, plain.stderr);
     assert.deepEqual(made(plain.dir, 'x'), { features: null, agent: null });
 
-    const marked = sandbox('new', 'x', '--template', templateCopy('claude', { edit: withComment }));
+    const marked = sandbox('new', 'x', '--template', templateCopy('open-network', { edit: withComment }));
     assert.equal(marked.status, 1);
     assert.match(marked.stderr, /has comments or trailing commas, so sandbox can't read its default agent: give --agent NAME \(or --agent none\)/);
 
-    const given = sandbox('new', 'x', '--template', templateCopy('claude', { edit: withComment }), '--agent', 'codex');
+    const given = sandbox('new', 'x', '--template', templateCopy('open-network', { edit: withComment }), '--agent', 'codex');
     assert.equal(given.status, 0, given.stderr);
     assert.deepEqual(made(given.dir, 'x').agent, ['codex']);
 });
@@ -203,7 +203,7 @@ test('new: a template\'s own agent folder gives way when sandbox decides the age
     assert.equal(kept.status, 0, kept.stderr);
     assert.deepEqual(made(kept.dir, 'x').agent, ['claude-code'], 'no --agent, no default: the template\'s own');
 
-    const marked = sandbox('new', 'x', '--template', templateCopy('claude', { agents: ['codex'] }));
+    const marked = sandbox('new', 'x', '--template', templateCopy('open-network', { agents: ['codex'] }));
     assert.equal(marked.status, 0, marked.stderr);
     assert.deepEqual(made(marked.dir, 'x').agent, ['claude-code'], 'the template\'s default replaces a folder it ships too');
 });
@@ -247,7 +247,7 @@ test('new --agent-policy DIR: the files go into the agent\'s policy folder; with
     assert.equal(readFileSync(join(folder, 'CLAUDE.md'), 'utf8'), '# inside\n');
     assert.match(policy.stdout, /^with managed policy CLAUDE\.md, managed-settings\.json \(in \.devcontainer\/agent\/claude-code\/policy\)$/m);
 
-    const plain = sandbox('new', 'c', '--template', 'claude');
+    const plain = sandbox('new', 'c', '--template', 'open-network');
     assert.equal(plain.status, 0, plain.stderr);
     assert.deepEqual(readdirSync(join(plain.dir, 'c', '.devcontainer', 'agent', 'claude-code', 'policy')), ['README.md']);
     assert.doesNotMatch(plain.stdout, /managed policy/);
@@ -255,10 +255,10 @@ test('new --agent-policy DIR: the files go into the agent\'s policy folder; with
 
 test('new --agent-policy: refused without an agent that has one, for a missing folder, and with --inplace; nothing made', () => {
     const cases = [
-        [['--template', 'claude', '--agent', 'none'], /--agent-policy needs an agent/],
+        [['--template', 'open-network', '--agent', 'none'], /--agent-policy needs an agent/],
         [['--template', 'offline'], /--agent-policy needs an agent/],
-        [['--template', 'claude', '--agent', 'codex'], /--agent-policy: agent codex has no managed policy/],
-        [['--template', 'claude', '--policy-missing'], /--agent-policy .*: no such folder/],
+        [['--template', 'open-network', '--agent', 'codex'], /--agent-policy: agent codex has no managed policy/],
+        [['--template', 'open-network', '--policy-missing'], /--agent-policy .*: no such folder/],
     ];
     for (const [args, message] of cases) {
         const missing = args.includes('--policy-missing');

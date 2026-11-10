@@ -234,8 +234,20 @@ export function findTemplate(spec: string, root: string = TEMPLATES_DIR): { temp
     return { template, src: join(root, id) };
 }
 
-/** Old template IDs that still work: { OLD: NEW }. claude-containers since 0.10.0 (the agent is a choice). */
-export const TEMPLATE_ALIASES: { [old: string]: string } = { 'claude-containers': 'nested-containers' };
+/**
+ * Old template IDs that still work: { OLD: NEW }. claude-containers since 0.10.0 (the agent is a
+ * choice); claude since 0.11.0 (what sets it apart is its open network, not its default agent).
+ */
+export const TEMPLATE_ALIASES: { [old: string]: string } = {
+    'claude': 'open-network',
+    'claude-containers': 'nested-containers',
+};
+
+/** SPEC (a --template value) for messages, quoted: an old name with the template it stands for. */
+export function templateLabel(spec: string): string {
+    const id = Object.hasOwn(TEMPLATE_ALIASES, spec) ? TEMPLATE_ALIASES[spec] : undefined;
+    return id ? `'${id}' (given by its old name, '${spec}')` : `'${spec}'`;
+}
 
 /**
  * The system calls DIR's config adds to the seccomp profile: its devcontainer.json's

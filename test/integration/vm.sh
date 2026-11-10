@@ -26,7 +26,7 @@
 #        .git can't be moved, and is writable; a repo added after the VM was made: enter --vm refuses
 #   V14  --policy git-readonly in a VM: every .git read-only, and the folders above a nested repo
 #        (bound onto themselves in the container the VM is made from) can't be moved; writing works
-#   V10  a claude-template sandbox in a VM: Claude Code runs
+#   V10  an open-network sandbox in a VM: Claude Code runs
 #   V11  nested-containers (custom seccomp profile on the VM's host process): the VM starts, or the
 #        failure removes it (R5); NOTE says which
 #   V12  rm removes the VM and the container, the kept volume listed once
@@ -221,9 +221,9 @@ run "V14 --policy git-readonly in a VM: every .git read-only, the folders above 
     echo "$out" | grep -q WRITE-OK
     [ -d "$WG/libs/nested/.git" ] && [ ! -e "$WG/libs.old" ] && [ ! -e "$WG/.git/x" ] && [ ! -e "$WG/libs/nested/.git/x" ]'
 
-run "V10 a claude-template sandbox in a VM: Claude Code runs" '
+run "V10 an open-network sandbox in a VM: Claude Code runs" '
     set -e
-    $SB new vc --template claude
+    $SB new vc --template open-network
     out=$(vm vc "echo K=\$(uname -r); claude --version\nexit\n")
     echo "$out"
     echo "$out" | grep -q "K=[0-9]" && ! echo "$out" | grep -q "K=$HOST_KERNEL"

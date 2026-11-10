@@ -121,7 +121,7 @@ test('export of a sandbox from before 0.7.0: seccompAllow comes from the generat
 test('export warns about paths of this machine it can\'t take out', { skip: noGit }, () => {
     const dir = tempDir();
     const root = project();
-    assert.equal(sandbox(['new', 'p', '--template', 'claude', '--workspace', root], dir).status, 0);
+    assert.equal(sandbox(['new', 'p', '--template', 'open-network', '--workspace', root], dir).status, 0);
     const file = join(dir, 'p', '.devcontainer', 'devcontainer.json');
     const config = json(file);
     config.mounts.push(`type=bind,source=${root}/data,target=/data`);
@@ -136,7 +136,7 @@ test('export that fails after it started writing puts everything back', { skip: 
     // a .git file (worktree, submodule) added since sandbox new makes it throw after that removal.
     const dir = tempDir();
     const root = project();
-    assert.equal(sandbox(['new', 'p', '--template', 'claude', '--workspace', root], dir).status, 0);
+    assert.equal(sandbox(['new', 'p', '--template', 'open-network', '--workspace', root], dir).status, 0);
     const file = join(dir, 'p', '.devcontainer', 'devcontainer.json');
     const config = json(file);
     config.containerEnv.MY_EDIT = '1';
@@ -161,10 +161,10 @@ test('export that fails after it started writing puts everything back', { skip: 
 
 test('export refuses a sandbox without --workspace, and a project that has a .devcontainer', { skip: noGit }, () => {
     const dir = tempDir();
-    assert.equal(sandbox(['new', 'plain', '--template', 'claude'], dir).status, 0);
+    assert.equal(sandbox(['new', 'plain', '--template', 'open-network'], dir).status, 0);
     assert.match(sandbox(['export', 'plain'], dir).stderr, /wasn't made with --workspace: there's no project/);
     const root = project();
-    assert.equal(sandbox(['new', 'w', '--template', 'claude', '--workspace', root], dir).status, 0);
+    assert.equal(sandbox(['new', 'w', '--template', 'open-network', '--workspace', root], dir).status, 0);
     mkdirSync(join(root, '.devcontainer'));
     assert.match(sandbox(['export', 'w'], dir).stderr, /\.devcontainer already exists; export doesn't write over it/);
 });

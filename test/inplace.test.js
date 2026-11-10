@@ -82,7 +82,7 @@ test('checkMarker: no marker, a newer version, unknown policies are refused', ()
     assert.deepEqual(KNOWN_POLICIES, ['git-readonly', 'no-vm']);
     assert.doesNotThrow(() => checkMarker({ customizations: MARKER }, 'f'));
     assert.doesNotThrow(() => checkMarker({ customizations: { 'podman-agent-sandbox': { version: 1, policies: ['no-vm'] } } }, 'f'));
-    assert.throws(() => checkMarker({}, 'f'), /isn't a sandbox config.*\n.*--template claude/s);
+    assert.throws(() => checkMarker({}, 'f'), /isn't a sandbox config.*\n.*--template open-network/s);
     assert.throws(() => checkMarker({ customizations: { vscode: {} } }, 'f'), /isn't a sandbox config/);
     assert.throws(() => checkMarker({ customizations: { 'podman-agent-sandbox': {} } }, 'f'), /needs a "version"/);
     assert.throws(() => checkMarker({ customizations: { 'podman-agent-sandbox': { version: 2 } } }, 'f'), /newer sandbox.*update sandbox/);
@@ -176,7 +176,7 @@ test('new --inplace refuses a plain .devcontainer (not a sandbox config) and poi
     const result = sandbox(['new', 'p', '--workspace', root, '--inplace', '--yes'], dir);
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /isn't a sandbox config/);
-    assert.match(result.stderr, /sandbox new --workspace PATH --template claude/);
+    assert.match(result.stderr, /sandbox new --workspace PATH --template open-network/);
     assert.ok(!existsSync(join(dir, 'p')), 'nothing made');
     assert.equal(hasMarker(root), false);
 });
@@ -290,7 +290,7 @@ test('new --inplace --template writes the template into the project, with the ma
         const profile = JSON.parse(readFileSync(join(dir, 'c', '.devcontainer', 'seccomp.json'), 'utf8'));
         assert.ok(JSON.stringify(profile).includes('sethostname'));
 
-        const over = sandbox(['new', 'c2', '--workspace', root, '--inplace', '--template', 'claude'], dir);
+        const over = sandbox(['new', 'c2', '--workspace', root, '--inplace', '--template', 'open-network'], dir);
         assert.match(over.stderr, /already exists, and --template would write over it/);
         assert.doesNotMatch(made.stderr, /secrets/, 'nothing to warn about');
         const proxy = tempDir();

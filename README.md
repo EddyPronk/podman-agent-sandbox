@@ -83,7 +83,7 @@ Put Claude Code to work on one of your projects, inside a sandbox:
 ```sh
 cd ~/development
 git clone <your-project-url> your-project
-sandbox new --template claude --workspace ~/development/your-project
+sandbox new --template open-network --workspace ~/development/your-project
 sandbox enter your-project      # the first time builds the image: a few minutes
 claude                          # inside the sandbox: sign in once, then work on the project
 ```
@@ -113,9 +113,9 @@ Use `sandbox exec`, not `podman exec`: it runs in the project folder and checks 
 
 ```sh
 sandbox templates                                   # list the templates
-sandbox new sandbox_with_claude --template claude   # create ~/sandboxes/sandbox_with_claude
-sandbox new sandbox_with_ubuntu --template claude --image docker.io/library/ubuntu:26.04   # on another base image
-sandbox new --template claude --workspace ~/src/app # around an existing folder
+sandbox new sandbox_with_claude --template open-network  # create ~/sandboxes/sandbox_with_claude
+sandbox new sandbox_with_ubuntu --template open-network --image docker.io/library/ubuntu:26.04   # on another base image
+sandbox new --template open-network --workspace ~/src/app  # around an existing folder
 sandbox new --workspace ~/src/app --inplace         # from the project's own .devcontainer
 sandbox new aws --template offline --feature ghcr.io/devcontainers/features/aws-cli:1   # with a Dev Container Feature
 sandbox trust app                                   # confirm a change in the project's config
@@ -186,13 +186,13 @@ size and how to remove it), and `sandbox list --all` lists every such sandbox in
 
 ### The agent: `--agent`
 
-The `claude`, `nested-containers` and `proxy-client` templates come with Claude Code. It isn't part
+The `open-network`, `nested-containers` and `proxy-client` templates come with Claude Code. It isn't part
 of the template itself but an agent added to it, so another agent can take its place:
 
 ```sh
-sandbox new work --template claude                   # Claude Code (the default)
-sandbox new work --template claude --agent codex     # OpenAI's Codex CLI instead
-sandbox new work --template claude --agent none      # no agent
+sandbox new work --template open-network                     # Claude Code (the default)
+sandbox new work --template nested-containers --agent codex  # OpenAI's Codex CLI instead
+sandbox new work --template open-network --agent none        # no agent
 ```
 
 An agent is a Dev Container Feature the package ships (`agents/claude-code`, `agents/codex`):
@@ -208,7 +208,7 @@ With `--inplace --template`, the agent goes into the project's own `devcontainer
 `sandbox export` does the same.
 
 Codex runs the commands it executes in a sandbox of its own (bubblewrap, which the agent installs).
-That works in `nested-containers`, which unmasks `/proc` for Podman. In `claude` and `proxy-client`,
+That works in `nested-containers`, which unmasks `/proc` for Podman. In `open-network` and `proxy-client`,
 `/proc` stays masked and bubblewrap can't start (`bwrap: Can't mount proc on /proc: Operation not
 permitted`), so Codex can't run commands with its default settings there. Use `nested-containers`,
 or turn Codex's own sandbox off in the sandbox (`sandbox_mode = "danger-full-access"` in
@@ -240,7 +240,7 @@ agent that has a policy folder; Codex's doesn't have one yet. It isn't available
 changing the template. Repeat it for more, and give options as JSON after `=`:
 
 ```sh
-sandbox new py --template claude \
+sandbox new py --template open-network \
   --feature 'ghcr.io/devcontainers/features/python:1={"version": "os-provided"}' \
   --feature ghcr.io/devcontainers/features/aws-cli:1
 ```
@@ -278,27 +278,27 @@ isolated](docs/security-model.md#no-way-to-gain-rights) says how to add them.
 
 | Template | What you get |
 |---|---|
-| `claude` | Debian trixie (or another base image: `--image`, below), Node.js and Claude Code (Dev Container Features); unrestricted network |
-| `nested-containers` | Like `claude`, plus rootless Podman and `sandbox` inside, for an agent that needs containers of its own, and Python 3 with uv for Python projects. Weakens the sandbox: see [Containers inside a sandbox](docs/containers-inside-a-sandbox.md) |
+| `open-network` | Debian trixie (or another base image: `--image`, below), Node.js and an agent, Claude Code by default ([`--agent`](#the-agent---agent)). Its network is open: the Internet, your LAN, and services on your machine that don't listen only on 127.0.0.1 (reached as `host.containers.internal`). For less, use `proxy-client` or `offline`. Called `claude` until 0.11.0; that name still works |
+| `nested-containers` | Like `open-network`, plus rootless Podman and `sandbox` inside, for an agent that needs containers of its own, and Python 3 with uv for Python projects. Weakens the sandbox: see [Containers inside a sandbox](docs/containers-inside-a-sandbox.md) |
 | `mitm-proxy` | [agent-mitm-proxy](https://github.com/EddyPronk/agent-mitm-proxy): an egress proxy with TLS interception and an allowlist (`allowlist.txt` in the sandbox folder; changes apply without a restart). Option `ref`: the agent-mitm-proxy commit to build; `credentialVault` (default `1`): Claude Code's OAuth tokens stay in the proxy's vault, clients hold phantom tokens ([more](docs/behind-the-proxy.md#4-keep-claude-codes-tokens-out-of-the-sandbox)); `clientAuth=1`: each client needs a name and token of its own ([more](docs/behind-the-proxy.md#5-a-name-and-token-per-client)). Its gatekeeper lets an agent ask for a host, and you approve it on Buzz ([more](docs/behind-the-proxy.md#6-approve-hosts-from-your-phone)) |
-| `proxy-client` | Like `claude` (also `--image`), but with no route out: only the proxy's internal network, all HTTP(S) through `http://proxy:8899`, trusting the proxy's CA. With a vault in the proxy, it fetches its credentials file (phantom tokens) when made, so it needs no sign-in. With the proxy's gatekeeper running, Claude Code gets it as an MCP server, to ask for blocked hosts. Option `clientAuth=1`, for a proxy made with it: it enrols itself with the proxy |
+| `proxy-client` | Like `open-network` (also `--image`), but with no route out: only the proxy's internal network, all HTTP(S) through `http://proxy:8899`, trusting the proxy's CA. With a vault in the proxy, it fetches its credentials file (phantom tokens) when made, so it needs no sign-in. With the proxy's gatekeeper running, Claude Code gets it as an MCP server, to ask for blocked hosts. Option `clientAuth=1`, for a proxy made with it: it enrols itself with the proxy |
 | `offline` | No network at all, only loopback; for running code you don't trust. Debian trixie with `git` and `make`, or another base image with `--image`. No agent: it couldn't reach its API. Tools your code needs come from the image, since nothing can be downloaded later |
 
 `mitm-proxy` and `proxy-client` work as a pair: [Your project behind the egress
 proxy](docs/behind-the-proxy.md).
 
-In `claude`, `nested-containers` and `proxy-client`, Claude Code trusts the workspace folder from
+In `open-network`, `nested-containers` and `proxy-client`, Claude Code trusts the workspace folder from
 the start (`/workspace`, or with `--workspace` the project's own path): it doesn't ask "Do you trust
 this folder?", which a session started without a terminal (such as `claude --remote-control`)
 can't answer. The sandbox is what contains what Claude Code runs there. `--option trustWorkspace=0`
 keeps the question. Since 0.9.0; in a sandbox made earlier, answer it once, or run
 `trust-workspace DIR` in a sandbox that has it.
 
-`claude`, `offline` and `proxy-client` are built on `debian:trixie-slim` unless you choose another base image with
+`open-network`, `offline` and `proxy-client` are built on `debian:trixie-slim` unless you choose another base image with
 `--image` (`sandbox templates` lists some):
 
 ```sh
-sandbox new sandbox_with_ubuntu --template claude --image docker.io/library/ubuntu:26.04
+sandbox new sandbox_with_ubuntu --template open-network --image docker.io/library/ubuntu:26.04
 ```
 
 Only Ubuntu 26.04 (and the default) is tested. Any other image is **experimental**: `sandbox new` warns,

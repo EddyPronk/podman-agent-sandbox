@@ -42,7 +42,7 @@ jobs:
       - name: Check the tarball's contents
         run: |
           tar -tzf podman-agent-sandbox-*.tgz | tee files.txt
-          grep -qx 'package/templates/claude/.devcontainer/devcontainer.json' files.txt
+          grep -qx 'package/templates/open-network/.devcontainer/devcontainer.json' files.txt
           grep -qx 'package/templates/nested-containers/.devcontainer/seccomp.json' files.txt
           grep -qx 'package/dist/cli.js' files.txt
           ! grep -q '^package/src/' files.txt
@@ -52,7 +52,7 @@ jobs:
         run: |
           npm install -g ./podman-agent-sandbox-*.tgz
           sandbox --help
-          sandbox templates | grep -q '^claude'
+          sandbox templates | grep -q '^open-network'
           sandbox templates | grep -q '^nested-containers'
       - uses: actions/upload-artifact@v7
         with:

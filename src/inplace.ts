@@ -114,7 +114,7 @@ export function checkMarker(config: DevcontainerConfig, file: string): void {
     if (!marker) {
         throw new SandboxError(`${file} isn't a sandbox config (no "customizations": {"${MARKER}": …}); `
             + 'sandbox ignores it.\nMake a sandbox from a template around the project:  '
-            + 'sandbox new --workspace PATH --template claude');
+            + 'sandbox new --workspace PATH --template open-network');
     }
     const { version } = marker;
     if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) {

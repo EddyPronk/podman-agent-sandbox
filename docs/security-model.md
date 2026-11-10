@@ -60,8 +60,11 @@ them.
 
 ## Network
 
-- **`claude`** (and `nested-containers`): an ordinary rootless network (`pasta`). The Internet, your
-  LAN and services on your machine are reachable.
+- **`open-network`** (and `nested-containers`): an ordinary rootless network (`pasta`), with
+  nothing filtered. Reachable: the Internet; your LAN (the router, and whatever other machines
+  serve without a login); and services on your machine that listen on all addresses, such as
+  `sshd`, as `host.containers.internal`. Services that listen only on 127.0.0.1 aren't reachable.
+  Your machine's own LAN address doesn't lead to it: inside, the container has a copy of it.
 - **`proxy-client`:** only the proxy's internal network, with no route out. All HTTP(S) goes through
   the `mitm-proxy` sandbox, which allows only the hosts in its allowlist; see [Your project behind
   the egress proxy](behind-the-proxy.md).

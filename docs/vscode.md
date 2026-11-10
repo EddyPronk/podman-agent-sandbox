@@ -17,7 +17,7 @@ servers and most extensions running inside the sandbox.
    the folder `/workspace`.
 
 ```sh
-sandbox new work --template claude
+sandbox new work --template open-network
 sandbox enter work            # starts it; exit the shell, the container keeps running
 # VS Code: "Dev Containers: Attach to Running Container…" → work, open /workspace
 ```
@@ -74,7 +74,7 @@ Many projects come with a dev container config of their own (`.devcontainer/devc
 - **It isn't hidden.** Inside, the agent sees `.devcontainer/` like any other file in the project, and
   can change it. Make it read-only or hide it when you make the sandbox:
   ```sh
-  sandbox new --template claude --workspace ~/development/your-project --readonly .devcontainer
+  sandbox new --template open-network --workspace ~/development/your-project --readonly .devcontainer
   ```
   (`--hide .devcontainer` leaves an empty folder inside instead.)
 - **In VS Code, attach to the sandbox** ("Attach to Running Container", see above). "Reopen in

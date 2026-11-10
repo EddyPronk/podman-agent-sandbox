@@ -18,7 +18,7 @@ Run the checked-out code directly. An alias keeps it apart from the installed `s
 ```sh
 alias sandbox-dev='node ~/development/podman-agent-sandbox/bin/sandbox.js'
 sandbox-dev --version
-sandbox-dev new try --template claude
+sandbox-dev new try --template open-network
 ```
 
 - **It runs whatever branch is checked out,** with the repo's own `node_modules`.

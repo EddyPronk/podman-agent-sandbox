@@ -7,14 +7,14 @@
 # Run INSIDE that sandbox (nested.sh copies it in and runs it there), with `sandbox` on PATH. Makes
 # the sandboxes `ip` and `ex` in $SANDBOX_DIR (default ~/sandboxes) around two new git projects in
 # the home folder, then checks, one line per test (PASS or FAIL):
-#   T24  new --inplace --template claude: the config is written into the project, with the marker;
+#   T24  new --inplace --template open-network: the config is written into the project, with the marker;
 #        inside, the project's .devcontainer and git hooks are read-only, the workspace writable,
 #        and inspect has no warnings
 #   T25  the agent commits a changed config through git (the read-only mount doesn't stop that),
 #        and `git reset --hard` outside brings it into the project: exec refuses, and so does
 #        enter after rm, without making a container; the trusted copy is unchanged
 #   T26  trust --yes takes the change; the container made after it has it
-#   T27  export: a --workspace claude sandbox edited by hand, exported into its project: no paths of
+#   T27  export: a --workspace open-network sandbox edited by hand, exported into its project: no paths of
 #        this machine in it; made again from it, the edit is there and the config is read-only
 # Removes what it made at the end. Each test's output is in LOG_DIR (default ~/inplace-logs); a
 # failure prints its end. Exit status: the number of failed tests.
@@ -40,10 +40,10 @@ run() {   # NAME COMMAND: run COMMAND, report
 inside() { local c=$1; shift; podman exec -u "$(id -u)" "$c" bash -c "$*"; }
 export -f inside
 
-run "T24 new --inplace --template claude: written into the project; config and hooks read-only inside" '
+run "T24 new --inplace --template open-network: written into the project; config and hooks read-only inside" '
     set -e
     rm -rf "$IP"; mkdir -p "$IP"; git -C "$IP" init -q
-    sandbox new ip --workspace "$IP" --inplace --template claude
+    sandbox new ip --workspace "$IP" --inplace --template open-network
     grep -q "\"podman-agent-sandbox\"" "$IP/.devcontainer/devcontainer.json"
     sandbox enter ip </dev/null >"$LOG/T24-enter.log" 2>&1 || { tail -n 30 "$LOG/T24-enter.log"; exit 1; }
     inside ip "cd $IP; touch .devcontainer/x 2>/dev/null && { echo config writable; exit 1; }
@@ -76,7 +76,7 @@ run "T26 trust --yes takes the change; the container made after it has it" '
 run "T27 export: an edited --workspace sandbox into its project; made again from it" '
     set -e
     rm -rf "$EX"; mkdir -p "$EX"; git -C "$EX" init -q
-    sandbox new ex --template claude --workspace "$EX"
+    sandbox new ex --template open-network --workspace "$EX"
     node -e "const fs = require(\"fs\"); const f = process.argv[1]; const c = JSON.parse(fs.readFileSync(f, \"utf8\"));
         c.containerEnv.EDIT = \"kept\"; fs.writeFileSync(f, JSON.stringify(c, null, 2))" "$D/ex/.devcontainer/devcontainer.json"
     sandbox export ex

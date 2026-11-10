@@ -27,8 +27,8 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        create $SANDBOX_DIR/NAME from a template: a bundled
                        one's ID, or a path to a template folder (has a '/').
                        --image: its base image, any Debian or Ubuntu based
-                       image (claude, offline, proxy-client; default
-                       debian:trixie-slim)
+                       image (open-network, offline, proxy-client;
+                       default debian:trixie-slim)
   sandbox new [NAME] --template TEMPLATE --workspace PATH [--image IMAGE]
               [--hide PATH ...] [--readonly PATH ...] [--policy NAME ...]
               [--option KEY=VALUE ...]
@@ -56,8 +56,9 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        that; PATH/.devcontainer is read-only inside
   sandbox new ... --agent claude-code|codex|none
                        the coding agent in the sandbox, as a Feature of its own
-                       (.devcontainer/agent/NAME); the claude, nested-containers
-                       and proxy-client templates have claude-code by default.
+                       (.devcontainer/agent/NAME); the open-network,
+                       nested-containers and proxy-client templates have
+                       claude-code by default.
                        --option trustWorkspace=0 reaches the agent. With
                        --inplace, only together with --template
   sandbox new ... --agent-policy DIR
@@ -127,7 +128,7 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        for stop
   sandbox --version    show the version (and the Dev Containers CLI's)
 
-Start with:  sandbox new work --template claude && sandbox enter work
+Start with:  sandbox new work --template open-network && sandbox enter work
 Sandboxes live in $SANDBOX_DIR (default ~/sandboxes).
 More: https://github.com/EddyPronk/podman-agent-sandbox#usage
 `;

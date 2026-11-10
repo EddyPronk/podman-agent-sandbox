@@ -2,7 +2,7 @@
   "id": "nested-containers",
   "version": "0.1.0",
   "name": "Containers inside the sandbox",
-  "description": "Like claude (an agent, Claude Code by default; --agent codex or none), plus rootless podman and the sandbox command inside, so the agent can build images, run containers and make sandboxes of its own, and Python 3 with uv. Weakens the sandbox: /dev/net/tun, /proc unmasked and a seccomp profile allowing sethostname/setdomainname (see the README). Use claude unless the agent needs containers",
+  "description": "Like open-network (an agent, Claude Code by default; --agent codex or none), plus rootless podman and the sandbox command inside, so the agent can build images, run containers and make sandboxes of its own, and Python 3 with uv. Weakens the sandbox: /dev/net/tun, /proc unmasked and a seccomp profile allowing sethostname/setdomainname (see the README). Use open-network unless the agent needs containers",
   "documentationURL": "https://github.com/EddyPronk/podman-agent-sandbox#containers-inside-a-sandbox",
   "options": {
     "trustWorkspace": {

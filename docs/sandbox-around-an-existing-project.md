@@ -4,7 +4,7 @@
 have, give `--workspace`:
 
 ```sh
-sandbox new myproject --template claude --workspace ~/workspace/myproject \
+sandbox new myproject --template open-network --workspace ~/workspace/myproject \
     --hide .env --hide secrets --readonly ci
 sandbox enter myproject
 ```
