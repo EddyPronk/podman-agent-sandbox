@@ -5,7 +5,7 @@ template changes reach only sandboxes made after the release; where that matters
 what to do about sandboxes you already have. To update, run the [one-line install](INSTALL.md)
 again; `sandbox --version` shows what you have.
 
-## 0.11.0 (unreleased)
+## 0.11.0 (2026-11-10)
 
 - **Without a policy, `.git` can't be moved away any more.** `sandbox new --workspace` binds each
   `.git` onto itself (read-write, under its read-only `hooks` and `config`), and each folder between
