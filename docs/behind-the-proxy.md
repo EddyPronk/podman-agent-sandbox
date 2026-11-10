@@ -1,9 +1,9 @@
 # Your project behind the egress proxy
 
-A `claude` sandbox can reach the whole Internet, your LAN and services on your machine. Behind the
+An `open-network` sandbox can reach the whole Internet, your LAN and services on your machine. Behind the
 egress proxy, the agent reaches only the hosts you allow, and every request is logged. This page
 picks up where [A sandbox around an existing project](sandbox-around-an-existing-project.md) ends,
-with `proxy-client` in place of `claude`.
+with `proxy-client` in place of `open-network`.
 
 ## 1. Start the proxy
 
@@ -40,7 +40,7 @@ sandbox enter your-project
 claude
 ```
 
-This is the same sandbox as with `claude`, except for the network: only the proxy's internal one,
+This is the same sandbox as with `open-network`, except for the network: only the proxy's internal one,
 with no route out. All HTTP(S) goes through `http://proxy:8899`. `sandbox inspect your-project`
 shows `network  agent-proxy-net (internal: no route out)`.
 

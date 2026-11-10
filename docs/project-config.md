@@ -31,7 +31,7 @@ sandbox enter project
   ```
   A dev container config written for VS Code has no such block, and `--inplace` refuses it. Make a
   sandbox from a template around such a project instead:
-  `sandbox new --workspace . --template claude`.
+  `sandbox new --workspace . --template open-network`.
 - **`"minVersion": "X.Y.Z"` in that block** says which `sandbox` the config needs, for example
   `"minVersion": "0.8.0"`. An older `sandbox` would otherwise run it without what it relies on,
   such as a seccomp allowance. `sandbox new`, `trust`, and `enter`, `exec` and `build` (before
@@ -57,7 +57,7 @@ sandbox enter project
 
 - **From a template:**
   ```sh
-  sandbox new --workspace . --inplace --template claude
+  sandbox new --workspace . --inplace --template open-network
   ```
   This writes the template into the project's `.devcontainer/`, and makes the sandbox from it. Review
   the files and commit them.

@@ -275,11 +275,11 @@ test('an unreadable folder in the workspace is skipped, not a crash (the agent c
 test('sandbox new --workspace warns about files that may hold secrets, unless hidden', () => {
     const root = project();
     writeFileSync(join(root, 'server.key'), '');
-    const warned = sandbox(['new', 'w1', '--template', 'claude', '--workspace', root], { SANDBOX_DIR: tempDir() });
+    const warned = sandbox(['new', 'w1', '--template', 'open-network', '--workspace', root], { SANDBOX_DIR: tempDir() });
     assert.equal(warned.status, 0, warned.stderr);
     assert.match(warned.stderr, /warning: w1 can read files whose names suggest secrets:\n {2}\.env\n {2}server\.key\n/);
     assert.match(warned.stderr, /To hide them inside: rm -r .*\/w1, then this command again with --hide PATH/);
-    const quiet = sandbox(['new', 'w2', '--template', 'claude', '--workspace', root, '--hide', '.env', '--hide', 'server.key'],
+    const quiet = sandbox(['new', 'w2', '--template', 'open-network', '--workspace', root, '--hide', '.env', '--hide', 'server.key'],
         { SANDBOX_DIR: tempDir() });
     assert.equal(quiet.status, 0, quiet.stderr);
     assert.doesNotMatch(quiet.stderr, /secrets/);
@@ -336,7 +336,7 @@ test('realConfigDir resolves the part that exists', () => {
 test('sandbox new --workspace: config outside the project, nothing written into it', () => {
     const root = project();
     const sandboxes = tempDir();
-    const result = sandbox(['new', '--template', 'claude', '--workspace', root, '--hide', 'secrets',
+    const result = sandbox(['new', '--template', 'open-network', '--workspace', root, '--hide', 'secrets',
         '--hide', '.env', '--readonly', 'notes.md'], { SANDBOX_DIR: sandboxes });
     assert.equal(result.status, 0, result.stderr);
     const name = root.split('/').pop();   // NAME defaults to the folder's name
@@ -353,7 +353,7 @@ test('sandbox new --workspace: config outside the project, nothing written into 
 
 test('sandbox new --workspace: relative path, config folder inside the workspace gets a read-only mount', () => {
     const root = project();
-    const result = sandbox(['new', 'box', '--template', 'claude', '--workspace', '.'],
+    const result = sandbox(['new', 'box', '--template', 'open-network', '--workspace', '.'],
         { SANDBOX_DIR: join(root, 'sandboxes'), CWD: root });
     assert.equal(result.status, 0, result.stderr);
     const configDir = join(root, 'sandboxes', 'box');
@@ -367,10 +367,10 @@ test('sandbox new --workspace refuses bad input and leaves nothing behind', () =
     const sandboxes = tempDir();
     const env = { SANDBOX_DIR: sandboxes };
     const cases = [
-        [['new', 'box', '--template', 'claude', '--workspace', join(root, 'missing')], /does not exist/],
-        [['new', 'box', '--template', 'claude', '--workspace', root, '--hide', 'missing'], /does not exist/],
-        [['new', 'box', '--template', 'claude', '--hide', 'secrets'], /need --workspace/],
-        [['new', '--template', 'claude'], /usage/],
+        [['new', 'box', '--template', 'open-network', '--workspace', join(root, 'missing')], /does not exist/],
+        [['new', 'box', '--template', 'open-network', '--workspace', root, '--hide', 'missing'], /does not exist/],
+        [['new', 'box', '--template', 'open-network', '--hide', 'secrets'], /need --workspace/],
+        [['new', '--template', 'open-network'], /usage/],
     ];
     for (const [args, message] of cases) {
         const result = sandbox(args, env);
@@ -383,7 +383,7 @@ test('sandbox new --workspace refuses bad input and leaves nothing behind', () =
 test('the enter check: a repo added later is caught, in the config and in the container', () => {
     const root = project();
     const sandboxes = tempDir();
-    assert.equal(sandbox(['new', 'box', '--template', 'claude', '--workspace', root, '--hide', 'secrets'],
+    assert.equal(sandbox(['new', 'box', '--template', 'open-network', '--workspace', root, '--hide', 'secrets'],
         { SANDBOX_DIR: sandboxes }).status, 0);
     const configDir = join(sandboxes, 'box');
     assert.deepEqual(uncoveredInSandbox(configDir, null), []);
@@ -408,7 +408,7 @@ test('the enter check without git-readonly: a .git or a folder above one that co
     + 'a sandbox made before 0.11.0 (no .git bound onto itself) isn\'t asked for them', () => {
     const root = project();
     const sandboxes = tempDir();
-    assert.equal(sandbox(['new', 'box', '--template', 'claude', '--workspace', root, '--hide', 'secrets'],
+    assert.equal(sandbox(['new', 'box', '--template', 'open-network', '--workspace', root, '--hide', 'secrets'],
         { SANDBOX_DIR: sandboxes }).status, 0);
     const configDir = join(sandboxes, 'box');
     const file = join(configDir, '.devcontainer', 'devcontainer.json');
@@ -448,7 +448,7 @@ test('gitStateWarnings: a commondir, and a rebase in progress with the exec line
 test('sandbox new --workspace --policy git-readonly: in the config\'s policies, every .git read-only, checked by enter', () => {
     const root = project();
     const sandboxes = tempDir();
-    const result = sandbox(['new', 'box', '--template', 'claude', '--workspace', root, '--hide', 'secrets', '--hide', '.env',
+    const result = sandbox(['new', 'box', '--template', 'open-network', '--workspace', root, '--hide', 'secrets', '--hide', '.env',
         '--policy', 'git-readonly'], { SANDBOX_DIR: sandboxes });
     assert.equal(result.status, 0, result.stderr);
     const configDir = join(sandboxes, 'box');
@@ -481,8 +481,8 @@ test('sandbox new --policy: git-readonly needs --workspace, --inplace needs --te
     const root = project();
     const sandboxes = tempDir();
     for (const [args, message] of [
-        [['new', 'box', '--template', 'claude', '--policy', 'git-readonly'], /--policy git-readonly needs --workspace/],
-        [['new', 'box', '--template', 'claude', '--workspace', root, '--policy', 'git-readonly,nope'], /--policy nope: unknown policy/],
+        [['new', 'box', '--template', 'open-network', '--policy', 'git-readonly'], /--policy git-readonly needs --workspace/],
+        [['new', 'box', '--template', 'open-network', '--workspace', root, '--policy', 'git-readonly,nope'], /--policy nope: unknown policy/],
         [['new', 'box', '--workspace', root, '--inplace', '--policy', 'git-readonly'], /--policy with --inplace needs --template/],
     ]) {
         const result = sandbox(args, { SANDBOX_DIR: sandboxes });
@@ -494,7 +494,7 @@ test('sandbox new --policy: git-readonly needs --workspace, --inplace needs --te
 
 test('sandbox new --policy no-vm: in the config\'s policies, without --workspace too, and the VM check sees it', () => {
     const sandboxes = tempDir();
-    const result = sandbox(['new', 'box', '--template', 'claude', '--policy', 'no-vm'], { SANDBOX_DIR: sandboxes });
+    const result = sandbox(['new', 'box', '--template', 'open-network', '--policy', 'no-vm'], { SANDBOX_DIR: sandboxes });
     assert.equal(result.status, 0, result.stderr);
     const config = readConfig(join(sandboxes, 'box', '.devcontainer', 'devcontainer.json'));
     assert.deepEqual(config.customizations['podman-agent-sandbox'].policies, ['no-vm']);
@@ -523,13 +523,13 @@ test('a template that lists git-readonly gets every .git read-only, without --po
 
 test('the enter check ignores sandboxes made without --workspace', () => {
     const sandboxes = tempDir();
-    assert.equal(sandbox(['new', 'plain', '--template', 'claude'], { SANDBOX_DIR: sandboxes }).status, 0);
+    assert.equal(sandbox(['new', 'plain', '--template', 'open-network'], { SANDBOX_DIR: sandboxes }).status, 0);
     assert.deepEqual(uncoveredInSandbox(join(sandboxes, 'plain'), null), []);
 });
 
 test('every bundled template works with --workspace (plain JSON config)', () => {
     const templates = fileURLToPath(new URL('../templates/', import.meta.url));
-    for (const id of ['claude', 'mitm-proxy', 'offline', 'proxy-client']) {
+    for (const id of ['open-network', 'mitm-proxy', 'offline', 'proxy-client']) {
         JSON.parse(readFileSync(join(templates, id, '.devcontainer', 'devcontainer.json'), 'utf8'));
     }
 });

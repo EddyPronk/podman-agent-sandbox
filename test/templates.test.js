@@ -69,7 +69,7 @@ test('sandbox new refuses a template that needs a newer sandbox, and makes nothi
 
 test('bundled templates include claude with its dot-folder', () => {
     const ids = listTemplates().map((t) => t.id);
-    assert.ok(ids.includes('claude'));
+    assert.ok(ids.includes('open-network'));
 });
 
 test('applyTemplate copies, substitutes and drops the metadata file', () => {
@@ -175,10 +175,10 @@ test('every bundled template labels its container as a sandbox, with the version
     }
 });
 
-test('claude, offline and proxy-client: the base image is an option, Debian trixie by default', () => {
+test('open-network, offline and proxy-client: the base image is an option, Debian trixie by default', () => {
     // The Containerfile's ARG default and the option's default must agree: a build without the
     // option (sandbox build on an old folder, the CLI by hand) gets the same image.
-    for (const id of ['claude', 'offline', 'proxy-client']) {
+    for (const id of ['open-network', 'offline', 'proxy-client']) {
         const dir = new URL(`../templates/${id}/`, import.meta.url);
         const containerfile = readFileSync(new URL('.devcontainer/Containerfile', dir), 'utf8');
         const config = JSON.parse(readFileSync(new URL('.devcontainer/devcontainer.json', dir), 'utf8'));
@@ -201,7 +201,7 @@ test('claude, offline and proxy-client: the base image is an option, Debian trix
 
 test('applying claude with image puts that image in the build args', () => {
     const dest = join(mkdtempSync(join(tmpdir(), 'sandbox-test-')), 'box');
-    applyTemplate('claude', dest, { image: 'docker.io/library/ubuntu:26.04' });
+    applyTemplate('open-network', dest, { image: 'docker.io/library/ubuntu:26.04' });
     const config = JSON.parse(readFileSync(join(dest, '.devcontainer', 'devcontainer.json'), 'utf8'));
     assert.equal(config.build.args.BASE_IMAGE, 'docker.io/library/ubuntu:26.04');
 });
@@ -235,7 +235,7 @@ test('sandbox new --image: the image reaches the build args; templates without t
     const sandbox = (...args) => spawnSync(process.execPath,
         [fileURLToPath(new URL('../bin/sandbox.js', import.meta.url)), ...args],
         { encoding: 'utf8', env: { ...process.env, SANDBOX_DIR: dir } });
-    const made = sandbox('new', 'u26', '--template', 'claude', '--image', 'docker.io/library/ubuntu:26.04');
+    const made = sandbox('new', 'u26', '--template', 'open-network', '--image', 'docker.io/library/ubuntu:26.04');
     assert.equal(made.status, 0, made.stderr);
     const config = JSON.parse(readFileSync(join(dir, 'u26', '.devcontainer', 'devcontainer.json'), 'utf8'));
     assert.equal(config.build.args.BASE_IMAGE, 'docker.io/library/ubuntu:26.04');
@@ -246,7 +246,7 @@ test('sandbox new --image: the image reaches the build args; templates without t
     assert.match(other.stderr, /run 'sandbox inspect ts': it may show warnings about weaknesses/);
     const refused = sandbox('new', 'p', '--template', 'mitm-proxy', '--image', 'docker.io/library/ubuntu:26.04');
     assert.notEqual(refused.status, 0);
-    assert.match(refused.stderr, /template 'mitm-proxy' has no image option; --image works with claude, offline and proxy-client/);
+    assert.match(refused.stderr, /template 'mitm-proxy' has no image option; --image works with offline, open-network and proxy-client/);
     assert.ok(!existsSync(join(dir, 'p')), 'nothing is created');
     // A template from a path whose image option has no default: a warning, not a crash.
     const root = demoRoot();
@@ -268,7 +268,7 @@ test('offline: no network, and no agent or Node.js', () => {
     assert.match(readFileSync(new URL('Containerfile', dir), 'utf8'), /^\s+make \\$/m);
 });
 
-test('nested-containers: the claude template plus podman, and it says it weakens the sandbox', () => {
+test('nested-containers: the open-network template plus podman, and it says it weakens the sandbox', () => {
     const meta = listTemplates().find((t) => t.id === 'nested-containers');
     assert.ok(meta, 'bundled');
     assert.match(meta.description, /weaken/i);
@@ -277,8 +277,8 @@ test('nested-containers: the claude template plus podman, and it says it weakens
     assert.deepEqual(config.customizations?.['podman-agent-sandbox']?.seccompAllow, ['sethostname', 'setdomainname'],
         'in the config, so a template written into a project (--inplace) carries it');
     assert.equal(meta['x-sandbox'], undefined, 'no longer in the metadata');
-    const claude = JSON.parse(readFileSync(new URL('../templates/claude/.devcontainer/devcontainer.json', import.meta.url), 'utf8'));
-    assert.deepEqual(config.features, claude.features, 'same features as claude');
+    const open = JSON.parse(readFileSync(new URL('../templates/open-network/.devcontainer/devcontainer.json', import.meta.url), 'utf8'));
+    assert.deepEqual(config.features, open.features, 'same features as open-network');
     for (const arg of ['--userns=keep-id', '--device=/dev/net/tun', '--security-opt=unmask=/proc/*',
         '--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp.json']) {
         assert.ok(config.runArgs.includes(arg), `runArgs has ${arg}`);
@@ -413,8 +413,8 @@ test('every bundled template with Node.js pins its major version, not whatever l
     }
 });
 
-test('claude templates: Claude Code is their default agent, not part of the template', () => {
-    for (const name of ['claude', 'nested-containers', 'proxy-client']) {
+test('templates with an agent: Claude Code is their default agent, not part of the template', () => {
+    for (const name of ['open-network', 'nested-containers', 'proxy-client']) {
         const dir = fileURLToPath(new URL(`../templates/${name}/.devcontainer/`, import.meta.url));
         const config = JSON.parse(readFileSync(join(dir, 'devcontainer.json'), 'utf8'));
         assert.equal(config.customizations['podman-agent-sandbox'].agent, 'claude-code', name);
@@ -542,6 +542,27 @@ test('templates: every file a Containerfile COPYs from its build context is ther
             if (copy) assert.ok(existsSync(join(dir, copy[1])), `${id}: COPY ${copy[1]}`);
         }
     }
+});
+
+test('claude still works: the old name of open-network, not listed', () => {
+    const dest = join(mkdtempSync(join(tmpdir(), 'sandbox-test-')), 'old');
+    const template = applyTemplate('claude', dest, {});
+    assert.equal(template.id, 'open-network');
+    const config = JSON.parse(readFileSync(join(dest, '.devcontainer', 'devcontainer.json'), 'utf8'));
+    assert.equal(config.customizations['podman-agent-sandbox'].agent, 'claude-code');
+    assert.ok(!listTemplates().some((t) => t.id === 'claude'), 'not listed: the old name only resolves');
+    const dir = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
+    const made = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/sandbox.js', import.meta.url)),
+        'new', 'old', '--template', 'claude'], { encoding: 'utf8', env: { ...process.env, SANDBOX_DIR: dir } });
+    assert.equal(made.status, 0, made.stderr);
+    assert.match(made.stdout, /from template 'open-network' \(given by its old name, 'claude'\)/);
+    assert.ok(existsSync(join(dir, 'old', '.devcontainer', 'agent', 'claude-code')), 'with its default agent');
+});
+
+test('open-network says what its network reaches, and where to go for less', () => {
+    const meta = listTemplates().find((t) => t.id === 'open-network');
+    assert.match(meta.description, /Internet, your LAN and services on your machine/);
+    assert.match(meta.description, /proxy-client or offline/);
 });
 
 test('claude-containers still works: the old name of nested-containers', () => {

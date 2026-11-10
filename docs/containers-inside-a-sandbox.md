@@ -1,7 +1,7 @@
 # Containers inside a sandbox
 
 Some work needs containers: building images, running a project's integration tests, or trying out
-sandboxes themselves. The `nested-containers` template is `claude` plus rootless Podman and the
+sandboxes themselves. The `nested-containers` template is `open-network` plus rootless Podman and the
 `sandbox` command inside, so the agent can do that itself. It gives up some of the isolation the
 other templates have ([How a sandbox is isolated](security-model.md)); what, and why, is below.
 
@@ -17,7 +17,7 @@ sandbox is made). Containers inside can't get more rights than the sandbox itsel
 A `nested-containers` sandbox can be made inside another one, e.g. to test a project that itself
 makes sandboxes.
 
-**What it costs.** Rootless Podman inside a rootless container needs four rights the `claude`
+**What it costs.** Rootless Podman inside a rootless container needs four rights the `open-network`
 template doesn't give:
 
 | Right | Why | What it weakens |
@@ -27,11 +27,11 @@ template doesn't give:
 | its own seccomp profile | containers inside set their own host name | your Podman's default profile, plus `sethostname` and `setdomainname` without `CAP_SYS_ADMIN`; both change only the caller's own UTS namespace |
 | no `--cap-drop=all`, no `no-new-privileges` | `newuidmap`/`newgidmap` map the user's subordinate IDs with their file capabilities (`cap_setuid`, `cap_setgid`; the image has them instead of setuid); without these rights inner containers fail with `operation not permitted` | a program with file capabilities or setuid can gain rights up to Podman's default set (still no `CAP_SYS_ADMIN`), inside the sandbox's user namespace |
 
-Kept as with `claude`: `--userns=keep-id` (you, not root), the rest of the seccomp profile.
+Kept as with `open-network`: `--userns=keep-id` (you, not root), the rest of the seccomp profile.
 
-**Use `claude` unless the agent needs containers.** This template is for your own projects and an
+**Use `open-network` unless the agent needs containers.** This template is for your own projects and an
 agent you'd let run containers on your machine anyway; not for untrusted code. Its network is as
-open as `claude`'s: only *inner* `proxy-client` sandboxes are behind a proxy.
+open as `open-network`'s: only *inner* `proxy-client` sandboxes are behind a proxy.
 
 - **The seccomp profile** is written at `sandbox new` into the sandbox's
   `.devcontainer/seccomp.json`, from your Podman's default (`podman info` →
@@ -41,7 +41,7 @@ open as `claude`'s: only *inner* `proxy-client` sandboxes are behind a proxy.
   so does everything inside it: turn on lingering (`loginctl enable-linger`) on machines you use
   over SSH.
 - **Disk:** each level keeps its own images and volumes, inside the sandbox's home volume: a
-  `claude` sandbox inside is about 1.3 GB more. `sandbox inspect` shows how much (`podman inside`:
+  `open-network` sandbox inside is about 1.3 GB more. `sandbox inspect` shows how much (`podman inside`:
   on disk, images, containers, volumes, and how much is reclaimable). Clean up inside with
   `podman image prune -a` and `sandbox rm`. **`sandbox rm` on the outer sandbox keeps all of it**,
   since it's in the home volume: the next `sandbox enter` finds it again. To delete it, run

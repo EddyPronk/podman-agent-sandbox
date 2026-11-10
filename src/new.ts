@@ -19,7 +19,7 @@ import { SECCOMP_RUN_ARG } from './seccomp.js';
 import { removeRecord, writeRecord } from './state.js';
 import {
     MARKER, applyTemplate, configPolicies, experimentalImage, parseOptionArgs, parsePolicies, resolveOptions, seccompAllow,
-    TESTED_IMAGES, withImage, withPolicies,
+    templateLabel, TESTED_IMAGES, withImage, withPolicies,
 } from './templates.js';
 import type { OptionValues, Template } from './templates.js';
 import {
@@ -156,11 +156,11 @@ export function cmdNew(args: string[]): void {
     }
     if (values.vm) writeRecord(name, { kind: 'vm', folder: dest });
     if (plan) {
-        console.log(`created ${dest} from template '${values.template}', around ${workspace}`);
+        console.log(`created ${dest} from template ${templateLabel(values.template)}, around ${workspace}`);
         console.log(`read-only inside: ${gitSummary(plan)}`
             + `${plan.readonly.length ? `, ${plan.readonly.join(', ')}` : ''}; hidden: ${plan.hide.join(', ') || 'nothing'}`);
     } else {
-        console.log(`created ${dest} from template '${values.template}'`);
+        console.log(`created ${dest} from template ${templateLabel(values.template)}`);
     }
     if (agent) console.log(`with agent ${agent} (in .devcontainer/agent/${agent})`);
     if (policyFiles.length) {
@@ -300,7 +300,7 @@ function newInplace(name: string, dest: string, workspace: string, values: NewVa
     }
     if (values.vm) writeRecord(name, { kind: 'vm', folder: dest });
     if (template) {
-        console.log(`wrote ${config} from template '${values.template}': review it, and commit it with the project`);
+        console.log(`wrote ${config} from template ${templateLabel(values.template ?? template.id)}: review it, and commit it with the project`);
     }
     console.log(`created ${dest} with the project's own config ${short(staged.id)}, around ${workspace}`);
     console.log(`read-only inside: .devcontainer, ${gitSummary(plan)}`

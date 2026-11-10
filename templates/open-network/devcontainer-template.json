@@ -1,9 +1,9 @@
 {
-  "id": "claude",
+  "id": "open-network",
   "version": "0.1.0",
-  "name": "Claude Code",
-  "description": "Debian trixie (or another Debian or Ubuntu base image) with Node.js and Claude Code; your user via --userns=keep-id, no capabilities, no new privileges, home on a per-sandbox volume, unrestricted network",
-  "documentationURL": "https://github.com/anthropics/devcontainer-features",
+  "name": "Open network",
+  "description": "Debian trixie (or another Debian or Ubuntu base image) with Node.js and an agent, Claude Code by default (--agent codex or none); your user via --userns=keep-id, no capabilities, no new privileges, home on a per-sandbox volume. Its network is open: the Internet, your LAN and services on your machine that don't listen only on 127.0.0.1. For less, use proxy-client or offline. Was called claude, which still works",
+  "documentationURL": "https://github.com/EddyPronk/podman-agent-sandbox#templates",
   "options": {
     "image": {
       "type": "string",

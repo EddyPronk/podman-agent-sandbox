@@ -7,9 +7,9 @@ kernel (libkrunfw). The rest stays as it is: the template, the image build, the 
 mounts.
 
 ```sh
-sandbox new work --template claude --vm     # a VM sandbox from the start
-sandbox enter work                          # makes its VM, and attaches to its shell
-sandbox enter --vm other                    # makes an existing sandbox a VM sandbox
+sandbox new work --template open-network --vm   # a VM sandbox from the start
+sandbox enter work                              # makes its VM, and attaches to its shell
+sandbox enter --vm other                        # makes an existing sandbox a VM sandbox
 ```
 
 ## Requirements
@@ -137,7 +137,7 @@ bundled templates' `remoteEnv` is just those three. The shell starts in the conf
 
 Measured with krun 1.30.1 and libkrun 1.19.6, first with the prototype this command follows (lab 34),
 then with `sandbox enter --vm` itself (`test/integration/vm.sh`, which passes: every rule above,
-detaching and reattaching, two `enter --vm` at once, a `--workspace` sandbox, the `claude` template):
+detaching and reattaching, two `enter --vm` at once, a `--workspace` sandbox, the `open-network` template):
 
 - **The kernel is the guest's:** `uname -r` in the VM is the guest kernel (6.12.109), not the host's.
 - **The options confine the VM's host process, not the guest.** `--cap-drop=all`, `no-new-privileges`
