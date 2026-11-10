@@ -52,7 +52,7 @@ jobs:
         run: |
           npm install -g ./podman-agent-sandbox-*.tgz
           sandbox --help
-          sandbox templates | grep -q '^claude'
+          sandbox templates | grep -q '^open-network'
           sandbox templates | grep -q '^nested-containers'
       - uses: actions/upload-artifact@v7
         with:
