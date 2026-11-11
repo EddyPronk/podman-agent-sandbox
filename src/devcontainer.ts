@@ -73,11 +73,24 @@ export function childEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEn
 }
 
 /**
- * Run `devcontainer SUB --docker-path podman ARGS`. The CLI only parses options placed after the subcommand.
- * Its output is a string or a Buffer, depending on OPTIONS' encoding.
+ * The arguments for `devcontainer SUB ARGS`: the CLI only parses options placed after the subcommand.
+ * Commands that build (up, build) get --buildkit never: with its default, the CLI installs each Feature
+ * with RUN --mount=type=bind from a build context it writes afresh for every build, and buildah before
+ * 1.42 keys that step's cache on the files' timestamps (buildah #6291), so every Feature, and every
+ * step after it, was built again each time. With never, the CLI COPYs the Features in, which is cached
+ * by content (lab 52).
+ */
+export function dcArgs(sub: string, args: string[]): string[] {
+    const buildArgs = sub === 'up' || sub === 'build' ? ['--buildkit', 'never'] : [];
+    return [sub, '--docker-path', 'podman', ...buildArgs, ...args];
+}
+
+/**
+ * Run `devcontainer SUB --docker-path podman ARGS` (dcArgs). Its output is a string or a Buffer,
+ * depending on OPTIONS' encoding.
  */
 export function dc(sub: string, args: string[], options: SpawnSyncOptions = {}): SpawnSyncReturns<string | Buffer> {
-    const result = spawnSync(process.execPath, [cliPath(), sub, '--docker-path', 'podman', ...args],
+    const result = spawnSync(process.execPath, [cliPath(), ...dcArgs(sub, args)],
         { env: childEnv(), stdio: 'inherit', ...options });
     if (result.error) throw result.error;
     return result;

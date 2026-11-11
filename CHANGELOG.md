@@ -5,6 +5,17 @@ template changes reach only sandboxes made after the release; where that matters
 what to do about sandboxes you already have. To update, run the [one-line install](INSTALL.md)
 again; `sandbox --version` shows what you have.
 
+## 0.12.1 (unreleased)
+
+- **Features are no longer installed again at every build.** With Podman, the Dev Containers CLI
+  bind-mounted each Feature from a folder it writes afresh for every build, and buildah before 1.42
+  doesn't reuse such a step when only the files' timestamps differ (buildah #6291). So every
+  `sandbox new`, `rm` and `enter`, and `sandbox build` installed the agent and each Feature again,
+  with every step after them, and left the old image's layers behind. `sandbox` now passes
+  `--buildkit never` to `devcontainer up` and `build`, which copies the Features in instead, and
+  those steps come from the cache. In return, `rm` and `enter` no longer bring a newer Claude Code or
+  Node by themselves: run `sandbox build NAME --no-cache` first (README, "Things to know").
+
 ## 0.12.0 (2026-11-12)
 
 - **A root shell, to install packages: `sandbox enter --root NAME`.** Root in a sandbox has no
