@@ -5,7 +5,7 @@ template changes reach only sandboxes made after the release; where that matters
 what to do about sandboxes you already have. To update, run the [one-line install](INSTALL.md)
 again; `sandbox --version` shows what you have.
 
-## 0.12.0 (unreleased)
+## 0.12.0 (2026-11-12)
 
 - **A root shell, to install packages: `sandbox enter --root NAME`.** Root in a sandbox has no
   capabilities (`--cap-drop=all`), so it couldn't run `apt-get`. With the new **`root-shell`**
