@@ -231,6 +231,36 @@ test('audit: an unhardened sandbox gets one warning, a nested-podman one a note'
     assert.equal(row(nested, 'devices'), '/dev/net/tun');
 });
 
+test('audit: the policies row; root-shell makes the capabilities a note, while no-new-privileges holds', () => {
+    assert.equal(row(audit(info()), 'policies'), undefined, 'no config read: no row');
+    assert.equal(row(audit(info(), { policies: [] }), 'policies'), 'none');
+    assert.equal(row(audit(info(), { policies: ['git-readonly', 'root-shell'] }), 'policies'), 'git-readonly, root-shell');
+
+    const caps = ['CAP_CHOWN', 'CAP_SETUID'];
+    const user = (extra = {}) => info({ BoundingCaps: caps, ...extra, Config: { ...info().Config, User: 'eddy', ...extra.Config } });
+    const root = audit(user(), { policies: ['root-shell'] });
+    assert.deepEqual(root.warnings, []);
+    assert.match(root.notes[0], /^2 capabilities in the bounding set: the root-shell policy, for sandbox enter --root\. no-new-privileges keeps them/);
+    // Without no-new-privileges the policy doesn't excuse it: setuid programs would gain them.
+    const open = audit(user({ HostConfig: { NetworkMode: 'pasta' } }), { policies: ['root-shell'] });
+    assert.equal(open.warnings.length, 1);
+    assert.match(open.warnings[0], /no-new-privileges off/);
+    // Capabilities without the policy: the warning as before.
+    assert.equal(audit(user(), { policies: [] }).warnings.length, 1);
+    // Nor where the policy doesn't explain them: a VM, a user that is root, more than it leaves, a container sandbox didn't make.
+    assert.equal(audit(user({ OCIRuntime: 'krun' }), { policies: ['root-shell'] }).warnings.length, 1, 'a VM');
+    assert.equal(audit(user({ Config: { User: '' } }), { policies: ['root-shell'] }).warnings.length, 1, 'the image\'s default user, root');
+    assert.equal(audit(user({ Config: { User: 'root' } }), { policies: ['root-shell'] }).warnings.length, 1, 'root');
+    assert.equal(audit(user({ BoundingCaps: [...caps, 'CAP_SYS_ADMIN'] }), { policies: ['root-shell'] }).warnings.length, 1, 'sys_admin');
+    assert.equal(audit(user(), { policies: ['root-shell'], sandbox: false }).warnings.length, 1, 'not a sandbox');
+});
+
+test('removedRows: the policies, when the config could be read', () => {
+    const rows = removedRows('/s/x', null, null, [], ['root-shell']);
+    assert.deepEqual(rows.find(([label]) => label === 'policies'), ['policies', 'root-shell']);
+    assert.equal(removedRows('/s/x', null, null, []).find(([label]) => label === 'policies'), undefined);
+});
+
 test('audit: a container sandbox did not make gets podman advice, not the templates\'', () => {
     const report = audit(info({ BoundingCaps: ['CAP_SETUID'], HostConfig: { NetworkMode: 'pasta' } }), { sandbox: false });
     assert.equal(report.warnings.length, 1);

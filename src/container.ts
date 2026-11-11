@@ -11,7 +11,13 @@ import {
     parseVscodeProbe, podmanStorageRows, splitCommand, table, writableConfig,
 } from './inspect.js';
 import type { PodmanInfo, PodmanStorage, ProcStatus, Row, VscodeProbe } from './inspect.js';
-import { gitStateInSandbox, isGitReadonly, mountView, parseMountinfo, uncoveredInSandbox } from './workspace.js';
+import { configPolicies, hasRootShellCaps } from './templates.js';
+
+/** The root shell's PATH: only root's folders. */
+const ROOT_PATH = '/usr/sbin:/usr/bin:/sbin:/bin';
+import {
+    configFile, gitStateInSandbox, isGitReadonly, mountView, parseMountinfo, readConfig, uncoveredInSandbox,
+} from './workspace.js';
 import type { MountView } from './workspace.js';
 
 export type { PodmanInfo } from './inspect.js';
@@ -114,13 +120,16 @@ export class Container {
     /**
      * Make it running: devcontainer up creates it (building the image first), or starts it if it exists
      * but is stopped. Creating may take minutes: show that log (on stderr). Starting is quick, and its
-     * log only matters when it fails.
+     * log only matters when it fails. OVERRIDE: when creating, the config to make it from instead
+     * (--override-config: a policy's runArgs); its labels still name the real config, so devcontainer
+     * exec and up find the container without it (lab 51, override.sh).
      */
-    start(): void {
+    start(override: string | null = null): void {
         if (this.state === 'running') return;
         const create = !this.exists;
         console.error(`sandbox: ${create ? 'creating' : 'starting'} ${this.name} ...`);
-        const up = dc('up', ['--workspace-folder', this.dir, ...featureArgs(this.dir)], create
+        const overrideArgs = create && override ? ['--override-config', override] : [];
+        const up = dc('up', ['--workspace-folder', this.dir, ...overrideArgs, ...featureArgs(this.dir)], create
             ? { stdio: ['ignore', 2, 2] }
             : { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
         if (up.status !== 0) {
@@ -142,6 +151,28 @@ export class Container {
     /** A login shell as the user, in the workspace; its exit status. */
     openShell(): number {
         return this.exec(['bash', '-l']);
+    }
+
+    /** Its root has what apt needs (made with root-shell, or from a template like nested-containers). */
+    get rootHasCaps(): boolean {
+        return hasRootShellCaps(this.info?.BoundingCaps ?? []);
+    }
+
+    /**
+     * A shell as root (sandbox enter --root); its exit status. podman exec, since devcontainer exec
+     * runs as the config's user. A terminal only when there is one: piped commands work too.
+     * A clean shell: in /root, not the workspace (the agent's files: python -m, a ./tool), with only
+     * HOME, PATH (no folder the user can write, as nvm's is on some images), TERM and LANG, and no
+     * startup files (/etc/bash.bashrc can source user-owned files) nor the image's BASH_ENV. /usr/bin/env
+     * and /bin/bash by path: podman exec looks a command up in the container's PATH.
+     */
+    openRootShell(): number {
+        process.on('SIGINT', () => {});
+        const tty = process.stdin.isTTY ? ['-i', '-t'] : ['-i'];
+        const env = ['TERM', 'LANG'].flatMap((key) => (process.env[key] ? [`${key}=${process.env[key]}`] : []));
+        return exitStatus(podman(['exec', ...tty, '--user', 'root', '--workdir', '/root', this.name,
+            '/usr/bin/env', '-i', 'HOME=/root', `PATH=${ROOT_PATH}`, ...env, `PS1=root@${this.name}:\\w# `,
+            '/bin/bash', '--noprofile', '--norc'], { stdio: 'inherit' }));
     }
 
     /**
@@ -264,9 +295,11 @@ export function describeInfo(name: string, info: PodmanInfo, {
     let uncovered: string[] = [];
     let gitReadonly = true;
     let gitState: string[] = [];
+    let policies: string[] | null = null;
     const configWritable = sandbox ? writableConfig(info, folder) : null;
     if (folder) {
         try {
+            policies = configPolicies(readConfig(configFile(folder)));
             uncovered = uncoveredInSandbox(folder, live ?? mountView(info.Mounts ?? []));
             gitReadonly = isGitReadonly(folder);
             gitState = gitStateInSandbox(folder);
@@ -274,7 +307,7 @@ export function describeInfo(name: string, info: PodmanInfo, {
             // the config folder is gone: nothing to compare with
         }
     }
-    const report = audit(info, { status, internal, uncovered, gitReadonly, sandbox, vscode, configWritable });
+    const report = audit(info, { status, internal, uncovered, gitReadonly, sandbox, vscode, configWritable, policies });
     if (live) report.warnings.push(...lostMounts(info.Mounts ?? [], live));
     report.warnings.push(...gitState);
     if (untrusted) report.warnings.unshift(`${untrusted}: enter, exec and build refuse until 'sandbox trust ${of}'`);

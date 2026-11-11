@@ -44,8 +44,10 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        add policies to the config's "policies" (customizations.
                        podman-agent-sandbox): git-readonly (with --workspace:
                        every repo's whole .git read-only; git inside can't
-                       commit), no-vm (enter --vm refuses it). Repeatable. With
-                       --inplace, only together with --template
+                       commit), no-vm (enter --vm refuses it), root-shell
+                       (root gets what apt needs, for enter --root; needs
+                       no-new-privileges). Repeatable. With --inplace, only
+                       together with --template
   sandbox new [NAME] --workspace PATH --inplace [--template TEMPLATE] [--yes]
               [--hide PATH ...] [--readonly PATH ...] [--policy NAME ...]
                        the config is PATH/.devcontainer (yours to commit), not
@@ -100,6 +102,15 @@ sandbox — lxc-style front end for dev containers on rootless Podman.
                        docs/microvm.md
   sandbox enter --container NAME
                        make a VM sandbox, after sandbox rm, a container again
+  sandbox enter --root NAME
+                       a root shell in NAME's container, to install packages.
+                       Root can install only in a container made with the
+                       root-shell policy: when NAME has no container yet
+                       (after sandbox new or rm), --root adds the policy to its
+                       config and makes it, root with chown, dac_override,
+                       fowner, setuid and setgid; no-new-privileges keeps them
+                       from your programs. A clean shell, in /root. Not for a
+                       VM
   sandbox exec NAME [--] COMMAND [ARG ...]
                        start NAME if needed and run COMMAND in it, like
                        'ssh host COMMAND': as $USER, in the workspace folder,
@@ -215,14 +226,19 @@ function cmdBuild(args: string[]): number {
 function cmdEnter(args: string[]): number {
     const { values, positionals } = parseArgs({
         args, allowPositionals: true,
-        options: { vm: { type: 'boolean' }, container: { type: 'boolean' }, 'from-existing': { type: 'boolean' } },
+        options: {
+            vm: { type: 'boolean' }, container: { type: 'boolean' }, 'from-existing': { type: 'boolean' }, root: { type: 'boolean' },
+        },
     });
-    const usage = 'sandbox enter [--vm [--from-existing] | --container] NAME';
+    const usage = 'sandbox enter [--vm [--from-existing] | --container | --root] NAME';
     const name = oneName(positionals, usage);
     if (values.vm && values.container) throw new SandboxError(`--vm or --container, not both; usage: ${usage}`);
     if (values['from-existing'] && !values.vm) throw new SandboxError(`--from-existing goes with --vm; usage: ${usage}`);
+    if (values.root && (values.vm || values.container)) {
+        throw new SandboxError(`--root opens a root shell in the container; it goes without --vm and --container; usage: ${usage}`);
+    }
     const kind: Kind | null = values.vm ? 'vm' : values.container ? 'container' : null;
-    return loadSandbox(name, { lock: true }).enter({ kind, fromExisting: Boolean(values['from-existing']) });
+    return loadSandbox(name, { lock: true }).enter({ kind, fromExisting: Boolean(values['from-existing']), root: Boolean(values.root) });
 }
 
 /**

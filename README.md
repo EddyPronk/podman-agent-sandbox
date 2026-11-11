@@ -122,6 +122,7 @@ sandbox trust app                                   # confirm a change in the pr
 sandbox export app                                  # write a --workspace sandbox's config into its project
 sandbox enter sandbox_with_claude                   # build and start if needed, open a shell
 sandbox enter --vm sandbox_with_claude              # the same in a KVM microVM, with its own kernel (krun)
+sandbox enter --root sandbox_with_claude            # a root shell, to install packages (right after new or rm)
 sandbox exec sandbox_with_claude git status         # run one command in it (start it if needed), like ssh
 sandbox help sandbox_with_claude                    # what this sandbox offers (from its template)
 sandbox inspect sandbox_with_claude                 # the podman run command that made it, and what it runs with
@@ -144,6 +145,16 @@ git repository in the workspace whose hooks or config would be writable, and a p
 (`--inplace`) that changed since you confirmed it. `podman exec NAME COMMAND` also works on a
 running sandbox, also as you, but it runs in `/`, with the image's PATH (without, e.g., `~/.local/bin`),
 and without those checks. Use `sandbox exec`.
+
+`sandbox enter --root NAME` opens a root shell, to install packages (`apt-get install …`). Root in a
+sandbox has no capabilities, so the container must be made with the `root-shell` policy, and that
+can only happen when it's made: run it right after `sandbox new`, or after `sandbox rm`. It then adds
+the policy to the sandbox's config, says so, and makes the container, with root holding only what
+apt needs. `no-new-privileges` keeps that from the agent, running as you. The shell starts clean, in
+`/root`. `sandbox inspect` shows the policy. For a container made without it, `enter --root` refuses
+and says to `sandbox rm` first.
+`sandbox new --policy root-shell` sets it from the start. More in [How a sandbox is
+isolated](docs/security-model.md#no-way-to-gain-rights).
 
 Sandboxes live in `~/sandboxes`; set `SANDBOX_DIR` to use another folder. A sandbox that
 already has a container is found through the container's `devcontainer.local_folder` label,

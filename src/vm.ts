@@ -12,7 +12,7 @@ import type { Container, PodmanInfo } from './container.js';
 import { commandText } from './inplace.js';
 import { isObject } from './json.js';
 import type { JsonObject } from './json.js';
-import { MARKER } from './templates.js';
+import { MARKER, ROOT_SHELL } from './templates.js';
 import { mountView } from './workspace.js';
 import type { MountView } from './workspace.js';
 
@@ -44,6 +44,11 @@ export function vmPolicy(config: JsonObject): Answer {
     const markers: unknown[] = Array.isArray(marker) ? marker : [marker];
     const policies: unknown[] = markers.flatMap((m) => (isObject(m) && Array.isArray(m.policies) ? m.policies : []));
     if (policies.includes(NO_VM)) return { allowed: false, reason: `this config's policies include ${NO_VM}` };
+    if (policies.includes(ROOT_SHELL)) {
+        // Its runArgs would only weaken the VM's host process: sandbox enter --root works in a container.
+        return { allowed: false, reason: `this config's policies include ${ROOT_SHELL}, which is for sandbox enter --root, `
+            + 'in a container' };
+    }
     for (const key of ['postStartCommand', 'postAttachCommand']) {
         // The merged configuration lists them, one per source, under postStartCommands and postAttachCommands;
         // anything else there counts as one more command: refused, not overlooked.

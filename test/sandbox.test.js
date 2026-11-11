@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { enterPlan, parseConfiguration } from '../dist/sandbox.js';
+import { enterPlan, parseConfiguration, rootPlan } from '../dist/sandbox.js';
 
 const SANDBOX = fileURLToPath(new URL('../bin/sandbox.js', import.meta.url));
 const FAKE = fileURLToPath(new URL('./fake-podman/', import.meta.url));
@@ -293,6 +293,76 @@ test('enter: --vm and --container together are refused', () => {
     const result = run([], 'enter', '--vm', '--container', 'x');
     assert.equal(result.status, 1);
     assert.match(result.stderr, /--vm or --container, not both/);
+});
+
+test('rootPlan: what sandbox enter --root does, for each state', () => {
+    const state = ({ exists = false, ours = true, caps = false, policy = false, inplace = false } = {}) =>
+        ({ name: 'x', container: { exists, ours, rootHasCaps: caps }, configHasPolicy: policy, inplace });
+    // No container (after new or rm): add the policy unless the config has it; an --inplace config is the project's.
+    assert.deepEqual(rootPlan(state()), { action: 'open', addPolicy: true });
+    assert.deepEqual(rootPlan(state({ policy: true })), { action: 'open', addPolicy: false });
+    assert.deepEqual(rootPlan(state({ policy: true, inplace: true })), { action: 'open', addPolicy: false });
+    assert.match(rootPlan(state({ inplace: true })).why, /x uses the project's own config \(--inplace\).*add "root-shell" to its "policies".*sandbox trust x/s);
+    // A container: its root has what apt needs or it hasn't; the config isn't what counts.
+    assert.deepEqual(rootPlan(state({ exists: true, caps: true })), { action: 'open', addPolicy: false });
+    for (const policy of [false, true]) {
+        assert.match(rootPlan(state({ exists: true, policy })).why,
+            /x's container was made without the root-shell policy: root there lacks the capabilities apt needs.*'sandbox rm x' \(volumes are kept\), then 'sandbox enter --root x'/s);
+    }
+    // A container sandbox didn't make: not entered as root, whatever it has.
+    assert.match(rootPlan(state({ exists: true, ours: false, caps: true })).why, /x isn't a sandbox: its container has no podman-agent-sandbox label/);
+});
+
+test('enter --root: refused with --vm or --container, for a VM, for a container made without the policy, and for one sandbox did not make', () => {
+    for (const flag of ['--vm', '--container']) {
+        assert.match(run([], 'enter', '--root', flag, 'x').stderr, /--root opens a root shell in the container; it goes without --vm and --container/);
+    }
+    const vm = runWith({ folders: ['x'], records: { x: 'vm' } }, [vmOf('x', 'exited')], 'enter', '--root', 'x');
+    assert.equal(vm.status, 1);
+    assert.match(vm.stderr, /x is a VM sandbox: enter --root opens a root shell in a container\. 'sandbox rm x' \(volumes are kept\), then 'sandbox enter --root x'/);
+
+    const made = runWith({ folders: ['x'] }, [sandbox('x', 'running')], 'enter', '--root', 'x');
+    assert.equal(made.status, 1);
+    assert.match(made.stderr, /x's container was made without the root-shell policy.*'sandbox rm x'/s);
+    assert.equal(readFileSync(join(made.sandboxDir, 'x', '.devcontainer', 'devcontainer.json'), 'utf8'), '{}\n', 'config unchanged');
+    assert.deepEqual(changes(made.calls), [], 'nothing started or removed');
+
+    const foreign = runWith({ folders: ['x'] }, [{ ...container('x', 'running'), BoundingCaps: ['CAP_CHOWN', 'CAP_DAC_OVERRIDE', 'CAP_FOWNER', 'CAP_SETGID', 'CAP_SETUID'] }],
+        'enter', '--root', 'x');
+    assert.equal(foreign.status, 1);
+    assert.match(foreign.stderr, /x isn't a sandbox: its container has no podman-agent-sandbox label/);
+});
+
+test('enter --root without a container: the policy goes into the config, runArgs as written, and is said', () => {
+    const runArgs = ['--userns=keep-id', '--cap-drop=all', '--security-opt=no-new-privileges'];
+    const setup = (sandboxes) => writeFileSync(join(sandboxes, 'x', '.devcontainer', 'devcontainer.json'), JSON.stringify({ runArgs }));
+    // The fake config can't make a container: enter fails after writing the config.
+    const result = runWith({ folders: ['x'], setup }, [], 'enter', '--root', 'x');
+    assert.match(result.stderr, /sandbox: x: added the root-shell policy to .*devcontainer\.json\. When its container is made, root gets what apt needs \(chown, dac_override, fowner, setgid, setuid\)/);
+    const config = JSON.parse(readFileSync(join(result.sandboxDir, 'x', '.devcontainer', 'devcontainer.json'), 'utf8'));
+    assert.deepEqual(config.customizations['podman-agent-sandbox'].policies, ['root-shell']);
+    assert.deepEqual(config.runArgs, runArgs, 'applied when made, not written');
+    assert.deepEqual(readdirSync(join(result.sandboxDir, 'x', '.devcontainer')), ['devcontainer.json'], 'the override is removed after');
+
+    // Without no-new-privileges (nested-containers): refused, the config unchanged.
+    const bare = (sandboxes) => writeFileSync(join(sandboxes, 'x', '.devcontainer', 'devcontainer.json'), JSON.stringify({ runArgs: ['--userns=keep-id'] }));
+    const nnp = runWith({ folders: ['x'], setup: bare }, [], 'enter', '--root', 'x');
+    assert.equal(nnp.status, 1);
+    assert.match(nnp.stderr, /x: the root-shell policy needs --security-opt=no-new-privileges in runArgs.*has none/s);
+    assert.doesNotMatch(readFileSync(join(nnp.sandboxDir, 'x', '.devcontainer', 'devcontainer.json'), 'utf8'), /root-shell/);
+
+    // A VM sandbox with nothing made (after new --vm, or rm): becomes a container sandbox.
+    const vm = runWith({ folders: ['x'], records: { x: 'vm' }, setup }, [], 'enter', '--root', 'x');
+    assert.match(vm.stderr, /added the root-shell policy/);
+    assert.equal(existsSync(join(vm.sandboxDir, '.state', 'x.json')), false, 'no longer a VM sandbox');
+
+    const inplace = runWith({ folders: ['x'], setup: (sandboxes) => {
+        setup(sandboxes);
+        writeFileSync(join(sandboxes, 'x', 'sandbox.json'), JSON.stringify({ workspace: '/nowhere', hide: [], readonly: [], inplace: true, configTree: 'abc' }));
+    } }, [], 'enter', '--root', 'x');
+    assert.equal(inplace.status, 1);
+    assert.match(inplace.stderr, /x uses the project's own config \(--inplace\).*sandbox trust x/s);
+    assert.doesNotMatch(inplace.stderr, /added the root-shell policy/);
 });
 
 test('enter --from-existing needs --vm', () => {

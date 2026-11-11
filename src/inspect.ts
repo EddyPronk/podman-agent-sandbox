@@ -5,6 +5,7 @@ import { basename, join } from 'node:path';
 import { resolveLocalEnv } from './inplace.js';
 import { isBoolean, isNumber, isObject, isString, isStringList, nullable, optional } from './json.js';
 import type { Check, JsonObject } from './json.js';
+import { ROOT_SHELL, ROOT_SHELL_CAPS } from './templates.js';
 import { SETTINGS, uncoveredWhy } from './workspace.js';
 import type { DevcontainerConfig, Settings } from './workspace.js';
 
@@ -143,6 +144,8 @@ export interface AuditOptions {
     sandbox?: boolean;
     vscode?: VscodeProbe | null;
     configWritable?: string | null;
+    /** The policies its config lists (templates.ts KNOWN_POLICIES); null when there's no config to read. */
+    policies?: string[] | null;
 }
 
 export interface Audit {
@@ -401,8 +404,10 @@ export function configVolumes(config: DevcontainerConfig, folder: string, env: N
  * project's config changed, or null; VOLUMES: [{ name, bytes }], bytes null when the volume doesn't
  * exist (the next `sandbox enter` makes it).
  */
-export function removedRows(folder: string, settings: Settings | null, untrusted: string | null, volumes: VolumeSize[]): Row[] {
+export function removedRows(folder: string, settings: Settings | null, untrusted: string | null, volumes: VolumeSize[],
+    policies: string[] | null = null): Row[] {
     const rows: Row[] = [['config', folder], ['workspace', settings?.workspace ?? `${folder} (the config folder itself)`]];
+    if (policies) rows.push(policiesRow(policies));
     if (settings?.inplace) {
         rows.push(['project config', `--inplace, trusted ${String(settings.configTree ?? '').slice(0, 7)}: `
             + (untrusted ? `${untrusted}: enter refuses until sandbox trust` : 'unchanged since')]);
@@ -413,6 +418,11 @@ export function removedRows(folder: string, settings: Settings | null, untrusted
     });
     if (!volumes.length) rows.push(['volumes', 'none']);
     return rows;
+}
+
+/** The policies row of sandbox inspect, with and without a container. */
+function policiesRow(policies: string[]): Row {
+    return ['policies', policies.length ? policies.join(', ') : 'none'];
 }
 
 /** What an agent's answer means, for people. ATTACHED: another socket answers now. */
@@ -455,6 +465,7 @@ const capName = (cap: string) => cap.replace(/^CAP_/, '').toLowerCase();
  */
 export function audit(info: PodmanInfo, {
     status = null, internal = {}, uncovered = [], gitReadonly = true, sandbox = true, vscode = null, configWritable = null,
+    policies = null,
 }: AuditOptions = {}): Audit {
     const host: PodmanHostConfig = info.HostConfig ?? {};
     const split = splitCommand(info.Config?.CreateCommand ?? [], info.ImageName ?? '', info.Image);
@@ -472,6 +483,7 @@ export function audit(info: PodmanInfo, {
     const unhardened: string[] = [];
 
     rows.push(['state', info.State?.Status ?? '?']);
+    if (policies) rows.push(policiesRow(policies));
     if (info.OCIRuntime === 'krun') {
         // The guest's RAM: the annotation, else --memory, else krun's default (docs/microvm.md).
         const ram = Number(info.Config?.Annotations?.['krun.ram_mib'] ?? 0);
@@ -493,7 +505,15 @@ export function audit(info: PodmanInfo, {
     rows.push(['new privileges', noNewPrivs ? 'blocked (no-new-privileges)'
         : 'allowed: setuid and file-capability programs gain rights']);
     if (!noNewPrivs) unhardened.push('no-new-privileges off');
-    if (unhardened.length && nested) {
+    // root-shell's capabilities, and nothing else: only in a container sandbox made (not a VM's), its
+    // user not root, the set within what the policy leaves.
+    const rootShell = (policies?.includes(ROOT_SHELL) ?? false) && sandbox && info.OCIRuntime !== 'krun'
+        && Boolean(info.Config?.User) && !/^(root|0)(:|$)/.test(info.Config?.User ?? '')
+        && caps.every((cap) => ROOT_SHELL_CAPS.includes(cap));
+    if (unhardened.length && rootShell && noNewPrivs && !nested) {
+        notes.push(`${unhardened.join(', ')}: the root-shell policy, for sandbox enter --root. no-new-privileges keeps `
+            + 'them from your programs and the agent\'s: only a root shell has them');
+    } else if (unhardened.length && nested) {
         notes.push(`${unhardened.join(', ')}: expected for a sandbox that runs podman inside, like nested-containers`);
     } else if (unhardened.length && sandbox) {
         warnings.push(`${unhardened.join(', ')}: setuid and file-capability programs can gain rights. The templates `

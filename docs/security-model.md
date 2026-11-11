@@ -24,6 +24,30 @@ Podman's default seccomp profile limits the system calls on top of that.
 **The exception is `nested-containers`.** Running Podman inside a sandbox needs some of these rights;
 [Containers inside a sandbox](containers-inside-a-sandbox.md) lists what it gives up and why.
 
+**A root shell for installing packages: `sandbox enter --root NAME`** (0.12.0). Root without
+capabilities can't run `apt-get`, so this needs the **`root-shell`** policy. Capabilities are fixed
+when a container is made, so the policy can only apply then: run `enter --root` right after
+`sandbox new`, or after `sandbox rm` (volumes are kept). It adds the policy to the sandbox's config,
+says so, and makes the container. `sandbox inspect` shows `policies  root-shell`.
+- **Root inside gets only what apt needs:** `chown`, `dac_override`, `fowner`, `setuid` and
+  `setgid`, in the sandbox's user namespace: still not root on your machine, and no `sys_admin`.
+  `sandbox` makes the container from a copy of the config with "all" taken out of `--cap-drop` and
+  Podman's other defaults dropped; the config itself stays as written.
+- **The agent doesn't get them.** The config must have `no-new-privileges` (`nested-containers`
+  hasn't, so it's refused there): a program run as you, including a setuid one, gains nothing. Only
+  a shell started with `enter --root` runs as root. (Tested: a setuid copy of `id` still runs as
+  your UID; the processes show `NoNewPrivs: 1` and `CapEff` 0.) Not with `--cap-add`: Podman gives
+  added capabilities to a non-root user too.
+- **The shell is clean,** so nothing the agent wrote runs in it: it starts in `/root`, not the
+  workspace, with only root's folders on `PATH`, and without startup files (`/etc/bash.bashrc` can
+  load files the user owns, such as nvm's on some images) or the image's `BASH_ENV`.
+- **What root installs, the agent can run,** and root can change any file in the container that
+  isn't a read-only mount, also ones the agent's work depends on. Use it for setup, not as the
+  shell you work in. Packages installed this way are gone after `sandbox rm`; put lasting ones in
+  the Containerfile.
+- `--inplace`: the project's config is its own, so `enter --root` doesn't change it. List
+  `"root-shell"` in its `"policies"` and `sandbox trust NAME`.
+
 **Sandboxes made before 0.5.2** don't have the two flags. Add `"--cap-drop=all"` and
 `"--security-opt=no-new-privileges"` to `runArgs` in the sandbox's `.devcontainer/devcontainer.json`,
 then `sandbox rm NAME` and `sandbox enter NAME`. A template is copied when the sandbox is made, so
