@@ -5,7 +5,7 @@ template changes reach only sandboxes made after the release; where that matters
 what to do about sandboxes you already have. To update, run the [one-line install](INSTALL.md)
 again; `sandbox --version` shows what you have.
 
-## 0.12.1 (unreleased)
+## 0.12.1 (2026-11-12)
 
 - **Features are no longer installed again at every build.** With Podman, the Dev Containers CLI
   bind-mounted each Feature from a folder it writes afresh for every build, and buildah before 1.42
