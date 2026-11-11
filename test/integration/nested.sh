@@ -28,6 +28,10 @@
 #   T35-T37 --workspace without a policy (git-protection.sh): hooks and config read-only, each .git
 #           and the folders above bound onto themselves, git commits but nothing can be moved; a
 #           rebase left in progress with an exec line is warned about
+#   T38     sandbox enter --root right after new: the root-shell policy added (runArgs as
+#           written), root (in /root, with what apt needs) installs a package, inspect shows the
+#           policy and 5 capabilities, the user has none and a setuid id gives it nothing; refused
+#           for a container made without the policy
 #   T21     an open-network sandbox on Ubuntu 26.04 (--image): its ubuntu user (UID 1000) renamed
 #           to yours, so keep-id works; removed again afterwards, with unused images, to save disk
 #   T28     an offline sandbox around a project, on a Python image: sandbox exec runs make in the
@@ -36,8 +40,8 @@
 # Each test's full output is in LOG_DIR (default ./nested-logs), and on a failure the end of it is
 # printed, followed by the state of both levels (containers, their logs, disk).
 # Exit status: the number of failed tests; 99 if `nested` couldn't be set up.
-# Needs rootless podman and /dev/net/tun on the host. Takes a while: it builds ten images (the
-# four for T24-T27, T30-T33 and T35-T37 mostly from the claude image's cached layers).
+# Needs rootless podman and /dev/net/tun on the host. Takes a while: it builds twelve images (the
+# six for T24-T27, T30-T33, T35-T37 and T38 mostly from the claude image's cached layers).
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd -P)
@@ -154,6 +158,21 @@ if ((gr >= 99)) || ! grep -q '^failed: ' "$LOG/git-protection.log"; then
     echo "FAIL  T30-T37 did not run (exit $gr)"; tail -n 30 "$LOG/git-protection.log" | sed 's/^/      | /'; gr=1
 fi
 failed=$((failed + gr))
+
+run "T38 enter --root after new: adds root-shell, root installs a package, the user stays without capabilities; refused for a container made without it" 'd=${SANDBOX_DIR:-$HOME/sandboxes}
+    for n in rt rt2; do sandbox rm $n >/dev/null 2>&1; podman volume rm -f $n-home >/dev/null 2>&1; rm -rf "$d/$n"; done
+    sandbox new rt --template open-network >/dev/null || exit 1
+    out=$(printf "id -u\npwd\napt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq --no-install-recommends jq >/dev/null 2>&1 && echo JQ-INSTALLED\ncp /usr/bin/id /usr/local/bin/suid-id && chmod 4755 /usr/local/bin/suid-id\n" | sandbox enter --root rt 2>/tmp/enter-rt.log); s=$?
+    echo "$out"; grep "root-shell" /tmp/enter-rt.log; [ $s -eq 0 ] || tail -n 40 /tmp/enter-rt.log
+    ins=$(sandbox inspect rt); echo "$ins" | grep -E "^(policies|capabilities|note|warning)"
+    [ $s -eq 0 ] && echo "$out" | grep -qx 0 && echo "$out" | grep -qx /root && echo "$out" | grep -q JQ-INSTALLED \
+    && grep -q -- "\"--cap-drop=all\"" "$d/rt/.devcontainer/devcontainer.json" \
+    && echo "$ins" | grep -q "^policies  *root-shell" && echo "$ins" | grep -q "^capabilities  *5 in the bounding set" \
+    && ! echo "$ins" | grep -q "^warning: .*capabilities" \
+    && sandbox exec rt sh -c "jq --version && grep -q \"^CapEff:[[:space:]]*0000000000000000\" /proc/self/status && [ \$(id -u) != 0 ] && [ \$(/usr/local/bin/suid-id -u) != 0 ]" \
+    && sandbox new rt2 --template open-network >/dev/null && sandbox exec rt2 true >/dev/null 2>&1 \
+    && { echo id | sandbox enter --root rt2 2>&1 | grep "made without the root-shell policy"; } && ! grep -q root-shell "$d/rt2/.devcontainer/devcontainer.json"
+    s=$?; for n in rt rt2; do sandbox rm $n >/dev/null 2>&1; podman volume rm -f $n-home >/dev/null 2>&1; rm -rf "$d/$n"; done; exit $s'
 
 run "T21 open-network on Ubuntu 26.04 (--image): your user and home, claude, hardened" 'u=$(id -un); [ -d "${SANDBOX_DIR:-$HOME/sandboxes}/u26" ] || sandbox new u26 --template open-network --image docker.io/library/ubuntu:26.04 || exit 1
     sandbox enter u26 </dev/null >/tmp/enter-u26.log 2>&1 || { tail -n 40 /tmp/enter-u26.log; exit 1; }

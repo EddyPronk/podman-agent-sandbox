@@ -18,7 +18,7 @@ import {
 import { SECCOMP_RUN_ARG } from './seccomp.js';
 import { removeRecord, writeRecord } from './state.js';
 import {
-    MARKER, applyTemplate, configPolicies, experimentalImage, parseOptionArgs, parsePolicies, resolveOptions, seccompAllow,
+    MARKER, applyTemplate, checkPolicies, configPolicies, experimentalImage, parseOptionArgs, parsePolicies, resolveOptions, seccompAllow,
     templateLabel, TESTED_IMAGES, withImage, withPolicies,
 } from './templates.js';
 import type { OptionValues, Template } from './templates.js';
@@ -142,7 +142,11 @@ export function cmdNew(args: string[]): void {
             if (all.length !== plan.policies.length) plan = planWorkspace(workspace, values, realConfigDir(dest), all);
             applyWorkspace(dest, plan);
         }
-        if (policies.length) writeConfig(dest, withPolicies(readConfig(configFile(dest)), policies));
+        if (policies.length) {
+            const updated = withPolicies(readConfig(configFile(dest)), policies);
+            checkPolicies(updated, `template ${templateLabel(values.template ?? template.id)}'s config`);
+            writeConfig(dest, updated);
+        }
         // The agent: --agent, else the template's default (customizations.podman-agent-sandbox.agent).
         agent = chooseAgent(dest, values.agent);
         checkAgent(agent ?? undefined);
@@ -340,7 +344,11 @@ function writeTemplateInto(
             writeFileSync(configFile(copy), `${JSON.stringify(withFeatures(readConfig(configFile(copy)), entry), null, 2)}\n`);
         }
         // --policy in the project's config too: it's what an --inplace sandbox goes by.
-        if (policies.length) writeConfig(copy, withPolicies(readConfig(configFile(copy)), policies));
+        if (policies.length) {
+            const updated = withPolicies(readConfig(configFile(copy)), policies);
+            checkPolicies(updated, 'the template\'s config');
+            writeConfig(copy, updated);
+        }
         try {
             cpSync(join(copy, '.devcontainer'), join(workspace, '.devcontainer'),
                 { recursive: true, filter: (path) => path !== generated });

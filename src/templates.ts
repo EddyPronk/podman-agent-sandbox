@@ -51,8 +51,99 @@ export function markerOf(config: unknown): JsonObject | undefined {
  *   branches. It closes what hooks and config alone leave open (docs/security-model.md, "Where a
  *   mount's protection ends"). Without --workspace there is no project git to protect.
  * - no-vm: the config can't run as a VM (sandbox enter --vm refuses it; vm.ts).
+ * - root-shell: `sandbox enter --root` can open a root shell that can install packages. When the
+ *   container is made (and only then: the config stays as written), sandbox gives the Dev Containers
+ *   CLI runArgs without "all" in --cap-drop and with ROOT_SHELL_DROP dropped (rootShellRunArgs), so
+ *   root has ROOT_SHELL_CAPS, in the user namespace. The config must have no-new-privileges, which
+ *   keeps them from the user's programs, the agent's (policyProblem). Not with --cap-add: podman gives
+ *   added capabilities to a non-root user too (lab 51, five-caps.sh). Not for a VM (vmPolicy).
  */
-export const KNOWN_POLICIES = ['git-readonly', 'no-vm'];
+export const KNOWN_POLICIES = ['git-readonly', 'no-vm', 'root-shell'];
+
+export const ROOT_SHELL = 'root-shell';
+
+/** Podman's default capabilities that apt doesn't need: a root-shell container drops them. */
+export const ROOT_SHELL_DROP = ['FSETID', 'KILL', 'NET_BIND_SERVICE', 'SETFCAP', 'SETPCAP', 'SYS_CHROOT'];
+
+/** What root has in a root-shell container: what's left of podman's defaults, what apt needs. */
+export const ROOT_SHELL_CAPS = ['CAP_CHOWN', 'CAP_DAC_OVERRIDE', 'CAP_FOWNER', 'CAP_SETGID', 'CAP_SETUID'];
+
+/** Whether a container's bounding set CAPS (podman inspect's BoundingCaps) has what apt needs. */
+export function hasRootShellCaps(caps: string[]): boolean {
+    return ROOT_SHELL_CAPS.every((cap) => caps.includes(cap));
+}
+
+/**
+ * Each option of RUNARGS with its value, for both spellings: --opt=value, and --opt value; USED: how
+ * many entries it takes. Anything else (not a string) is an option '' with no value.
+ */
+function runArgOptions(runArgs: unknown[]): { option: string; value: string | null; used: number }[] {
+    const found = [];
+    for (let i = 0; i < runArgs.length; i++) {
+        const arg = runArgs[i];
+        if (typeof arg !== 'string') {
+            found.push({ option: '', value: null, used: 1 });
+            continue;
+        }
+        const eq = arg.indexOf('=');
+        if (arg.startsWith('--') && eq > 0) {
+            found.push({ option: arg.slice(0, eq), value: arg.slice(eq + 1), used: 1 });
+        } else if (typeof runArgs[i + 1] === 'string' && !(runArgs[i + 1] as string).startsWith('-')) {
+            found.push({ option: arg, value: runArgs[i + 1] as string, used: 2 });
+            i++;
+        } else {
+            found.push({ option: arg, value: null, used: 1 });
+        }
+    }
+    return found;
+}
+
+/** Whether RUNARGS set no-new-privileges (--security-opt=no-new-privileges[:true], either spelling). */
+export function hasNoNewPrivileges(runArgs: unknown[]): boolean {
+    return runArgOptions(runArgs).some(({ option, value }) => option === '--security-opt'
+        && (value === 'no-new-privileges' || value === 'no-new-privileges:true'));
+}
+
+/**
+ * RUNARGS for a root-shell container: "all" taken out of every --cap-drop (--cap-drop=all, --cap-drop
+ * ALL, --cap-drop=ALL,NET_RAW), and ROOT_SHELL_DROP dropped. Everything else as it is.
+ */
+export function rootShellRunArgs(runArgs: unknown[]): unknown[] {
+    const out: unknown[] = [];
+    let i = 0;
+    for (const { option, value, used } of runArgOptions(runArgs)) {
+        if (option === '--cap-drop' && value !== null) {
+            const rest = value.split(',').filter((cap) => !/^(cap_)?all$/i.test(cap.trim()));
+            if (rest.length) out.push(`--cap-drop=${rest.join(',')}`);
+        } else {
+            out.push(...runArgs.slice(i, i + used));
+        }
+        i += used;
+    }
+    return [...out, `--cap-drop=${ROOT_SHELL_DROP.join(',')}`];
+}
+
+/** Why CONFIG can't have the root-shell policy it lists, or null (also when it doesn't list it). */
+export function policyProblem(config: unknown): string | null {
+    if (!configPolicies(config).includes(ROOT_SHELL)) return null;
+    const runArgs = isObject(config) && Array.isArray(config.runArgs) ? config.runArgs : [];
+    if (hasNoNewPrivileges(runArgs)) return null;
+    return `the ${ROOT_SHELL} policy needs --security-opt=no-new-privileges in runArgs: without it, setuid programs `
+        + 'would give your programs and the agent\'s the capabilities root has';
+}
+
+/** Refuse CONFIG (from FILE) when it can't have a policy it lists (policyProblem). */
+export function checkPolicies(config: unknown, file: string): void {
+    const problem = policyProblem(config);
+    if (problem) throw new SandboxError(`${problem}, and ${file} has none`);
+}
+
+/** CONFIG as the container is made from it: with its policies' runArgs, or null when they change nothing. */
+export function policyConfig<T extends object>(config: T): T | null {
+    if (!configPolicies(config).includes(ROOT_SHELL)) return null;
+    const runArgs = Array.isArray((config as JsonObject).runArgs) ? (config as JsonObject).runArgs as unknown[] : [];
+    return { ...config, runArgs: rootShellRunArgs(runArgs) };
+}
 
 /** The policy names in CONFIG's marker (strings only; checkMarker refuses anything else for --inplace). */
 export function configPolicies(config: unknown): string[] {
@@ -71,7 +162,8 @@ export function parsePolicies(given: string[]): string[] {
 
 /**
  * CONFIG with NAMES added to its marker's "policies" (made if missing), keeping what it lists, without
- * repeats, sorted. CONFIG itself is unchanged.
+ * repeats, sorted. Its runArgs stay: policies apply when the container is made (policyConfig). CONFIG
+ * itself is unchanged.
  */
 export function withPolicies<T extends object>(config: T, names: string[]): T {
     const merged = [...new Set([...configPolicies(config), ...names])].sort();

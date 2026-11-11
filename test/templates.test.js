@@ -6,10 +6,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { SandboxError } from '../dist/devcontainer.js';
+import { vmPolicy } from '../dist/vm.js';
 import { CONFIG_MOUNT } from '../dist/workspace.js';
 import {
     applyTemplate, checkMinVersion, experimentalImage, listTemplates, parseOptionArgs, resolveOptions, substitute,
-    versionAtLeast, withImage,
+    versionAtLeast, withImage, withPolicies, policyConfig, policyProblem, checkPolicies, hasNoNewPrivileges,
+    hasRootShellCaps, rootShellRunArgs, ROOT_SHELL_CAPS, ROOT_SHELL_DROP,
 } from '../dist/templates.js';
 
 /** A template root with one template "demo" that has a network option. */
@@ -563,6 +565,62 @@ test('open-network says what its network reaches, and where to go for less', () 
     const meta = listTemplates().find((t) => t.id === 'open-network');
     assert.match(meta.description, /Internet, your LAN and services on your machine/);
     assert.match(meta.description, /proxy-client or offline/);
+});
+
+test('withPolicies lists a policy and leaves runArgs as written: root-shell applies when the container is made', () => {
+    const config = { runArgs: ['--userns=keep-id', '--cap-drop=all', '--security-opt=no-new-privileges'] };
+    const root = withPolicies(config, ['root-shell']);
+    assert.deepEqual(root.runArgs, config.runArgs);
+    assert.deepEqual(root.customizations['podman-agent-sandbox'].policies, ['root-shell']);
+    assert.equal(policyConfig(config), null, 'no policy: made from the config as it is');
+    assert.equal(policyConfig(withPolicies(config, ['git-readonly'])), null);
+    assert.deepEqual(policyConfig(root).runArgs,
+        ['--userns=keep-id', '--security-opt=no-new-privileges', `--cap-drop=${ROOT_SHELL_DROP.join(',')}`]);
+    assert.equal(root.runArgs.length, 3, 'the config given is unchanged');
+});
+
+test('rootShellRunArgs: "all" out of every spelling of --cap-drop, the six apt does not need dropped', () => {
+    const drop = `--cap-drop=${ROOT_SHELL_DROP.join(',')}`;
+    assert.deepEqual(rootShellRunArgs(['--cap-drop=ALL']), [drop]);
+    assert.deepEqual(rootShellRunArgs(['--cap-drop', 'ALL', '--init']), ['--init', drop]);
+    assert.deepEqual(rootShellRunArgs(['--cap-drop=all,NET_RAW', '--userns', 'keep-id']), ['--cap-drop=NET_RAW', '--userns', 'keep-id', drop]);
+    assert.deepEqual(rootShellRunArgs(['--cap-drop=CAP_ALL']), [drop]);
+    assert.deepEqual(rootShellRunArgs([]), [drop]);
+    // Not with --cap-add: podman gives added capabilities to a non-root user too (lab 51).
+    assert.ok(!rootShellRunArgs(['--cap-drop=all']).some((arg) => String(arg).startsWith('--cap-add')));
+});
+
+test('root-shell needs no-new-privileges, in either spelling', () => {
+    const listed = (runArgs) => ({ runArgs, customizations: { 'podman-agent-sandbox': { policies: ['root-shell'] } } });
+    assert.equal(hasNoNewPrivileges(['--security-opt=no-new-privileges']), true);
+    assert.equal(hasNoNewPrivileges(['--security-opt', 'no-new-privileges:true']), true);
+    assert.equal(hasNoNewPrivileges(['--security-opt=seccomp=x.json']), false);
+    assert.equal(policyProblem(listed(['--security-opt=no-new-privileges'])), null);
+    assert.match(policyProblem(listed(['--cap-drop=all'])), /root-shell policy needs --security-opt=no-new-privileges/);
+    assert.equal(policyProblem({ runArgs: [] }), null, 'not listed: no problem');
+    assert.throws(() => checkPolicies(listed([]), 'x.json'), /needs --security-opt=no-new-privileges.*x\.json has none/s);
+    assert.equal(hasRootShellCaps(ROOT_SHELL_CAPS), true);
+    assert.equal(hasRootShellCaps(['CAP_SYS_PTRACE']), false, 'a Feature\'s capAdd is not what apt needs');
+});
+
+test('sandbox new --policy root-shell: the config lists it, runArgs as the template wrote them; not for nested-containers', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandbox-test-'));
+    const sandbox = (...args) => spawnSync(process.execPath, [fileURLToPath(new URL('../bin/sandbox.js', import.meta.url)), ...args],
+        { encoding: 'utf8', env: { ...process.env, SANDBOX_DIR: dir } });
+    const made = sandbox('new', 'r', '--template', 'open-network', '--policy', 'root-shell');
+    assert.equal(made.status, 0, made.stderr);
+    const config = JSON.parse(readFileSync(join(dir, 'r', '.devcontainer', 'devcontainer.json'), 'utf8'));
+    assert.deepEqual(config.customizations['podman-agent-sandbox'].policies, ['root-shell']);
+    assert.ok(config.runArgs.includes('--cap-drop=all'));
+    // nested-containers has no no-new-privileges (newuidmap is setuid): refused, nothing left behind.
+    const nested = sandbox('new', 'n', '--template', 'nested-containers', '--policy', 'root-shell');
+    assert.equal(nested.status, 1);
+    assert.match(nested.stderr, /root-shell policy needs --security-opt=no-new-privileges/);
+    assert.equal(existsSync(join(dir, 'n')), false);
+    // Nor for a VM: its runArgs would only weaken the VM's host process.
+    const vm = vmPolicy(config);
+    assert.equal(vm.allowed, false);
+    assert.match(vm.reason, /policies include root-shell, which is for sandbox enter --root, in a container/);
 });
 
 test('claude-containers still works: the old name of nested-containers', () => {

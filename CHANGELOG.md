@@ -5,6 +5,24 @@ template changes reach only sandboxes made after the release; where that matters
 what to do about sandboxes you already have. To update, run the [one-line install](INSTALL.md)
 again; `sandbox --version` shows what you have.
 
+## 0.12.0 (unreleased)
+
+- **A root shell, to install packages: `sandbox enter --root NAME`.** Root in a sandbox has no
+  capabilities (`--cap-drop=all`), so it couldn't run `apt-get`. With the new **`root-shell`**
+  policy, root gets what apt needs (`chown`, `dac_override`, `fowner`, `setuid`, `setgid`) in the
+  sandbox's user namespace. The config needs `no-new-privileges`, which keeps them from the agent,
+  running as you, also through a setuid program. Capabilities are fixed when a container is made,
+  so run `enter --root` right after `sandbox new` or `sandbox rm`: it adds the policy to the config,
+  says so, and makes the container. The policy applies only then; the config's `runArgs` stay as
+  written. For a container made without it, `enter --root` refuses and says to `sandbox rm` first.
+  The shell is clean: in `/root`, with only root's folders on `PATH` and no startup files, so
+  nothing the agent wrote runs in it. `sandbox new --policy root-shell` sets it from the start; an
+  `--inplace` project lists it in its own `"policies"`. Not for VM sandboxes, nor for
+  `nested-containers` (no `no-new-privileges`).
+- **`sandbox inspect` shows the config's policies** (`policies  git-readonly, root-shell`), also for
+  a sandbox without a container. With `root-shell`, root's capabilities are a note, not a warning,
+  while they are only what the policy gives.
+
 ## 0.11.0 (2026-11-10)
 
 - **Without a policy, `.git` can't be moved away any more.** `sandbox new --workspace` binds each

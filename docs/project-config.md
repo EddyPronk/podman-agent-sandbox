@@ -37,7 +37,7 @@ sandbox enter project
   such as a seccomp allowance. `sandbox new`, `trust`, and `enter`, `exec` and `build` (before
   they create anything) refuse with "needs sandbox X.Y.Z or later". The same works in a template
   of your own. Releases before 0.8.0 ignore it.
-- **`"policies"` in that block** lists what the config requires of `sandbox`. Two are known:
+- **`"policies"` in that block** lists what the config requires of `sandbox`. Three are known:
   - `"no-vm"`, for a config that can't run as a VM: `sandbox enter --vm` refuses it
     ([A sandbox in a microVM](microvm.md)). Use it when the project needs something only a container
     does, such as a service that `postStartCommand` starts. (A config with a `postStartCommand` or
@@ -45,6 +45,10 @@ sandbox enter project
   - `"git-readonly"` (0.10.0), for a project whose commits are made outside the sandbox: every
     repository's whole `.git` is read-only inside, not only its hooks and config. Git inside can then
     only read. See [Where a mount's protection ends](security-model.md#where-a-mounts-protection-ends).
+  - `"root-shell"` (0.12.0), so `sandbox enter --root` can install packages: when the container is
+    made, root gets what apt needs (sandbox makes it from a copy of the config with "all" out of
+    `--cap-drop`; the config stays as written). `runArgs` must have
+    `--security-opt=no-new-privileges`. See [No way to gain rights](security-model.md#no-way-to-gain-rights).
 
   A `sandbox` that doesn't know a policy refuses the config, so give it a `minVersion` too.
   `sandbox new --workspace PATH --inplace --template T --policy NAME,...` writes them into the config

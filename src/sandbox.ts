@@ -4,8 +4,8 @@
 // container and VM, and runs the checks first (the --inplace trust, the git protection, the config's
 // version). The only layer that knows a sandbox may have both.
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { featureArgs } from './features.js';
 import { Container, describeInfo, inspectContainer, isActive } from './container.js';
 import type { PodmanInfo } from './container.js';
@@ -20,14 +20,19 @@ import type { JsonObject } from './json.js';
 import type { Release } from './lock.js';
 import { readRecord, recordPath, removeRecord, writeRecord } from './state.js';
 import type { Kind, StateRecord } from './state.js';
-import { checkMinVersion } from './templates.js';
+import {
+    ROOT_SHELL, ROOT_SHELL_CAPS, checkMinVersion, configPolicies, policyConfig, policyProblem, withPolicies,
+} from './templates.js';
 import { VM_OF_LABEL, Vm, checkHost, madeAt, vmName, vmPolicy } from './vm.js';
 import type { Answer } from './vm.js';
 import { configFile, gitStateInSandbox, isGitReadonly, readConfig, readSettings, uncoveredInSandbox, uncoveredWhy } from './workspace.js';
-import type { MountView, Settings } from './workspace.js';
+import type { DevcontainerConfig, MountView, Settings } from './workspace.js';
 import type { Row, VolumeSize } from './inspect.js';
 
 const ALLOWED: Answer = { allowed: true };
+
+/** The config a container is made from when a policy changes it: next to devcontainer.json, only while made. */
+const POLICY_OVERRIDE = '.sandbox-made-from.json';
 
 /**
  * Sandbox NAME as it is now. With LOCK, take its lock first (sandbox enter, exec, stop and rm: the
@@ -119,6 +124,56 @@ export function enterPlan(state: EnterState, { vm = false, fromExisting = false,
     return { action: 'makeVm', createFirst: true };
 }
 
+/** What sandbox enter --root decides from. */
+export interface RootState {
+    name: string;
+    /**
+     * A container exists; whether sandbox made it (the label); whether its root has what apt needs
+     * (ROOT_SHELL_CAPS: made with root-shell, or from a template like nested-containers).
+     */
+    container: { exists: boolean; ours: boolean; rootHasCaps: boolean };
+    /** The config lists root-shell (read only when there is no container). */
+    configHasPolicy: boolean;
+    /** The config is the project's own (--inplace): sandbox doesn't write it. */
+    inplace: boolean;
+}
+
+/**
+ * sandbox enter --root's decision: open the root shell (after making the container, if there's none),
+ * first adding the root-shell policy to the config (addPolicy), or refuse.
+ */
+export type RootAction = { action: 'open'; addPolicy: boolean } | { action: 'refuse'; why: string };
+
+export function rootPlan(state: RootState): RootAction {
+    const { name } = state;
+    if (state.container.exists) {
+        if (!state.container.ours) {
+            return {
+                action: 'refuse',
+                why: `${name} isn't a sandbox: its container has no ${SANDBOX_LABEL} label. It may be VS Code's or your `
+                    + `own. Check it with sandbox inspect ${name}`,
+            };
+        }
+        if (state.container.rootHasCaps) return { action: 'open', addPolicy: false };
+        return {
+            action: 'refuse',
+            why: `${name}'s container was made without the ${ROOT_SHELL} policy: root there lacks the capabilities apt `
+                + 'needs. The policy applies when the container is made: '
+                + `'sandbox rm ${name}' (volumes are kept), then 'sandbox enter --root ${name}'`,
+        };
+    }
+    if (state.configHasPolicy) return { action: 'open', addPolicy: false };
+    if (state.inplace) {
+        return {
+            action: 'refuse',
+            why: `${name} uses the project's own config (--inplace), which sandbox doesn't change: add "${ROOT_SHELL}" to `
+                + `its "policies" ("customizations": {"podman-agent-sandbox": …}), then 'sandbox trust ${name}' and `
+                + `'sandbox enter --root ${name}'`,
+        };
+    }
+    return { action: 'open', addPolicy: true };
+}
+
 export class Sandbox {
     name: string;
     /** Releases the lock, if taken. */
@@ -181,7 +236,8 @@ export class Sandbox {
      * sandbox enter [--vm [--from-existing] | --container]: open the sandbox as what it is (its kind),
      * or as KIND when given, starting or making it as PLAN.md's rules say; the shell's exit status.
      */
-    enter({ kind = null, fromExisting = false }: { kind?: Kind | null; fromExisting?: boolean } = {}): number {
+    enter({ kind = null, fromExisting = false, root = false }: { kind?: Kind | null; fromExisting?: boolean; root?: boolean } = {}): number {
+        if (root) return this.#enterRoot();
         let target: Container | Vm;
         try {
             this.#checkNotAVm();
@@ -361,6 +417,57 @@ export class Sandbox {
         return parts.join('\n\n');
     }
 
+    /**
+     * sandbox enter --root: a root shell in the container, which must be made with the root-shell
+     * policy. Without a container (after sandbox new or rm), add the policy to the config first, and
+     * say so; with one made without it, refuse (rootPlan).
+     */
+    #enterRoot(): number {
+        try {
+            this.#checkNotAVm();
+            const { name, container } = this;
+            if (this.vm || (this.kind === 'vm' && container.exists)) {
+                // A VM sandbox with nothing made (after new --vm, or rm) becomes a container sandbox below.
+                throw new SandboxError(`${name} is a VM sandbox: enter --root opens a root shell in a container. `
+                    + `'sandbox rm ${name}' (volumes are kept), then 'sandbox enter --root ${name}' makes it a container sandbox`);
+            }
+            const dir = this.dir;
+            const file = configFile(dir);
+            let config: DevcontainerConfig | null = null;
+            if (!container.exists) {
+                checkConfigVersion(dir);   // before writing to the config
+                if (!existsSync(file)) throw new SandboxError(`${name} has no ${file}: enter --root needs that config`);
+                config = readConfig(file);
+            }
+            const plan = rootPlan({
+                name,
+                container: { exists: container.exists, ours: Boolean(container.sandbox.reason), rootHasCaps: container.rootHasCaps },
+                configHasPolicy: config !== null && configPolicies(config).includes(ROOT_SHELL),
+                inplace: Boolean(readSettings(dir)?.inplace),
+            });
+            if (plan.action === 'refuse') throw new SandboxError(plan.why);
+            if (plan.addPolicy && config) {
+                const updated = withPolicies(config, [ROOT_SHELL]);
+                const problem = policyProblem(updated);
+                if (problem) throw new SandboxError(`${name}: ${problem}, and ${file} has none`);
+                writeFileSync(file, `${JSON.stringify(updated, null, 2)}\n`);
+                console.error(`sandbox: ${name}: added the ${ROOT_SHELL} policy to ${file}. When its container is made, root `
+                    + `gets what apt needs (${ROOT_SHELL_CAPS.map((cap) => cap.slice(4).toLowerCase()).join(', ')}); `
+                    + 'no-new-privileges keeps them from your programs and the agent\'s. sandbox inspect shows it');
+            }
+            if (!container.exists && this.record?.kind === 'vm') removeRecord(name);   // a container sandbox from now on
+            this.#start();
+            if (!this.container.rootHasCaps) {
+                const caps = this.container.info?.BoundingCaps ?? [];
+                throw new SandboxError(`${name}'s container was made, but root lacks what apt needs (it has: `
+                    + `${caps.join(', ') || 'none'}). Check the runArgs in ${file}`);
+            }
+        } finally {
+            this.release();
+        }
+        return this.container.openRootShell();
+    }
+
     /** What enterPlan needs to know. */
     #state(): EnterState {
         const { name, container, vm } = this;
@@ -458,7 +565,12 @@ export class Sandbox {
         if (inplace && !container.exists) writeEffective(dir, inplace);
         if (!container.exists) checkConfigVersion(dir);
         checkWorkspace(name, dir, container.exists ? container.mountView() : null, () => container.liveMountView());
-        container.start();
+        const override = container.exists ? null : writePolicyOverride(name, dir);
+        try {
+            container.start(override);
+        } finally {
+            if (override) rmSync(override, { force: true });
+        }
         this.reload();
     }
 
@@ -604,15 +716,18 @@ export function listWithoutContainer(): string {
 function removedSandbox(folder: string): { settings: Settings | null; volumes: VolumeSize[]; rows: Row[] } {
     let settings: Settings | null = null;
     let volumes: VolumeSize[] = [];
+    let policies: string[] | null = null;
     try {
         settings = readSettings(folder);
-        volumes = configVolumes(readConfig(configFile(folder)), folder, childEnv())
+        const config = readConfig(configFile(folder));
+        policies = configPolicies(config);
+        volumes = configVolumes(config, folder, childEnv())
             .map((name) => ({ name, bytes: volumeBytes(name) }));
     } catch {
         // an unreadable sandbox.json or config: show what there is
     }
     const untrusted = settings?.inplace ? untrustedChange(folder) : null;
-    return { settings, volumes, rows: removedRows(folder, settings, untrusted, volumes) };
+    return { settings, volumes, rows: removedRows(folder, settings, untrusted, volumes, policies) };
 }
 
 /**
@@ -658,6 +773,34 @@ function checkConfigVersion(dir: string): void {
         return;   // not plain JSON: the Dev Containers CLI reads it (JSONC) and has the last word
     }
     checkMinVersion(config, file);
+}
+
+/**
+ * Before creating NAME's container from the config in DIR: when its policies change how the container
+ * is made (root-shell's runArgs), write the config to make it from (policyConfig) next to it, so its
+ * relative paths still resolve, and return that file's path (for --override-config; removed after).
+ * Else null. The config itself stays as written. Refuse a policy the config can't have (policyProblem).
+ */
+function writePolicyOverride(name: string, dir: string): string | null {
+    const file = configFile(dir);
+    if (!existsSync(file)) return null;
+    const text = readFileSync(file, 'utf8');
+    let config: unknown;
+    try {
+        config = JSON.parse(text);
+    } catch {
+        if (!text.includes(`"${ROOT_SHELL}"`)) return null;   // JSONC: the CLI reads it as it is
+        throw new SandboxError(`${file} lists the ${ROOT_SHELL} policy, but isn't plain JSON (comments or trailing `
+            + 'commas?): sandbox reads it to apply the policy, so remove them first');
+    }
+    if (!isObject(config)) return null;
+    const problem = policyProblem(config);
+    if (problem) throw new SandboxError(`${name}: ${problem}. Add it to the runArgs in ${file}, or remove the policy`);
+    const made = policyConfig(config);
+    if (!made) return null;
+    const out = join(dirname(file), POLICY_OVERRIDE);
+    writeFileSync(out, `${JSON.stringify(made, null, 2)}\n`);
+    return out;
 }
 
 /**
