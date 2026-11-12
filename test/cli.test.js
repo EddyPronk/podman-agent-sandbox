@@ -7,7 +7,17 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { helpText } from '../dist/cli.js';
 import { table, writableConfig } from '../dist/inspect.js';
-import { checkName, childEnv, cliPath, folderOf, sandboxDir, sandboxReason, unlabelledHint } from '../dist/devcontainer.js';
+import { checkName, childEnv, cliPath, dcArgs, folderOf, sandboxDir, sandboxReason, unlabelledHint } from '../dist/devcontainer.js';
+
+test('dcArgs: up and build get --buildkit never (Features from the cache, lab 52); other commands don\'t', () => {
+    assert.deepEqual(dcArgs('up', ['--workspace-folder', '/d']),
+        ['up', '--docker-path', 'podman', '--buildkit', 'never', '--workspace-folder', '/d']);
+    assert.deepEqual(dcArgs('build', ['--workspace-folder', '/d', '--no-cache']),
+        ['build', '--docker-path', 'podman', '--buildkit', 'never', '--workspace-folder', '/d', '--no-cache']);
+    assert.deepEqual(dcArgs('exec', ['--workspace-folder', '/d', '--', 'true']),
+        ['exec', '--docker-path', 'podman', '--workspace-folder', '/d', '--', 'true']);
+    assert.deepEqual(dcArgs('read-configuration', []), ['read-configuration', '--docker-path', 'podman']);
+});
 
 test('sandboxDir defaults to ~/sandboxes', () => {
     assert.equal(sandboxDir({}), join(homedir(), 'sandboxes'));

@@ -266,6 +266,10 @@ Things to know:
 - **A Feature runs as root while the image is built**, with the network of the machine (not the
   sandbox's), and `:1` follows its latest 1.x release: it's code you choose to trust, like the base
   image. Pin it (`python:1.7.1`) to change it only when you do.
+- **A build reuses what an earlier one installed** (Podman's build cache): Features, the agent and
+  the Containerfile's steps run again only when they change, so `sandbox rm NAME` and `sandbox
+  enter NAME` don't bring a newer Claude Code, Node or Debian package by themselves. For that, run
+  `sandbox build NAME --no-cache` first.
 - **A Feature can ask for rights the sandbox drops**, such as `privileged` or extra capabilities
   (`docker-in-docker` does). Run `sandbox inspect NAME` after the first build and check its
   capabilities, new privileges and mounts. `sandbox` doesn't check a Feature's requests itself yet.
